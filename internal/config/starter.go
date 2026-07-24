@@ -28,14 +28,40 @@ run = "hx {path}"
 mode = "interactive"
 key = "e"
 
-# Open the selection in helix in the previously-active tmux pane.
-# tmux's "{last}" is the pane you were in before this one (same window);
-# until you've switched panes once it doesn't exist, so fall back to
-# opening a fresh split running helix.
+# Smart hand-off to the previously-active tmux pane ("{last}"): if helix is
+# running there, open the file in that session (:open); if a shell is
+# waiting, type the hx command; otherwise (including no last pane) create a
+# split. send-keys types into whatever runs in the pane, so blindly sending
+# "hx ..." a second time would land inside helix as editor keystrokes.
 [commands.handoff]
-run = 'tmux send-keys -t "{last}" "hx {relpath}" Enter 2>/dev/null || tmux split-window -h -c {root} "hx {relpath}"'
+run = '''
+target=$(tmux display-message -p -t "{last}" "#{pane_current_command}" 2>/dev/null)
+case "$target" in
+  hx)
+    # Escape must arrive in its own read: coalesced with ":" it parses as
+    # Alt+: and the command text gets typed into the buffer instead.
+    tmux send-keys -t "{last}" Escape
+    sleep 0.15
+    tmux send-keys -t "{last}" ":open {path}" Enter
+    ;;
+  sh|dash|bash|zsh|fish|ksh|nu)
+    tmux send-keys -t "{last}" C-u "hx {path}" Enter
+    ;;
+  *)
+    tmux split-window -fh -c {root} "hx {path}"
+    ;;
+esac
+'''
 mode = "background"
 key = "t"
+
+# Always open the selection in helix in a new full-height split at the
+# right edge of the window ("vertical split"). Repeatable: each press adds
+# another pane; quitting helix (:q) closes its pane again.
+[commands.vsplit]
+run = 'tmux split-window -fh -c {root} "hx {path}"'
+mode = "background"
+key = "v"
 
 # Prime a ripgrep at the selection's directory in the other tmux pane:
 # the search path is filled in and the cursor waits where the pattern goes.

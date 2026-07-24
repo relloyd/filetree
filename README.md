@@ -57,12 +57,10 @@ their own keys; the starter config binds:
 | Key | Command |
 |---|---|
 | `e` | open the selection in helix — works on directories too (helix shows its file picker) |
-| `t` | open the selection in helix in the previously-active tmux pane |
+| `t` | smart hand-off to the previously-active tmux pane: opens the file in the helix already running there (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
+| `v` | open the selection in helix in a new full-height split at the right edge — repeatable, one pane per press |
 | `s` | prime an `rg` in the other tmux pane at the selection's directory |
 | `L` | open lazygit for the repo containing the selection (commented example in the starter) |
-
-The tmux commands target the previously-active pane (`{last}`) and fall
-back to opening a fresh split when the window doesn't have one yet.
 
 Fuzzy find (`/`) matches fuzzy subsequences, not regexps; include `/` in
 the query to constrain by path segments. Ranking is screen-aware: entries
