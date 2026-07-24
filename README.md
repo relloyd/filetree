@@ -51,17 +51,26 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `?` | help |
 | `q` | quit |
 
-Keys are remappable in the `[keys]` section of the config; commands may bind
-their own keys. The starter binds `e` = open the selection in helix (works
-on directories — helix shows its picker), `t` = open in the other tmux pane
-via helix, and `s` = prime an `rg` there at the selection's directory. The
-tmux commands target the previously-active pane (`{last}`) and fall back to
-opening a fresh split when the window doesn't have one yet.
+Keys are remappable in the `[keys]` section of the config. Commands may bind
+their own keys; the starter config binds:
 
-Fuzzy find (`/`) walks the root breadth-first (top-level entries are always
-indexed, even in huge roots) and ranks shallow paths and basename matches
-above equally-fuzzy deep ones. It matches fuzzy subsequences, not regexps;
-include `/` in the query to constrain by path segments.
+| Key | Command |
+|---|---|
+| `e` | open the selection in helix — works on directories too (helix shows its file picker) |
+| `t` | open the selection in helix in the previously-active tmux pane |
+| `s` | prime an `rg` in the other tmux pane at the selection's directory |
+| `L` | open lazygit for the repo containing the selection (commented example in the starter) |
+
+The tmux commands target the previously-active pane (`{last}`) and fall
+back to opening a fresh split when the window doesn't have one yet.
+
+Fuzzy find (`/`) matches fuzzy subsequences, not regexps; include `/` in
+the query to constrain by path segments. Ranking is screen-aware: entries
+currently visible in the tree outrank everything else, then shallow paths
+and basename matches beat equally-fuzzy deep ones. With an empty query the
+list shows exactly the visible tree entries in order, so `/` + cursor keys
+doubles as a quick jump list. Candidates come from a breadth-first walk, so
+top-level entries are always indexed even in huge roots.
 
 ## Config
 
