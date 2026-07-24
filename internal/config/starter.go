@@ -45,6 +45,15 @@ run = 'tmux send-keys -t "{last}" "rg -n {dir} -e " 2>/dev/null || tmux split-wi
 mode = "background"
 key = "s"
 
+# More examples — uncomment what you use:
+#
+# Open lazygit for the repo containing the selection (finds the repo by
+# walking up from {dir}, so it works with a file selected too).
+# [commands.lazygit]
+# run = "cd {dir} && lazygit"
+# mode = "interactive"
+# key = "L"
+
 # Keybinding overrides. Defaults shown; uncomment to change.
 # [keys]
 # quit = "q"
