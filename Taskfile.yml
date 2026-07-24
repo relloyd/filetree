@@ -1,0 +1,28 @@
+version: '3'
+
+tasks:
+  vet:
+    desc: Run go vet over all packages
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
+
+  build:
+    desc: Build the ft binary into the repo root
+    sources:
+      - '**/*.go'
+      - go.mod
+      - go.sum
+    generates:
+      - ft
+    cmds:
+      - go build -o ft ./cmd/ft
+
+  install:
+    desc: Install ft into GOBIN (~/go/bin)
+    cmds:
+      - go install ./cmd/ft

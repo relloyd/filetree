@@ -1,0 +1,100 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func loadTOML(t *testing.T, body string) (*Config, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return Load(path)
+}
+
+// The starter config we ship must always parse.
+func TestLoadStarter(t *testing.T) {
+	cfg, err := loadTOML(t, starterTOML)
+	if err != nil {
+		t.Fatalf("starter config failed to load: %v", err)
+	}
+	if cfg.DefaultCommand != "edit" {
+		t.Errorf("default command = %q, want edit", cfg.DefaultCommand)
+	}
+	edit, ok := cfg.Commands["edit"]
+	if !ok || edit.Mode != ModeInteractive {
+		t.Errorf("edit command = %+v ok=%v, want interactive", edit, ok)
+	}
+	if h := cfg.Commands["handoff"]; h.Key != "t" || h.Mode != ModeBackground {
+		t.Errorf("handoff = %+v, want key t, background", h)
+	}
+	if cfg.General.ShowHidden || !cfg.General.ShowIgnored {
+		t.Errorf("general toggles = %+v", cfg.General)
+	}
+}
+
+func TestLoadValidation(t *testing.T) {
+	if _, err := loadTOML(t, "[commands]\ndefault = \"nope\"\n"); err == nil {
+		t.Error("undefined default command should fail")
+	}
+	if _, err := loadTOML(t, "[commands.x]\nrun = \"true\"\nmode = \"weird\"\n[commands]\ndefault = \"x\"\n"); err == nil {
+		t.Error("invalid mode should fail")
+	}
+	if _, err := loadTOML(t, "[general]\nicons = \"emoji\"\n"); err == nil {
+		t.Error("invalid icons value should fail")
+	}
+}
+
+func TestLoadPartialOverridesKeepDefaults(t *testing.T) {
+	cfg, err := loadTOML(t, "[general]\nshow_hidden = true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.General.ShowHidden {
+		t.Error("show_hidden override lost")
+	}
+	if cfg.General.WatchDebounceMs != 150 || cfg.General.Icons != "nerd" {
+		t.Errorf("defaults not preserved: %+v", cfg.General)
+	}
+	if _, ok := cfg.Commands["edit"]; !ok {
+		t.Error("default edit command missing when [commands] absent")
+	}
+}
+
+func TestExpandCommand(t *testing.T) {
+	v := Vars{
+		Path:    "/home/rl/my repo/file's.go",
+		RelPath: "src/main.go",
+		Dir:     "/home/rl/proj",
+		Root:    "/home/rl",
+		Name:    "main.go",
+	}
+	got := ExpandCommand(`tmux send-keys -t "{last}" "hx {relpath}" Enter`, v)
+	want := `tmux send-keys -t "{last}" "hx src/main.go" Enter`
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+
+	got = ExpandCommand("hx {path}", v)
+	want = `hx '/home/rl/my repo/file'\''s.go'`
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	for in, want := range map[string]string{
+		"":               "''",
+		"/plain/path.go": "/plain/path.go",
+		"has space":      "'has space'",
+		"a'b":            `'a'\''b'`,
+		"$HOME":          "'$HOME'",
+	} {
+		if got := ShellQuote(in); got != want {
+			t.Errorf("ShellQuote(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
