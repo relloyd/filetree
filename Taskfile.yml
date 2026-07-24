@@ -13,6 +13,9 @@ tasks:
 
   build:
     desc: Build the ft binary into the repo root
+    deps:
+      - vet
+      - test
     sources:
       - '**/*.go'
       - go.mod
@@ -24,5 +27,8 @@ tasks:
 
   install:
     desc: Install ft into GOBIN (~/go/bin)
+    deps:
+      - vet
+      - test
     cmds:
       - go install ./cmd/ft
