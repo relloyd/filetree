@@ -24,7 +24,22 @@ func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
 	m.fuzzyCands = nil
 	m.fuzzyMatches = nil
 	m.fuzzySel = 0
-	return m, tea.Batch(m.input.Focus(), m.fuzzyWalkCmd())
+	// Snapshot what is on screen: visible entries seed the candidate list
+	// (in tree order, so an empty query browses exactly what you see) and
+	// get a ranking bonus — if you can see it, typing its name finds it.
+	m.fuzzyVisible = map[string]bool{}
+	var visOrder []string
+	for _, r := range m.rows {
+		if r.Node == m.tr.Root {
+			continue
+		}
+		rel := m.tr.Rel(r.Node.Path)
+		if !m.fuzzyVisible[rel] {
+			m.fuzzyVisible[rel] = true
+			visOrder = append(visOrder, rel)
+		}
+	}
+	return m, tea.Batch(m.input.Focus(), m.fuzzyWalkCmd(visOrder))
 }
 
 // fuzzyWalkCmd gathers candidate paths in the background, honouring the
@@ -33,7 +48,7 @@ func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
 // a top-level dir can never be crowded out by a deep subtree. Only data
 // captured here is touched from the goroutine; git lookups use a snapshot of
 // loaded statuses.
-func (m *Model) fuzzyWalkCmd() tea.Cmd {
+func (m *Model) fuzzyWalkCmd(visible []string) tea.Cmd {
 	root := m.tr.Root.Path
 	showHidden, showIgnored := m.showHidden, m.showIgnored
 	statuses := make(map[string]*gitx.RepoStatus, len(m.statuses))
@@ -41,7 +56,14 @@ func (m *Model) fuzzyWalkCmd() tea.Cmd {
 		statuses[k] = v
 	}
 	return func() tea.Msg {
-		var cands []string
+		// Visible entries first (tree order), and guaranteed present even if
+		// the walk cap truncates the rest.
+		seen := make(map[string]bool, len(visible))
+		cands := make([]string, 0, 1024)
+		for _, rel := range visible {
+			seen[rel] = true
+			cands = append(cands, rel)
+		}
 		repoRoots := map[string]string{}
 		rootFor := func(dir string) string {
 			if r, ok := repoRoots[dir]; ok {
@@ -81,7 +103,9 @@ func (m *Model) fuzzyWalkCmd() tea.Cmd {
 					}
 				}
 				rel := path.Join(it.rel, name)
-				cands = append(cands, rel)
+				if !seen[rel] {
+					cands = append(cands, rel)
+				}
 				if len(cands) >= fuzzyWalkCap {
 					break walk
 				}
@@ -97,14 +121,15 @@ func (m *Model) fuzzyWalkCmd() tea.Cmd {
 func (m *Model) refuzzy() {
 	q := m.input.Value()
 	if q == "" {
-		// BFS candidate order: shallowest entries first.
+		// Candidate order: what's on screen (tree order), then the BFS walk
+		// shallowest-first — so an empty query browses the visible tree.
 		n := min(fuzzyMaxMatches, len(m.fuzzyCands))
 		m.fuzzyMatches = make([]fuzzy.Match, n)
 		for i := range n {
 			m.fuzzyMatches[i] = fuzzy.Match{Str: m.fuzzyCands[i]}
 		}
 	} else {
-		matches := rerankMatches(q, fuzzy.Find(q, m.fuzzyCands))
+		matches := rerankMatches(q, fuzzy.Find(q, m.fuzzyCands), m.fuzzyVisible)
 		if len(matches) > fuzzyMaxMatches {
 			matches = matches[:fuzzyMaxMatches]
 		}
@@ -113,25 +138,39 @@ func (m *Model) refuzzy() {
 	m.fuzzySel = 0
 }
 
-// rerankMatches re-scores fuzzy matches so shallow paths and basename hits
-// beat equally-fuzzy deep ones (e.g. `filetree` outranks
-// `go/pkg/mod/.../filetree@v2/main.go` when run from $HOME).
-func rerankMatches(query string, matches []fuzzy.Match) []fuzzy.Match {
+// rerankMatches orders fuzzy matches in two tiers: entries visible in the
+// tree first (you typed the name of something you can see), then the rest.
+// Within a tier, shallow paths and basename hits beat equally-fuzzy deep
+// ones (e.g. `filetree` outranks `go/pkg/mod/.../filetree@v2/main.go` when
+// run from $HOME). Adjustments scale with the best raw score because
+// sahilm/fuzzy scores are query-dependent in magnitude and its greedy
+// matcher makes raw scores unreliable to compare across candidates.
+func rerankMatches(query string, matches []fuzzy.Match, visible map[string]bool) []fuzzy.Match {
 	if len(matches) == 0 {
 		return matches
 	}
+	maxScore := 0
+	for _, mt := range matches {
+		maxScore = max(maxScore, mt.Score)
+	}
+	unit := max(1, maxScore/20)
+
 	q := strings.ToLower(query)
+	tiers := make([]int, len(matches))
 	scores := make([]int, len(matches))
 	for i, mt := range matches {
-		s := mt.Score - 10*strings.Count(mt.Str, "/")
+		if !visible[mt.Str] {
+			tiers[i] = 1
+		}
+		s := mt.Score - unit*strings.Count(mt.Str, "/")
 		base := strings.ToLower(path.Base(mt.Str))
 		switch {
 		case base == q:
-			s += 120
+			s += 8 * unit
 		case strings.HasPrefix(base, q):
-			s += 60
+			s += 4 * unit
 		case strings.Contains(base, q):
-			s += 30
+			s += 2 * unit
 		}
 		scores[i] = s
 	}
@@ -139,7 +178,12 @@ func rerankMatches(query string, matches []fuzzy.Match) []fuzzy.Match {
 	for i := range idx {
 		idx[i] = i
 	}
-	sort.SliceStable(idx, func(a, b int) bool { return scores[idx[a]] > scores[idx[b]] })
+	sort.SliceStable(idx, func(a, b int) bool {
+		if tiers[idx[a]] != tiers[idx[b]] {
+			return tiers[idx[a]] < tiers[idx[b]]
+		}
+		return scores[idx[a]] > scores[idx[b]]
+	})
 	out := make([]fuzzy.Match, len(matches))
 	for i, j := range idx {
 		out[i] = matches[j]

@@ -15,7 +15,7 @@ func TestRerankPrefersShallowAndBasename(t *testing.T) {
 		"filetree",
 		"work/vendor/filetree/README.md",
 	}
-	got := rerankMatches("filetree", fuzzy.Find("filetree", cands))
+	got := rerankMatches("filetree", fuzzy.Find("filetree", cands), nil)
 	if len(got) == 0 {
 		t.Fatal("no matches")
 	}
@@ -24,17 +24,41 @@ func TestRerankPrefersShallowAndBasename(t *testing.T) {
 	}
 }
 
+// A deep directory that is expanded and on screen must outrank shallower
+// non-visible entries with the same name — the "I can see it, jump to it"
+// case.
+func TestRerankPrefersVisibleEntries(t *testing.T) {
+	cands := []string{
+		"handlers",
+		"pkg/api/handlers",
+		"internal/service/http/handlers",
+	}
+	visible := map[string]bool{"internal/service/http/handlers": true}
+	got := rerankMatches("handlers", fuzzy.Find("handlers", cands), visible)
+	if len(got) == 0 {
+		t.Fatal("no matches")
+	}
+	if got[0].Str != "internal/service/http/handlers" {
+		t.Errorf("top match = %q, want the visible deep dir", got[0].Str)
+	}
+	// Without visibility the shallow entry wins as before.
+	got = rerankMatches("handlers", fuzzy.Find("handlers", cands), nil)
+	if got[0].Str != "handlers" {
+		t.Errorf("top match without visibility = %q, want the shallow entry", got[0].Str)
+	}
+}
+
 func TestRerankKeepsFuzzyOrderAmongPeers(t *testing.T) {
 	// Same depth, same basename relationship: better fuzzy score stays first.
 	cands := []string{"a/xmainx.go", "a/main.go"}
-	got := rerankMatches("main", fuzzy.Find("main", cands))
+	got := rerankMatches("main", fuzzy.Find("main", cands), nil)
 	if len(got) != 2 || got[0].Str != "a/main.go" {
 		t.Errorf("order = %v", got)
 	}
 }
 
 func TestRerankEmpty(t *testing.T) {
-	if out := rerankMatches("x", nil); len(out) != 0 {
+	if out := rerankMatches("x", nil, nil); len(out) != 0 {
 		t.Errorf("expected empty, got %v", out)
 	}
 }

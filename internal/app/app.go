@@ -88,6 +88,7 @@ type Model struct {
 	fuzzyCands   []string
 	fuzzyMatches []fuzzy.Match
 	fuzzySel     int
+	fuzzyVisible map[string]bool // rows on screen when fuzzy started
 
 	statusMsg string
 	statusErr bool
