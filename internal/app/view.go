@@ -72,14 +72,18 @@ func (m *Model) renderHeader() string {
 	m.zoneIgnored = [2]int{rightStart + len(hBtn) + 2, rightStart + len(hBtn) + 2 + len(iBtn)}
 
 	title := " ft "
+	chip := ""
+	if m.tr.Root.Path == m.scratchDirPath() {
+		chip = "scratch "
+	}
 	root := " " + abbrevHome(m.tr.Root.Path)
-	leftW := len(title) + lipgloss.Width(root)
+	leftW := len(title) + len(chip) + lipgloss.Width(root)
 	if leftW > rightStart-1 {
-		keep := rightStart - 1 - len(title)
+		keep := rightStart - 1 - len(title) - len(chip)
 		root = truncateLeft(root, keep)
 	}
-	gap := max(1, rightStart-len(title)-lipgloss.Width(root))
-	return styleTitle.Render(title) + styleDim.Render(root) +
+	gap := max(1, rightStart-len(title)-len(chip)-lipgloss.Width(root))
+	return styleTitle.Render(title) + styleMark.Render(chip) + styleDim.Render(root) +
 		strings.Repeat(" ", gap) +
 		checkboxStyle(m.showHidden).Render(hBtn) + "  " +
 		checkboxStyle(m.showIgnored).Render(iBtn) + " "
@@ -293,7 +297,9 @@ func (m *Model) renderHelp() string {
 		{"g G", "top / bottom"},
 		{"ctrl+u ctrl+d", "half page up / down"},
 		{m.actionKeys["mark"], "mark/unmark selection (and move down)"},
-		{m.actionKeys["clear-marks"], "clear all marks"},
+		{m.actionKeys["clear-marks"], "clear marks, else leave scratch view"},
+		{m.actionKeys["scratch"], "toggle scratch view"},
+		{m.actionKeys["scratch-new"], "new scratch file, opened in editor"},
 		{m.actionKeys["copy-here"] + " / " + m.actionKeys["move-here"], "copy / move marked items here"},
 		{m.actionKeys["copy-abs"] + " / " + m.actionKeys["copy-rel"], "copy absolute / git-relative path"},
 		{m.actionKeys["toggle-hidden"], "toggle hidden files"},

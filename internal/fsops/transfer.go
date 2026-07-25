@@ -94,7 +94,7 @@ func transferOne(op Op, src, targetDir string, policy Policy, trash func(string)
 		case dst == src:
 			// Copying into its own directory: overwriting would trash the
 			// source itself, so always keep both.
-			if dst, err = keepBothName(dst, fi.IsDir()); err != nil {
+			if dst, err = KeepBothName(dst, fi.IsDir()); err != nil {
 				return err
 			}
 			renamed = true
@@ -103,7 +103,7 @@ func transferOne(op Op, src, targetDir string, policy Policy, trash func(string)
 				return fmt.Errorf("trash existing: %w", err)
 			}
 		default: // PolicyKeepBoth, or a conflict appearing under PolicyNone
-			if dst, err = keepBothName(dst, fi.IsDir()); err != nil {
+			if dst, err = KeepBothName(dst, fi.IsDir()); err != nil {
 				return err
 			}
 			renamed = true
@@ -137,9 +137,9 @@ func transferOne(op Op, src, targetDir string, policy Policy, trash func(string)
 	return nil
 }
 
-// keepBothName finds a free suffixed name: foo.txt -> foo-1.txt, dir -> dir-1.
+// KeepBothName finds a free suffixed name: foo.txt -> foo-1.txt, dir -> dir-1.
 // Directories and bare-stem dotfiles suffix the whole name (.env -> .env-1).
-func keepBothName(dst string, isDir bool) (string, error) {
+func KeepBothName(dst string, isDir bool) (string, error) {
 	dir, base := filepath.Dir(dst), filepath.Base(dst)
 	ext := filepath.Ext(base)
 	stem := strings.TrimSuffix(base, ext)

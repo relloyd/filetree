@@ -20,6 +20,13 @@ show_ignored = true        # gitignored entries are shown greyed-out; "i" toggle
 icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 watch_debounce_ms = 150
 
+# Scratch files: "n" creates an empty YYYYMMDDHH.<extension> file here and
+# opens it in the default command; "S" toggles the scratch view; Esc (with
+# no marks active) returns to the original root. Defaults shown.
+# [scratch]
+# dir = "~/.filetree/scratch"
+# extension = "md"
+
 [commands]
 default = "edit"           # the command Enter runs
 

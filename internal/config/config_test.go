@@ -85,6 +85,44 @@ func TestExpandCommand(t *testing.T) {
 	}
 }
 
+func TestScratchConfig(t *testing.T) {
+	cfg, err := loadTOML(t, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Scratch.Dir != "~/.filetree/scratch" || cfg.Scratch.Extension != "md" {
+		t.Errorf("defaults = %+v", cfg.Scratch)
+	}
+
+	cfg, err = loadTOML(t, "[scratch]\ndir = \"~/notes\"\nextension = \".txt\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Scratch.Dir != "~/notes" {
+		t.Errorf("dir override = %q", cfg.Scratch.Dir)
+	}
+	if cfg.Scratch.Extension != "txt" {
+		t.Errorf("leading dot should be stripped, got %q", cfg.Scratch.Extension)
+	}
+
+	if _, err := loadTOML(t, "[scratch]\ndir = \"\"\n"); err == nil {
+		t.Error("empty scratch.dir should fail")
+	}
+}
+
+func TestExpandHome(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	if got := ExpandHome("~/x/y"); got != filepath.Join(home, "x", "y") {
+		t.Errorf("ExpandHome(~/x/y) = %q", got)
+	}
+	if got := ExpandHome("/abs/path"); got != "/abs/path" {
+		t.Errorf("absolute path should pass through, got %q", got)
+	}
+	if got := ExpandHome("relative/~x"); got != "relative/~x" {
+		t.Errorf("mid-string tilde should pass through, got %q", got)
+	}
+}
+
 func TestExpandMarked(t *testing.T) {
 	v := Vars{Marked: []string{"/a/old.go", "/b/has space.go", "/c/new.go"}}
 	got := ExpandCommand("diff {marked1} {marked2}", v)

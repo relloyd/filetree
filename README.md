@@ -21,6 +21,12 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   selection, and `d` trashes them. Overwrites go via the Trash; name
   clashes can keep both with `-1` suffixes. Moves across filesystems fall
   back to copy + Trash.
+- Scratch notes: `n` touches an empty `YYYYMMDDHH.md` in the scratch dir
+  (`[scratch]` in the config, default `~/.filetree/scratch`) and opens it
+  in the default editor — quit and you're in the scratch tree with the
+  file selected; `S`/Esc flips between scratch and your project. Marks are
+  absolute paths, so you can mark scratch files and paste them into the
+  project (or vice versa).
 - Mouse: wheel scrolls, click selects, chevron-click/double-click expands,
   double-click on a file runs the default command, header toggles are
   clickable.
@@ -44,7 +50,7 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `→`/`l` | expand, or step into first child |
 | `enter` | file: run default command · dir: toggle |
 | `space` | mark/unmark the selection (and move down) |
-| `esc` | clear all marks (without collapsing) |
+| `esc` | clear all marks; with none, return from the scratch view |
 | `p` / `m` | copy / move marked items into the selected dir (or the selected file's parent); conflicts prompt overwrite-to-Trash vs keep-both |
 | `y` / `Y` | copy absolute / git-relative path |
 | `.` | toggle hidden files |
@@ -56,6 +62,8 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `r` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted) |
 | `g` / `G`, `ctrl+u`/`ctrl+d` | top / bottom, half-page |
+| `S` | toggle the scratch view (and back) |
+| `n` | new scratch file (`YYYYMMDDHH.md`, pre-created empty) opened in the default editor |
 | `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default editor; config reloads on exit |
 | `?` | help |

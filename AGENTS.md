@@ -89,6 +89,10 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   Replacer tries patterns in argument order). Commands run via `/bin/sh -c`
   with mode "interactive" (tea.ExecProcess suspends the TUI) or
   "background".
+- The scratch view (`S`/`n`) is plain re-rooting: `loadRoot` (internal/app)
+  swaps tree+state; per-root state files make each root remember its own
+  expansion. `prevRoot` (session-only) powers the Esc/S return; Esc is
+  layered — marks clear first, then the view returns.
 - Marks (space bar) live only in the app model (`marked`/`markOrder`,
   path-keyed, session-only). Copy/move of marked items goes through
   `internal/fsops/transfer.go` — destructive steps (overwrite, cross-device

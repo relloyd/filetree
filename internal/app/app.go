@@ -99,6 +99,9 @@ type Model struct {
 	showHidden  bool
 	showIgnored bool
 
+	// prevRoot remembers where to return from the scratch view (session-only).
+	prevRoot string
+
 	repoRoots     map[string]string           // dir -> repo root ("" = none)
 	statuses      map[string]*gitx.RepoStatus // repo root -> parsed status
 	statusPending map[string]bool
@@ -133,14 +136,11 @@ type Model struct {
 
 func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Model, error) {
 	stateDir := filepath.Join(cfgDir, "state")
-	st := state.Load(stateDir, root)
 
 	m := &Model{
 		cfg:           cfg,
 		cfgPath:       filepath.Join(cfgDir, "config.toml"),
 		stateDir:      stateDir,
-		st:            st,
-		tr:            tree.New(root, fsops.ReadDir),
 		plat:          plat,
 		repoRoots:     map[string]string{},
 		statuses:      map[string]*gitx.RepoStatus{},
@@ -149,14 +149,6 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 		width:         80,
 		height:        24,
 		lastClickRow:  -1,
-	}
-	m.showHidden = cfg.General.ShowHidden
-	if st.ShowHidden != nil {
-		m.showHidden = *st.ShowHidden
-	}
-	m.showIgnored = cfg.General.ShowIgnored
-	if st.ShowIgnored != nil {
-		m.showIgnored = *st.ShowIgnored
 	}
 
 	m.input = textinput.New()
@@ -170,16 +162,38 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 	}
 	m.watcher = w
 
+	if err := m.loadRoot(root); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// loadRoot points the model at a root directory and restores that root's
+// persisted state (expansion, selection, scroll, toggle overrides). On
+// error the model keeps its previous root, so view switches fail safely.
+func (m *Model) loadRoot(root string) error {
+	st := state.Load(m.stateDir, root)
+	tr := tree.New(root, fsops.ReadDir)
+	if err := tr.Expand(tr.Root); err != nil {
+		return err
+	}
+	m.st, m.tr = st, tr
+
+	m.showHidden = m.cfg.General.ShowHidden
+	if st.ShowHidden != nil {
+		m.showHidden = *st.ShowHidden
+	}
+	m.showIgnored = m.cfg.General.ShowIgnored
+	if st.ShowIgnored != nil {
+		m.showIgnored = *st.ShowIgnored
+	}
+
 	// Restore remembered expansion (parents come first in the saved list);
 	// dirs deleted since last run are silently skipped.
 	for _, rel := range st.Expanded {
 		m.tr.ExpandRel(rel)
 	}
-	if !m.tr.Root.Expanded {
-		if err := m.tr.Expand(m.tr.Root); err != nil {
-			return nil, err
-		}
-	}
+	m.cursor, m.scroll = 0, 0
 	m.reflatten()
 	if st.Selected != "" {
 		if n := m.tr.FindByPath(filepath.Join(root, filepath.FromSlash(st.Selected))); n != nil {
@@ -194,7 +208,7 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 	m.scroll = clamp(st.ScrollOffset, 0, max(0, len(m.rows)-1))
 	m.ensureVisible()
 	m.syncWatches()
-	return m, nil
+	return nil
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -339,6 +353,8 @@ func (m *Model) buildBindings() {
 		"clear-marks":    "esc",
 		"copy-here":      "p",
 		"move-here":      "m",
+		"scratch":        "S",
+		"scratch-new":    "n",
 	}
 	m.actionKeys = map[string]string{}
 	for action, key := range defaults {
@@ -365,9 +381,11 @@ func (m *Model) buildBindings() {
 		"edit-config":    m.editConfig,
 		"help":           m.toggleHelp,
 		"mark":           m.toggleMark,
-		"clear-marks":    m.clearMarks,
+		"clear-marks":    m.escKey,
 		"copy-here":      func() (tea.Model, tea.Cmd) { return m.stageTransfer(opCopy) },
 		"move-here":      func() (tea.Model, tea.Cmd) { return m.stageTransfer(opMove) },
+		"scratch":        m.toggleScratch,
+		"scratch-new":    m.scratchNew,
 	}
 	for action, fn := range actions {
 		b[m.actionKeys[action]] = fn

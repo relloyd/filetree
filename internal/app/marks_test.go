@@ -3,7 +3,18 @@ package app
 import (
 	"reflect"
 	"testing"
+	"time"
 )
+
+func TestScratchName(t *testing.T) {
+	at := time.Date(2026, 7, 25, 15, 42, 0, 0, time.Local)
+	if got := scratchName(at, "md"); got != "2026072515.md" {
+		t.Errorf("scratchName = %q", got)
+	}
+	if got := scratchName(at, ""); got != "2026072515" {
+		t.Errorf("scratchName without extension = %q", got)
+	}
+}
 
 func TestDedupeAncestors(t *testing.T) {
 	cases := []struct {

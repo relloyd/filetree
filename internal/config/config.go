@@ -6,9 +6,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
+
+// ExpandHome resolves a leading ~ to the user's home directory.
+func ExpandHome(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(p, "~"))
+		}
+	}
+	return p
+}
 
 const (
 	ModeInteractive = "interactive" // suspend the TUI while the command runs
@@ -29,8 +40,15 @@ type General struct {
 	WatchDebounceMs int    `toml:"watch_debounce_ms"`
 }
 
+// Scratch configures the scratch-file directory ("n" / "S" keys).
+type Scratch struct {
+	Dir       string `toml:"dir"`       // supports ~; created on demand
+	Extension string `toml:"extension"` // without dot; "" for none
+}
+
 type Config struct {
 	General        General
+	Scratch        Scratch
 	DefaultCommand string // name in Commands that Enter runs
 	Commands       map[string]Command
 	Keys           map[string]string // action name -> key
@@ -43,6 +61,10 @@ func Default() *Config {
 			ShowIgnored:     true,
 			Icons:           "nerd",
 			WatchDebounceMs: 150,
+		},
+		Scratch: Scratch{
+			Dir:       "~/.filetree/scratch",
+			Extension: "md",
 		},
 		DefaultCommand: "edit",
 		Commands: map[string]Command{
@@ -81,10 +103,12 @@ func Load(path string) (*Config, error) {
 	cfg := Default()
 	var raw struct {
 		General  *General                  `toml:"general"`
+		Scratch  *Scratch                  `toml:"scratch"`
 		Commands map[string]toml.Primitive `toml:"commands"`
 		Keys     map[string]string         `toml:"keys"`
 	}
 	raw.General = &cfg.General // decode over defaults
+	raw.Scratch = &cfg.Scratch
 	md, err := toml.DecodeFile(path, &raw)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -94,6 +118,10 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.General.Icons != "nerd" && cfg.General.Icons != "plain" {
 		return nil, fmt.Errorf("%s: general.icons must be \"nerd\" or \"plain\"", path)
+	}
+	cfg.Scratch.Extension = strings.TrimPrefix(cfg.Scratch.Extension, ".")
+	if cfg.Scratch.Dir == "" {
+		return nil, fmt.Errorf("%s: scratch.dir must not be empty", path)
 	}
 
 	// [commands] mixes `default = "name"` with per-command sub-tables, so it

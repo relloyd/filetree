@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -720,6 +721,128 @@ func (m *Model) handleTrashDone(msg trashDoneMsg) (tea.Model, tea.Cmd) {
 	cmds := m.invalidateStatusCmds(dirs)
 	cmds = append(cmds, m.note(text, isErr))
 	return m, tea.Batch(cmds...)
+}
+
+// --- scratch view ---
+
+// scratchDirPath resolves the configured scratch directory without touching
+// the filesystem (used by rendering).
+func (m *Model) scratchDirPath() string {
+	return filepath.Clean(config.ExpandHome(m.cfg.Scratch.Dir))
+}
+
+func (m *Model) scratchDir() (string, error) {
+	dir := m.scratchDirPath()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// switchRoot re-roots the explorer, persisting the current view first. On
+// load failure the current view stays intact.
+func (m *Model) switchRoot(root string) (tea.Model, tea.Cmd) {
+	m.saveState()
+	if err := m.loadRoot(root); err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	return m, tea.Batch(m.ensureStatusesForExpanded()...)
+}
+
+// toggleScratch switches to the scratch tree, or back to where you were.
+func (m *Model) toggleScratch() (tea.Model, tea.Cmd) {
+	sdir, err := m.scratchDir()
+	if err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	if m.tr.Root.Path == sdir {
+		if m.prevRoot == "" {
+			return m, m.note("Already in the scratch directory", false)
+		}
+		prev := m.prevRoot
+		m.prevRoot = ""
+		return m.switchRoot(prev)
+	}
+	m.prevRoot = m.tr.Root.Path
+	return m.switchRoot(sdir)
+}
+
+// escKey layers Esc: clear marks first; otherwise leave the scratch view.
+func (m *Model) escKey() (tea.Model, tea.Cmd) {
+	if len(m.marked) > 0 {
+		return m.clearMarks()
+	}
+	if m.prevRoot != "" {
+		prev := m.prevRoot
+		m.prevRoot = ""
+		return m.switchRoot(prev)
+	}
+	return m, nil
+}
+
+// scratchNew touches an empty timestamped file in the scratch dir, reveals
+// it in the scratch view, and opens it with the default command — so a
+// quick note is just: n, type, :wq.
+func (m *Model) scratchNew() (tea.Model, tea.Cmd) {
+	sdir, err := m.scratchDir()
+	if err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	path := filepath.Join(sdir, scratchName(time.Now(), m.cfg.Scratch.Extension))
+	if _, err := os.Lstat(path); err == nil {
+		if path, err = fsops.KeepBothName(path, false); err != nil {
+			return m, m.note(err.Error(), true)
+		}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	f.Close()
+
+	var cmds []tea.Cmd
+	if m.tr.Root.Path != sdir {
+		m.prevRoot = m.tr.Root.Path
+		_, cmd := m.switchRoot(sdir)
+		cmds = append(cmds, cmd)
+	} else {
+		_ = m.tr.Refresh(m.tr.Root)
+		m.reflatten()
+	}
+	if n := m.tr.FindByPath(path); n != nil {
+		for i, r := range m.rows {
+			if r.Node == n {
+				m.cursor = i
+				m.ensureVisible()
+				break
+			}
+		}
+	}
+	m.saveState()
+
+	c, ok := m.cfg.Commands[m.cfg.DefaultCommand]
+	if !ok {
+		return m, tea.Batch(append(cmds, m.note("no default command configured", true))...)
+	}
+	_, ecmd := m.execCommand(m.cfg.DefaultCommand, c, config.Vars{
+		Path:    path,
+		RelPath: path,
+		Dir:     sdir,
+		Root:    m.tr.Root.Path,
+		Name:    filepath.Base(path),
+		Marked:  append([]string(nil), m.markOrder...),
+	}, false)
+	return m, tea.Batch(append(cmds, ecmd)...)
+}
+
+// scratchName builds the timestamped scratch file name: a YYYYMMDDHH prefix
+// so files sort chronologically, plus the configured extension.
+func scratchName(now time.Time, ext string) string {
+	name := now.Format("2006010215")
+	if ext != "" {
+		name += "." + ext
+	}
+	return name
 }
 
 // --- misc ---
