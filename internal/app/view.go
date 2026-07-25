@@ -259,8 +259,12 @@ func (m *Model) renderConfirm() string {
 func (m *Model) renderFuzzy() string {
 	h := m.treeHeight()
 	lines := make([]string, 0, h)
-	lines = append(lines, styleTitle.Render(" Find: ")+m.input.View())
-	for i := 0; i < len(m.fuzzyMatches) && len(lines) < h; i++ {
+	counter := ""
+	if len(m.fuzzyMatches) > 0 {
+		counter = styleDim.Render(fmt.Sprintf("  %d/%d", m.fuzzySel+1, len(m.fuzzyMatches)))
+	}
+	lines = append(lines, styleTitle.Render(" Find: ")+m.input.View()+counter)
+	for i := m.fuzzyScroll; i < len(m.fuzzyMatches) && len(lines) < h; i++ {
 		mt := m.fuzzyMatches[i]
 		matched := make(map[int]bool, len(mt.MatchedIndexes))
 		for _, idx := range mt.MatchedIndexes {
@@ -302,6 +306,7 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["scratch-new"], "new scratch file, opened in editor"},
 		{m.actionKeys["copy-here"] + " / " + m.actionKeys["move-here"], "copy / move marked items here"},
 		{m.actionKeys["copy-abs"] + " / " + m.actionKeys["copy-rel"], "copy absolute / git-relative path"},
+		{m.actionKeys["copy-url"] + " / " + m.actionKeys["open-url"], "copy web URL / open in browser (+copy)"},
 		{m.actionKeys["toggle-hidden"], "toggle hidden files"},
 		{m.actionKeys["toggle-ignored"], "toggle gitignored files"},
 		{m.actionKeys["reload"] + " / F5", "reload from disk"},

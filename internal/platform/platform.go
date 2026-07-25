@@ -8,6 +8,8 @@ type Platform interface {
 	CopyToClipboard(text string) error
 	// Reveal shows the path in the OS file manager (Finder on macOS).
 	Reveal(path string) error
+	// OpenURL opens a URL in the default browser.
+	OpenURL(url string) error
 	// Trash moves the path to the OS trash so it can be recovered.
 	Trash(path string) error
 }

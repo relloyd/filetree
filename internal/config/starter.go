@@ -18,6 +18,7 @@ const starterTOML = `# filetree configuration
 show_hidden = false
 show_ignored = true        # gitignored entries are shown greyed-out; "i" toggles
 icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
+# link_ref = "commit"      # ref for u/U web links: "commit" (permanent) or "branch"
 watch_debounce_ms = 150
 
 # Scratch files: "n" creates an empty YYYYMMDDHH.<extension> file here and

@@ -11,6 +11,12 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   appear automatically. `R`/F5 forces a full reload.
 - Copy the selection's path as **absolute** (`y`) or **relative to the
   closest parent git repo** (`Y`) — ready to paste into helix, rg, or fd.
+- Copy (`u`) or open-and-copy (`U`) the selection's **web URL** built from
+  the repo's origin remote: `/blob/` for files, `/tree/` for directories,
+  pinned to the HEAD commit (permanent; set `link_ref = "branch"` for
+  branch links). Handles ssh/scp/https remote forms and escapes paths.
+  Caveat: links to unpushed commits or untracked files 404 until pushed —
+  untracked selections are flagged in the status bar.
 - Configurable commands with `{path}`/`{relpath}`/`{dir}`/… templates:
   interactive commands suspend the TUI (editors); background commands fire
   and forget (tmux hand-off, `open`). Marked paths are available as
@@ -53,6 +59,7 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `esc` | clear all marks; with none, return from the scratch view |
 | `p` / `m` | copy / move marked items into the selected dir (or the selected file's parent); conflicts prompt overwrite-to-Trash vs keep-both |
 | `y` / `Y` | copy absolute / git-relative path |
+| `u` / `U` | copy the selection's web URL (GitHub-style, from the origin remote) / open it in the browser and copy |
 | `.` | toggle hidden files |
 | `i` | toggle gitignored files |
 | `R` / `F5` | reload from disk |
@@ -81,7 +88,9 @@ their own keys; the starter config binds:
 | `L` | open lazygit for the repo containing the selection (commented example in the starter) |
 
 Fuzzy find (`/`) matches fuzzy subsequences, not regexps; include `/` in
-the query to constrain by path segments. Ranking is screen-aware: entries
+the query to constrain by path segments. Navigate results with `↑`/`↓`
+(`ctrl+p`/`ctrl+n`), half-page with `ctrl+u`/`ctrl+d`, or the mouse wheel;
+the list scrolls with the selection and shows a `12/100` position counter. Ranking is screen-aware: entries
 currently visible in the tree outrank everything else, then shallow paths
 and basename matches beat equally-fuzzy deep ones. With an empty query the
 list shows exactly the visible tree entries in order, so `/` + cursor keys

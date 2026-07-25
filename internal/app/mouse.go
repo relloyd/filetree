@@ -9,16 +9,20 @@ import (
 const doubleClickWindow = 400 * time.Millisecond
 
 func (m *Model) handleWheel(mo tea.Mouse) (tea.Model, tea.Cmd) {
-	if m.mode != modeNormal {
-		return m, nil
-	}
+	delta := 0
 	switch mo.Button {
 	case tea.MouseWheelUp:
-		m.scroll -= 3
+		delta = -3
 	case tea.MouseWheelDown:
-		m.scroll += 3
+		delta = 3
 	}
-	m.clampScroll()
+	switch m.mode {
+	case modeNormal:
+		m.scroll += delta
+		m.clampScroll()
+	case modeFuzzy:
+		m.moveFuzzySel(delta)
+	}
 	return m, nil
 }
 

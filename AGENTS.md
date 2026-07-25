@@ -64,6 +64,9 @@ Design rules that keep this maintainable:
 - OS-specific behaviour goes behind `platform.Platform` in
   `platform_<goos>.go` files with build tags — never inline `exec.Command`
   for OS integrations elsewhere.
+- Web links (`u`/`U`): `internal/gitx/link.go` owns remote-URL
+  normalisation and URL building (pure, table-tested); `platform.OpenURL`
+  owns the browser.
 - New keybindings are wired in `buildBindings` (internal/app/app.go); make
   them remappable via the `[keys]` action map and list them in the `?` help
   overlay (view.go) and README.

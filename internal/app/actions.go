@@ -723,6 +723,54 @@ func (m *Model) handleTrashDone(msg trashDoneMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// --- web links ---
+
+// linkAction copies the selection's web URL (GitHub-style, built from the
+// origin remote) to the clipboard; openInBrowser additionally opens it.
+func (m *Model) linkAction(openInBrowser bool) (tea.Model, tea.Cmd) {
+	n := m.selected()
+	if n == nil {
+		return m, nil
+	}
+	dir := n.Path
+	if !n.IsDir {
+		dir = filepath.Dir(n.Path)
+	}
+	root := m.repoRootFor(dir)
+	if root == "" {
+		return m, m.note("Not inside a git repository", true)
+	}
+	rel := gitx.RelPath(root, n.Path)
+	untracked := m.nodeCode(n) == gitx.Untracked
+	useBranch := m.cfg.General.LinkRef == "branch"
+	isDir := n.IsDir
+	plat := m.plat
+	return m, func() tea.Msg {
+		remote, err := gitx.RemoteURL(root)
+		if err != nil {
+			return linkDoneMsg{err: err}
+		}
+		base, ok := gitx.WebURL(remote)
+		if !ok {
+			return linkDoneMsg{err: fmt.Errorf("unsupported remote URL %q", remote)}
+		}
+		ref, err := gitx.HeadRef(root, useBranch)
+		if err != nil {
+			return linkDoneMsg{err: err}
+		}
+		u := gitx.FileURL(base, ref, rel, isDir)
+		if err := plat.CopyToClipboard(u); err != nil {
+			return linkDoneMsg{err: err}
+		}
+		if openInBrowser {
+			if err := plat.OpenURL(u); err != nil {
+				return linkDoneMsg{err: err}
+			}
+		}
+		return linkDoneMsg{url: u, opened: openInBrowser, untracked: untracked}
+	}
+}
+
 // --- scratch view ---
 
 // scratchDirPath resolves the configured scratch directory without touching

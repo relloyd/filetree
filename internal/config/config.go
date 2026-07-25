@@ -36,7 +36,8 @@ type Command struct {
 type General struct {
 	ShowHidden      bool   `toml:"show_hidden"`
 	ShowIgnored     bool   `toml:"show_ignored"`
-	Icons           string `toml:"icons"` // "nerd" or "plain"
+	Icons           string `toml:"icons"`    // "nerd" or "plain"
+	LinkRef         string `toml:"link_ref"` // web links pin to "commit" or "branch"
 	WatchDebounceMs int    `toml:"watch_debounce_ms"`
 }
 
@@ -60,6 +61,7 @@ func Default() *Config {
 			ShowHidden:      false,
 			ShowIgnored:     true,
 			Icons:           "nerd",
+			LinkRef:         "commit",
 			WatchDebounceMs: 150,
 		},
 		Scratch: Scratch{
@@ -118,6 +120,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.General.Icons != "nerd" && cfg.General.Icons != "plain" {
 		return nil, fmt.Errorf("%s: general.icons must be \"nerd\" or \"plain\"", path)
+	}
+	if cfg.General.LinkRef != "commit" && cfg.General.LinkRef != "branch" {
+		return nil, fmt.Errorf("%s: general.link_ref must be \"commit\" or \"branch\"", path)
 	}
 	cfg.Scratch.Extension = strings.TrimPrefix(cfg.Scratch.Extension, ".")
 	if cfg.Scratch.Dir == "" {

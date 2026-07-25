@@ -23,7 +23,7 @@ func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.fuzzyCands = nil
 	m.fuzzyMatches = nil
-	m.fuzzySel = 0
+	m.fuzzySel, m.fuzzyScroll = 0, 0
 	// Snapshot what is on screen: visible entries seed the candidate list
 	// (in tree order, so an empty query browses exactly what you see) and
 	// get a ranking bonus — if you can see it, typing its name finds it.
@@ -135,7 +135,26 @@ func (m *Model) refuzzy() {
 		}
 		m.fuzzyMatches = matches
 	}
-	m.fuzzySel = 0
+	m.fuzzySel, m.fuzzyScroll = 0, 0
+}
+
+// fuzzyVisibleRows is how many match lines fit under the input line.
+func (m *Model) fuzzyVisibleRows() int {
+	return max(1, m.treeHeight()-1)
+}
+
+// moveFuzzySel moves the fuzzy selection by delta, scrolling the list so
+// the selection stays on screen.
+func (m *Model) moveFuzzySel(delta int) {
+	m.fuzzySel = clamp(m.fuzzySel+delta, 0, max(0, len(m.fuzzyMatches)-1))
+	h := m.fuzzyVisibleRows()
+	if m.fuzzySel < m.fuzzyScroll {
+		m.fuzzyScroll = m.fuzzySel
+	}
+	if m.fuzzySel >= m.fuzzyScroll+h {
+		m.fuzzyScroll = m.fuzzySel - h + 1
+	}
+	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.fuzzyMatches)-h))
 }
 
 // rerankMatches orders fuzzy matches in two tiers: entries visible in the

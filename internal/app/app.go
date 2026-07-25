@@ -61,6 +61,12 @@ type (
 		target string
 		res    fsops.Result
 	}
+	linkDoneMsg struct {
+		url       string
+		opened    bool
+		untracked bool
+		err       error
+	}
 	clearStatusMsg struct{ seq int }
 	fuzzyCandsMsg  struct{ cands []string }
 )
@@ -117,6 +123,7 @@ type Model struct {
 	fuzzyCands   []string
 	fuzzyMatches []fuzzy.Match
 	fuzzySel     int
+	fuzzyScroll  int             // first visible match row
 	fuzzyVisible map[string]bool // rows on screen when fuzzy started
 
 	statusMsg string
@@ -257,6 +264,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case transferDoneMsg:
 		return m.handleTransferDone(msg)
 
+	case linkDoneMsg:
+		if msg.err != nil {
+			return m, m.note(msg.err.Error(), true)
+		}
+		verb := "Copied: "
+		if msg.opened {
+			verb = "Opened + copied: "
+		}
+		text := verb + msg.url
+		if msg.untracked {
+			text += "  (untracked — not on the remote)"
+		}
+		return m, m.note(text, false)
+
 	case clearStatusMsg:
 		if msg.seq == m.statusSeq {
 			m.statusMsg = ""
@@ -303,11 +324,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m.fuzzyJump()
 		case "up", "ctrl+p":
-			m.fuzzySel = max(0, m.fuzzySel-1)
+			m.moveFuzzySel(-1)
 			return m, nil
 		case "down", "ctrl+n":
-			m.fuzzySel = min(len(m.fuzzyMatches)-1, m.fuzzySel+1)
-			m.fuzzySel = max(0, m.fuzzySel)
+			m.moveFuzzySel(1)
+			return m, nil
+		case "ctrl+u", "pgup":
+			m.moveFuzzySel(-m.fuzzyVisibleRows() / 2)
+			return m, nil
+		case "ctrl+d", "pgdown":
+			m.moveFuzzySel(m.fuzzyVisibleRows() / 2)
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -355,6 +381,8 @@ func (m *Model) buildBindings() {
 		"move-here":      "m",
 		"scratch":        "S",
 		"scratch-new":    "n",
+		"copy-url":       "u",
+		"open-url":       "U",
 	}
 	m.actionKeys = map[string]string{}
 	for action, key := range defaults {
@@ -386,6 +414,8 @@ func (m *Model) buildBindings() {
 		"move-here":      func() (tea.Model, tea.Cmd) { return m.stageTransfer(opMove) },
 		"scratch":        m.toggleScratch,
 		"scratch-new":    m.scratchNew,
+		"copy-url":       func() (tea.Model, tea.Cmd) { return m.linkAction(false) },
+		"open-url":       func() (tea.Model, tea.Cmd) { return m.linkAction(true) },
 	}
 	for action, fn := range actions {
 		b[m.actionKeys[action]] = fn

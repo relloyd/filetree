@@ -21,6 +21,13 @@ func (darwin) CopyToClipboard(text string) error {
 	return nil
 }
 
+func (darwin) OpenURL(url string) error {
+	if out, err := exec.Command("open", url).CombinedOutput(); err != nil {
+		return fmt.Errorf("open: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func (darwin) Reveal(path string) error {
 	if out, err := exec.Command("open", "-R", path).CombinedOutput(); err != nil {
 		return fmt.Errorf("open -R: %v: %s", err, strings.TrimSpace(string(out)))

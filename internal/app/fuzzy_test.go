@@ -57,6 +57,42 @@ func TestRerankKeepsFuzzyOrderAmongPeers(t *testing.T) {
 	}
 }
 
+// The fuzzy list must scroll with the selection: moving past the visible
+// window shifts fuzzyScroll so the selected match is always rendered.
+func TestMoveFuzzySelScrollsWindow(t *testing.T) {
+	m := &Model{height: 15, fuzzyMatches: make([]fuzzy.Match, 30)} // 12 visible rows
+	h := m.fuzzyVisibleRows()
+
+	for range 19 {
+		m.moveFuzzySel(1)
+	}
+	if m.fuzzySel != 19 {
+		t.Fatalf("sel = %d", m.fuzzySel)
+	}
+	if m.fuzzySel < m.fuzzyScroll || m.fuzzySel >= m.fuzzyScroll+h {
+		t.Errorf("selection %d outside window [%d,%d)", m.fuzzySel, m.fuzzyScroll, m.fuzzyScroll+h)
+	}
+
+	// Half-page down past the end clamps to the last match.
+	m.moveFuzzySel(100)
+	if m.fuzzySel != 29 || m.fuzzyScroll != 30-h {
+		t.Errorf("clamped sel/scroll = %d/%d", m.fuzzySel, m.fuzzyScroll)
+	}
+
+	// Back to the top.
+	m.moveFuzzySel(-100)
+	if m.fuzzySel != 0 || m.fuzzyScroll != 0 {
+		t.Errorf("top sel/scroll = %d/%d", m.fuzzySel, m.fuzzyScroll)
+	}
+
+	// Empty list never panics or goes negative.
+	e := &Model{height: 15}
+	e.moveFuzzySel(5)
+	if e.fuzzySel != 0 || e.fuzzyScroll != 0 {
+		t.Errorf("empty list sel/scroll = %d/%d", e.fuzzySel, e.fuzzyScroll)
+	}
+}
+
 func TestRerankEmpty(t *testing.T) {
 	if out := rerankMatches("x", nil, nil); len(out) != 0 {
 		t.Errorf("expected empty, got %v", out)
