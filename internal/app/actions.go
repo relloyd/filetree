@@ -254,7 +254,7 @@ func (m *Model) handleConfirmKey(s string) (tea.Model, tea.Cmd) {
 		switch s {
 		case "y", "enter":
 			m.mode, m.pending = modeNormal, nil
-			return m, m.trashCmd(p.items[0])
+			return m, m.trashCmd(p.items)
 		case "n", "esc", "q":
 			return cancel()
 		}
@@ -618,7 +618,26 @@ func (m *Model) afterFsMutation(target string) tea.Cmd {
 	return tea.Batch(m.invalidateStatusCmds([]string{parent})...)
 }
 
+// confirmDelete stages the marked items for trashing, or the selection
+// when nothing is marked.
 func (m *Model) confirmDelete() (tea.Model, tea.Cmd) {
+	if len(m.markOrder) > 0 {
+		var items []string
+		for _, p := range append([]string(nil), m.markOrder...) {
+			if _, err := os.Lstat(p); err != nil {
+				m.unmark(p) // vanished since it was marked
+				continue
+			}
+			items = append(items, p)
+		}
+		items = dedupeAncestors(items)
+		if len(items) == 0 {
+			return m, m.note("Marked items no longer exist", true)
+		}
+		m.pending = &pendingOp{kind: opTrash, items: items}
+		m.mode = modeConfirm
+		return m, nil
+	}
 	n := m.selected()
 	if n == nil {
 		return m, nil
@@ -631,19 +650,76 @@ func (m *Model) confirmDelete() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) trashCmd(path string) tea.Cmd {
+// dedupeAncestors drops entries covered by an ancestor also in the list, so
+// trashing a marked directory doesn't then fail on its separately marked
+// children. Order is preserved.
+func dedupeAncestors(paths []string) []string {
+	var out []string
+	for _, p := range paths {
+		covered := false
+		for _, a := range paths {
+			if a != p && strings.HasPrefix(p+"/", a+"/") {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (m *Model) trashCmd(paths []string) tea.Cmd {
+	trash := m.plat.Trash
 	return func() tea.Msg {
-		return trashDoneMsg{path: path, err: m.plat.Trash(path)}
+		var msg trashDoneMsg
+		for _, p := range paths {
+			if _, err := os.Lstat(p); err != nil {
+				msg.skipped++ // vanished between confirm and execution
+				continue
+			}
+			if err := trash(p); err != nil {
+				msg.errs = append(msg.errs, err.Error())
+				continue
+			}
+			msg.done = append(msg.done, p)
+		}
+		return msg
 	}
 }
 
 func (m *Model) handleTrashDone(msg trashDoneMsg) (tea.Model, tea.Cmd) {
-	if msg.err != nil {
-		return m, m.note(msg.err.Error(), true)
+	dirty := map[string]bool{}
+	for _, p := range msg.done {
+		m.unmark(p)
+		dirty[filepath.Dir(p)] = true
 	}
-	m.unmark(msg.path)
-	cmd := m.afterFsMutation(filepath.Dir(msg.path) + "/")
-	return m, tea.Batch(cmd, m.note("Moved to Trash: "+filepath.Base(msg.path), false))
+	var dirs []string
+	for d := range dirty {
+		dirs = append(dirs, d)
+		if n := m.tr.FindByPath(d); n != nil && n.Loaded {
+			_ = m.tr.Refresh(n)
+		}
+	}
+	m.reflatten()
+	m.syncWatches()
+	m.saveState()
+
+	text := fmt.Sprintf("Moved %d to Trash", len(msg.done))
+	if len(msg.done) == 1 {
+		text = "Moved to Trash: " + filepath.Base(msg.done[0])
+	}
+	if msg.skipped > 0 {
+		text += fmt.Sprintf(", skipped %d", msg.skipped)
+	}
+	isErr := len(msg.errs) > 0
+	if isErr {
+		text += " — " + strings.Join(msg.errs, "; ")
+	}
+	cmds := m.invalidateStatusCmds(dirs)
+	cmds = append(cmds, m.note(text, isErr))
+	return m, tea.Batch(cmds...)
 }
 
 // --- misc ---

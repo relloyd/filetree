@@ -92,7 +92,9 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
 - Marks (space bar) live only in the app model (`marked`/`markOrder`,
   path-keyed, session-only). Copy/move of marked items goes through
   `internal/fsops/transfer.go` — destructive steps (overwrite, cross-device
-  move source) always go via the injected Trash, never unlink.
+  move source) always go via the injected Trash, never unlink. Delete (`d`)
+  is mark-aware (falls back to the selection) and ancestor-dedupes the list
+  first so a marked dir plus its marked children can't race.
 
 ## Testing a TUI change for real
 

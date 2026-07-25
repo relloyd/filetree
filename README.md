@@ -18,8 +18,9 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   recent — ready-made for a diff command).
 - Mark files/dirs with `space` (yazi-style `▍` bar + tinted name, live
   count in the status bar), then `p`/`m` copies or moves them to the
-  selection. Overwrites go via the Trash; name clashes can keep both with
-  `-1` suffixes. Moves across filesystems fall back to copy + Trash.
+  selection, and `d` trashes them. Overwrites go via the Trash; name
+  clashes can keep both with `-1` suffixes. Moves across filesystems fall
+  back to copy + Trash.
 - Mouse: wheel scrolls, click selects, chevron-click/double-click expands,
   double-click on a file runs the default command, header toggles are
   clickable.
@@ -53,7 +54,7 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `/` | fuzzy find (esc cancels, enter jumps) |
 | `a` / `A` | new file / new directory |
 | `r` | rename |
-| `d` | delete to Trash (confirms) |
+| `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted) |
 | `g` / `G`, `ctrl+u`/`ctrl+d` | top / bottom, half-page |
 | `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default editor; config reloads on exit |

@@ -51,8 +51,9 @@ type (
 		err          error
 	}
 	trashDoneMsg struct {
-		path string
-		err  error
+		done    []string
+		skipped int
+		errs    []string
 	}
 	transferDoneMsg struct {
 		kind   opKind

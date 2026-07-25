@@ -219,7 +219,23 @@ func (m *Model) renderConfirm() string {
 		return ""
 	}
 	if p.kind == opTrash {
-		return styleError.Render(" Move " + filepath.Base(p.items[0]) + " to Trash? (y/n)")
+		if len(p.items) == 1 {
+			return styleError.Render(" Move " + filepath.Base(p.items[0]) + " to Trash? (y/n)")
+		}
+		// Marked items may be off-screen: name what will be deleted.
+		names := make([]string, 0, 3)
+		for i, it := range p.items {
+			if i == 3 {
+				break
+			}
+			names = append(names, filepath.Base(it))
+		}
+		extra := ""
+		if len(p.items) > 3 {
+			extra = fmt.Sprintf(", +%d more", len(p.items)-3)
+		}
+		return styleError.Render(fmt.Sprintf(" Move %d marked to Trash (%s%s)? (y/n)",
+			len(p.items), strings.Join(names, ", "), extra))
 	}
 	verb := "Copy"
 	if p.kind == opMove {
@@ -287,7 +303,7 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["fuzzy"], "fuzzy find"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
-		{m.actionKeys["delete"], "delete to Trash"},
+		{m.actionKeys["delete"], "delete marked (or selection) to Trash"},
 		{m.actionKeys["collapse-all"], "collapse all"},
 		{m.actionKeys["edit-config"], "edit config (reloads on exit)"},
 		{m.actionKeys["help"], "toggle this help"},
