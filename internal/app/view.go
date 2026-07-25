@@ -23,6 +23,7 @@ var (
 	colOK      = lipgloss.Color("#73C991")
 	colChanged = lipgloss.Color("#E2C08D")
 	colTitle   = lipgloss.Color("#569CD6")
+	colMark    = lipgloss.Color("#C586C0") // marks: magenta, distinct from git colours
 
 	styleBase    = lipgloss.NewStyle()
 	styleDim     = lipgloss.NewStyle().Foreground(colDim)
@@ -31,6 +32,7 @@ var (
 	styleTitle   = lipgloss.NewStyle().Foreground(colTitle).Bold(true)
 	styleChevron = lipgloss.NewStyle().Foreground(colDim)
 	styleChanged = lipgloss.NewStyle().Foreground(colChanged)
+	styleMark    = lipgloss.NewStyle().Foreground(colMark)
 
 	codeColors = map[gitx.Code]color.Color{
 		gitx.Ignored:   lipgloss.Color("#6D6D6D"),
@@ -117,9 +119,17 @@ func (m *Model) renderRow(r tree.Row, selected bool) string {
 		}
 		return st
 	}
+	marked := m.marked[n.Path]
 	var b strings.Builder
 	if r.Depth > 0 {
-		b.WriteString(bg(styleBase).Render(strings.Repeat("  ", r.Depth)))
+		// Marked rows draw a bar over the first indent cell — markable rows
+		// always have depth ≥ 1, so nothing shifts.
+		if marked {
+			b.WriteString(bg(styleMark).Render("▍"))
+			b.WriteString(bg(styleBase).Render(strings.Repeat(" ", 2*r.Depth-1)))
+		} else {
+			b.WriteString(bg(styleBase).Render(strings.Repeat("  ", r.Depth)))
+		}
 	}
 	chev := "  "
 	if n.IsDir {
@@ -146,6 +156,9 @@ func (m *Model) renderRow(r tree.Row, selected bool) string {
 	}
 	if n.Broken {
 		nameStyle = nameStyle.Foreground(colError)
+	}
+	if marked {
+		nameStyle = nameStyle.Foreground(colMark) // mark tint wins over git colour
 	}
 	b.WriteString(bg(nameStyle).Render(n.Name))
 
@@ -175,7 +188,7 @@ func (m *Model) renderStatus() string {
 		}
 		return styleTitle.Render(labels[m.prompt]) + m.input.View()
 	case modeConfirm:
-		return styleError.Render(" Move " + filepath.Base(m.confirmPath) + " to Trash? (y/n)")
+		return m.renderConfirm()
 	}
 
 	var left string
@@ -190,11 +203,37 @@ func (m *Model) renderStatus() string {
 		}
 	}
 	right := styleDim.Render(fmt.Sprintf("%d/%d ", m.cursor+1, len(m.rows)))
+	if n := len(m.marked); n > 0 {
+		right = styleMark.Render(fmt.Sprintf("● %d marked  ", n)) + right
+	}
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		return styleBase.MaxWidth(m.width).Render(left)
 	}
 	return left + strings.Repeat(" ", gap) + right
+}
+
+func (m *Model) renderConfirm() string {
+	p := m.pending
+	if p == nil {
+		return ""
+	}
+	if p.kind == opTrash {
+		return styleError.Render(" Move " + filepath.Base(p.items[0]) + " to Trash? (y/n)")
+	}
+	verb := "Copy"
+	if p.kind == opMove {
+		verb = "Move"
+	}
+	tgt := m.tr.Rel(p.targetDir)
+	if tgt != "." {
+		tgt += "/"
+	}
+	if p.conflicts == 0 {
+		return styleTitle.Render(fmt.Sprintf(" %s %d item(s) into %s? (y/n)", verb, len(p.items), tgt))
+	}
+	return styleError.Render(fmt.Sprintf(" %s %d into %s — %d exist:", verb, len(p.items), tgt, p.conflicts)) +
+		styleTitle.Render(" [o]verwrite (to Trash) · [k]eep both · [n]o")
 }
 
 func (m *Model) renderFuzzy() string {
@@ -237,6 +276,9 @@ func (m *Model) renderHelp() string {
 		{"enter", "open file (default command) / toggle dir"},
 		{"g G", "top / bottom"},
 		{"ctrl+u ctrl+d", "half page up / down"},
+		{m.actionKeys["mark"], "mark/unmark selection (and move down)"},
+		{m.actionKeys["clear-marks"], "clear all marks"},
+		{m.actionKeys["copy-here"] + " / " + m.actionKeys["move-here"], "copy / move marked items here"},
 		{m.actionKeys["copy-abs"] + " / " + m.actionKeys["copy-rel"], "copy absolute / git-relative path"},
 		{m.actionKeys["toggle-hidden"], "toggle hidden files"},
 		{m.actionKeys["toggle-ignored"], "toggle gitignored files"},

@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/relloyd/filetree/internal/config"
+	"github.com/relloyd/filetree/internal/fsops"
 	"github.com/relloyd/filetree/internal/gitx"
 	"github.com/relloyd/filetree/internal/tree"
 )
@@ -128,11 +129,194 @@ func (m *Model) expandDir(n *tree.Node) (tea.Model, tea.Cmd) {
 
 func (m *Model) collapseAll() (tea.Model, tea.Cmd) {
 	m.tr.CollapseAll()
+	m.clearAllMarks()
 	m.cursor, m.scroll = 0, 0
 	m.reflatten()
 	m.syncWatches()
 	m.saveState()
 	return m, nil
+}
+
+// --- marks ---
+
+// toggleMark marks/unmarks the selection and advances the cursor, so
+// tapping space marks a run of files.
+func (m *Model) toggleMark() (tea.Model, tea.Cmd) {
+	n := m.selected()
+	if n == nil || n == m.tr.Root {
+		return m, nil
+	}
+	if m.marked[n.Path] {
+		m.unmark(n.Path)
+	} else {
+		m.marked[n.Path] = true
+		m.markOrder = append(m.markOrder, n.Path)
+	}
+	return m.cursorDown()
+}
+
+func (m *Model) unmark(path string) {
+	delete(m.marked, path)
+	for i, p := range m.markOrder {
+		if p == path {
+			m.markOrder = append(m.markOrder[:i], m.markOrder[i+1:]...)
+			break
+		}
+	}
+}
+
+// remapMark keeps a mark pointing at a renamed path, preserving its
+// position in the mark order.
+func (m *Model) remapMark(old, new string) {
+	if !m.marked[old] {
+		return
+	}
+	delete(m.marked, old)
+	m.marked[new] = true
+	for i, p := range m.markOrder {
+		if p == old {
+			m.markOrder[i] = new
+			break
+		}
+	}
+}
+
+func (m *Model) clearAllMarks() {
+	m.marked = map[string]bool{}
+	m.markOrder = nil
+}
+
+func (m *Model) clearMarks() (tea.Model, tea.Cmd) {
+	if len(m.marked) == 0 {
+		return m, nil
+	}
+	n := len(m.marked)
+	m.clearAllMarks()
+	return m, m.note(fmt.Sprintf("Cleared %d mark(s)", n), false)
+}
+
+// --- copy / move marked items ---
+
+// stageTransfer validates the marked set against the current target
+// directory and enters the confirmation prompt.
+func (m *Model) stageTransfer(kind opKind) (tea.Model, tea.Cmd) {
+	if len(m.markOrder) == 0 {
+		return m, m.note("Nothing marked — space marks the selection", true)
+	}
+	target := m.createTargetDir()
+	var items []string
+	for _, p := range append([]string(nil), m.markOrder...) {
+		if _, err := os.Lstat(p); err != nil {
+			m.unmark(p) // vanished since it was marked
+			continue
+		}
+		items = append(items, p)
+	}
+	if len(items) == 0 {
+		return m, m.note("Marked items no longer exist", true)
+	}
+	for _, p := range items {
+		if fi, err := os.Lstat(p); err == nil && fi.IsDir() {
+			if target == p || strings.HasPrefix(target+"/", p+"/") {
+				return m, m.note("Cannot copy/move "+filepath.Base(p)+" into itself", true)
+			}
+		}
+	}
+	conflicts := 0
+	for _, p := range items {
+		if _, err := os.Lstat(filepath.Join(target, filepath.Base(p))); err == nil {
+			conflicts++
+		}
+	}
+	m.pending = &pendingOp{kind: kind, items: items, targetDir: target, conflicts: conflicts}
+	m.mode = modeConfirm
+	return m, nil
+}
+
+// handleConfirmKey resolves the staged operation: y/n for trash and
+// conflict-free transfers; o(verwrite)/k(eep both)/n when conflicts exist.
+func (m *Model) handleConfirmKey(s string) (tea.Model, tea.Cmd) {
+	p := m.pending
+	if p == nil {
+		m.mode = modeNormal
+		return m, nil
+	}
+	cancel := func() (tea.Model, tea.Cmd) {
+		m.mode, m.pending = modeNormal, nil
+		return m, nil
+	}
+	proceed := func(policy fsops.Policy) (tea.Model, tea.Cmd) {
+		m.mode, m.pending = modeNormal, nil
+		return m, m.transferCmd(p, policy)
+	}
+	switch p.kind {
+	case opTrash:
+		switch s {
+		case "y", "enter":
+			m.mode, m.pending = modeNormal, nil
+			return m, m.trashCmd(p.items[0])
+		case "n", "esc", "q":
+			return cancel()
+		}
+	case opCopy, opMove:
+		if p.conflicts == 0 {
+			switch s {
+			case "y", "enter":
+				return proceed(fsops.PolicyNone)
+			case "n", "esc", "q":
+				return cancel()
+			}
+		} else {
+			switch s {
+			case "o":
+				return proceed(fsops.PolicyOverwrite)
+			case "k":
+				return proceed(fsops.PolicyKeepBoth)
+			case "n", "esc", "q":
+				return cancel()
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m *Model) transferCmd(p *pendingOp, policy fsops.Policy) tea.Cmd {
+	op := fsops.OpCopy
+	if p.kind == opMove {
+		op = fsops.OpMove
+	}
+	trash := m.plat.Trash
+	return func() tea.Msg {
+		res := fsops.Transfer(op, p.items, p.targetDir, policy, trash)
+		return transferDoneMsg{kind: p.kind, items: p.items, target: p.targetDir, res: res}
+	}
+}
+
+func (m *Model) handleTransferDone(msg transferDoneMsg) (tea.Model, tea.Cmd) {
+	dirty := map[string]bool{msg.target: true}
+	if msg.kind == opMove {
+		for _, it := range msg.items {
+			dirty[filepath.Dir(it)] = true
+		}
+	}
+	var dirs []string
+	for d := range dirty {
+		dirs = append(dirs, d)
+		if n := m.tr.FindByPath(d); n != nil && n.Loaded {
+			_ = m.tr.Refresh(n)
+		}
+	}
+	m.clearAllMarks()
+	m.reflatten()
+	m.syncWatches()
+	m.saveState()
+	op := fsops.OpCopy
+	if msg.kind == opMove {
+		op = fsops.OpMove
+	}
+	cmds := m.invalidateStatusCmds(dirs)
+	cmds = append(cmds, m.note(msg.res.Summary(op), len(msg.res.Errors) > 0))
+	return m, tea.Batch(cmds...)
 }
 
 // --- toggles ---
@@ -268,6 +452,7 @@ func (m *Model) runCommand(name string) (tea.Model, tea.Cmd) {
 		Dir:     dir,
 		Root:    m.tr.Root.Path,
 		Name:    n.Name,
+		Marked:  append([]string(nil), m.markOrder...),
 	}, false)
 }
 
@@ -403,6 +588,7 @@ func (m *Model) commitPrompt() (tea.Model, tea.Cmd) {
 		if err := os.Rename(n.Path, target); err != nil {
 			return m, m.note(err.Error(), true)
 		}
+		m.remapMark(n.Path, target)
 	}
 	return m, m.afterFsMutation(target)
 }
@@ -440,7 +626,7 @@ func (m *Model) confirmDelete() (tea.Model, tea.Cmd) {
 	if n == m.tr.Root {
 		return m, m.note("Cannot delete the root", true)
 	}
-	m.confirmPath = n.Path
+	m.pending = &pendingOp{kind: opTrash, items: []string{n.Path}}
 	m.mode = modeConfirm
 	return m, nil
 }
@@ -455,6 +641,7 @@ func (m *Model) handleTrashDone(msg trashDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		return m, m.note(msg.err.Error(), true)
 	}
+	m.unmark(msg.path)
 	cmd := m.afterFsMutation(filepath.Dir(msg.path) + "/")
 	return m, tea.Batch(cmd, m.note("Moved to Trash: "+filepath.Base(msg.path), false))
 }

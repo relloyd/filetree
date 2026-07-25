@@ -85,6 +85,27 @@ func TestExpandCommand(t *testing.T) {
 	}
 }
 
+func TestExpandMarked(t *testing.T) {
+	v := Vars{Marked: []string{"/a/old.go", "/b/has space.go", "/c/new.go"}}
+	got := ExpandCommand("diff {marked1} {marked2}", v)
+	if got != `diff '/b/has space.go' /c/new.go` {
+		t.Errorf("got %q", got)
+	}
+	got = ExpandCommand("open {marked}", v)
+	if got != `open /a/old.go '/b/has space.go' /c/new.go` {
+		t.Errorf("got %q", got)
+	}
+
+	// Fewer than two marks: marked1/marked2 become empty quotes.
+	got = ExpandCommand("diff {marked1} {marked2}", Vars{Marked: []string{"/only.go"}})
+	if got != "diff '' ''" {
+		t.Errorf("got %q", got)
+	}
+	if got := ExpandCommand("x {marked}", Vars{}); got != "x " {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestShellQuote(t *testing.T) {
 	for in, want := range map[string]string{
 		"":               "''",

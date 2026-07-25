@@ -82,10 +82,17 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   first run from `internal/config/starter.go` — keep starter and README in
   sync with behaviour changes).
 - State: `~/.filetree/state/<basename>-<hash8>.json`, one per tree root.
-- Command templates: `{path} {relpath} {dir} {root} {name}` are substituted
-  shell-quoted; unknown `{tokens}` pass through untouched (tmux formats like
-  `"{last}"` depend on this). Commands run via `/bin/sh -c` with mode
-  "interactive" (tea.ExecProcess suspends the TUI) or "background".
+- Command templates: `{path} {relpath} {dir} {root} {name}` plus mark vars
+  `{marked} {marked1} {marked2}` are substituted shell-quoted; unknown
+  `{tokens}` pass through untouched (tmux formats like `"{last}"` depend on
+  this; also why `{marked1}` must be replaced before `{marked}` — the
+  Replacer tries patterns in argument order). Commands run via `/bin/sh -c`
+  with mode "interactive" (tea.ExecProcess suspends the TUI) or
+  "background".
+- Marks (space bar) live only in the app model (`marked`/`markOrder`,
+  path-keyed, session-only). Copy/move of marked items goes through
+  `internal/fsops/transfer.go` — destructive steps (overwrite, cross-device
+  move source) always go via the injected Trash, never unlink.
 
 ## Testing a TUI change for real
 

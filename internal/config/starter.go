@@ -9,6 +9,9 @@ const starterTOML = `# filetree configuration
 #   {dir}      directory of the selection (the selection itself if a dir)
 #   {root}     the tree root filetree was started in
 #   {name}     base name of the selection
+#   {marked}   all marked paths (space-marked), oldest first
+#   {marked1}  second-most-recently marked path ('' if fewer than two)
+#   {marked2}  most recently marked path       ('' if fewer than two)
 # Unknown {tokens} are left alone, so tmux formats like "{last}" still work.
 
 [general]
@@ -79,6 +82,13 @@ key = "s"
 # run = "cd {dir} && lazygit"
 # mode = "interactive"
 # key = "L"
+#
+# Diff the two most recently space-marked files in a split (older on the
+# left); the trailing read keeps the pane open until you press Enter.
+# [commands.diff]
+# run = 'tmux split-window -fh "delta {marked1} {marked2}; read x"'
+# mode = "background"
+# key = "D"
 
 # Keybinding overrides. Defaults shown; uncomment to change.
 # [keys]

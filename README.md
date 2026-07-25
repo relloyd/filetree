@@ -13,7 +13,13 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   closest parent git repo** (`Y`) — ready to paste into helix, rg, or fd.
 - Configurable commands with `{path}`/`{relpath}`/`{dir}`/… templates:
   interactive commands suspend the TUI (editors); background commands fire
-  and forget (tmux hand-off, `open`).
+  and forget (tmux hand-off, `open`). Marked paths are available as
+  `{marked}` (all, in mark order) and `{marked1}`/`{marked2}` (the two most
+  recent — ready-made for a diff command).
+- Mark files/dirs with `space` (yazi-style `▍` bar + tinted name, live
+  count in the status bar), then `p`/`m` copies or moves them to the
+  selection. Overwrites go via the Trash; name clashes can keep both with
+  `-1` suffixes. Moves across filesystems fall back to copy + Trash.
 - Mouse: wheel scrolls, click selects, chevron-click/double-click expands,
   double-click on a file runs the default command, header toggles are
   clickable.
@@ -36,6 +42,9 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `←`/`h` | collapse, or jump to parent |
 | `→`/`l` | expand, or step into first child |
 | `enter` | file: run default command · dir: toggle |
+| `space` | mark/unmark the selection (and move down) |
+| `esc` | clear all marks (without collapsing) |
+| `p` / `m` | copy / move marked items into the selected dir (or the selected file's parent); conflicts prompt overwrite-to-Trash vs keep-both |
 | `y` / `Y` | copy absolute / git-relative path |
 | `.` | toggle hidden files |
 | `i` | toggle gitignored files |
@@ -46,7 +55,7 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `r` | rename |
 | `d` | delete to Trash (confirms) |
 | `g` / `G`, `ctrl+u`/`ctrl+d` | top / bottom, half-page |
-| `H` | collapse all |
+| `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default editor; config reloads on exit |
 | `?` | help |
 | `q` | quit |

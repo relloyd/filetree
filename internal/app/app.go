@@ -54,9 +54,31 @@ type (
 		path string
 		err  error
 	}
+	transferDoneMsg struct {
+		kind   opKind
+		items  []string
+		target string
+		res    fsops.Result
+	}
 	clearStatusMsg struct{ seq int }
 	fuzzyCandsMsg  struct{ cands []string }
 )
+
+type opKind int
+
+const (
+	opTrash opKind = iota
+	opCopy
+	opMove
+)
+
+// pendingOp is a staged operation awaiting confirmation in modeConfirm.
+type pendingOp struct {
+	kind      opKind
+	items     []string // one path for trash; marked paths (in order) otherwise
+	targetDir string   // copy/move destination
+	conflicts int      // destinations that already exist
+}
 
 type Model struct {
 	cfg      *config.Config
@@ -80,10 +102,13 @@ type Model struct {
 	statuses      map[string]*gitx.RepoStatus // repo root -> parsed status
 	statusPending map[string]bool
 
-	mode        mode
-	input       textinput.Model
-	prompt      promptKind
-	confirmPath string
+	mode    mode
+	input   textinput.Model
+	prompt  promptKind
+	pending *pendingOp
+
+	marked    map[string]bool // absolute paths, session-only
+	markOrder []string        // oldest first; the tail feeds {marked1}/{marked2}
 
 	fuzzyCands   []string
 	fuzzyMatches []fuzzy.Match
@@ -119,6 +144,7 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 		repoRoots:     map[string]string{},
 		statuses:      map[string]*gitx.RepoStatus{},
 		statusPending: map[string]bool{},
+		marked:        map[string]bool{},
 		width:         80,
 		height:        24,
 		lastClickRow:  -1,
@@ -213,6 +239,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case trashDoneMsg:
 		return m.handleTrashDone(msg)
 
+	case transferDoneMsg:
+		return m.handleTransferDone(msg)
+
 	case clearStatusMsg:
 		if msg.seq == m.statusSeq {
 			m.statusMsg = ""
@@ -237,15 +266,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case modeConfirm:
-		switch s {
-		case "y", "enter":
-			path := m.confirmPath
-			m.mode, m.confirmPath = modeNormal, ""
-			return m, m.trashCmd(path)
-		case "n", "esc", "q":
-			m.mode, m.confirmPath = modeNormal, ""
-		}
-		return m, nil
+		return m.handleConfirmKey(s)
 
 	case modePrompt:
 		switch s {
@@ -313,6 +334,10 @@ func (m *Model) buildBindings() {
 		"collapse-all":   "H",
 		"edit-config":    "C",
 		"help":           "?",
+		"mark":           "space",
+		"clear-marks":    "esc",
+		"copy-here":      "p",
+		"move-here":      "m",
 	}
 	m.actionKeys = map[string]string{}
 	for action, key := range defaults {
@@ -338,6 +363,10 @@ func (m *Model) buildBindings() {
 		"collapse-all":   m.collapseAll,
 		"edit-config":    m.editConfig,
 		"help":           m.toggleHelp,
+		"mark":           m.toggleMark,
+		"clear-marks":    m.clearMarks,
+		"copy-here":      func() (tea.Model, tea.Cmd) { return m.stageTransfer(opCopy) },
+		"move-here":      func() (tea.Model, tea.Cmd) { return m.stageTransfer(opMove) },
 	}
 	for action, fn := range actions {
 		b[m.actionKeys[action]] = fn
