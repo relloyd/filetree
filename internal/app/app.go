@@ -398,14 +398,14 @@ func (m *Model) buildBindings() {
 		"quit":           "q",
 		"toggle-hidden":  ".",
 		"toggle-ignored": "i",
-		"reload":         "R",
+		"reload":         "", // F5 reloads; listed so [keys] can still bind one
 		"reveal":         "o",
 		"copy-abs":       "y",
 		"copy-rel":       "Y",
 		"fuzzy":          "/",
 		"new-file":       "a",
 		"new-dir":        "A",
-		"rename":         "r",
+		"rename":         "R",
 		"delete":         "d",
 		"collapse-all":   "H",
 		"edit-config":    "C",
@@ -415,7 +415,7 @@ func (m *Model) buildBindings() {
 		"copy-here":      "p",
 		"move-here":      "m",
 		"scratch":        "S",
-		"scratch-new":    "n",
+		"scratch-new":    "s",
 		"copy-url":       "u",
 		"open-url":       "U",
 		"worktrees":      "w",
@@ -457,7 +457,9 @@ func (m *Model) buildBindings() {
 		"worktree-new":   m.worktreeNew,
 	}
 	for action, fn := range actions {
-		b[m.actionKeys[action]] = fn
+		if key := m.actionKeys[action]; key != "" {
+			b[key] = fn
+		}
 	}
 
 	b["ctrl+c"] = m.quit

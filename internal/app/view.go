@@ -308,6 +308,10 @@ func (m *Model) renderFuzzy() string {
 
 func (m *Model) renderHelp() string {
 	type row struct{ key, desc string }
+	reloadKeys := "F5" // reload has no letter key unless [keys] gives it one
+	if k := m.actionKeys["reload"]; k != "" {
+		reloadKeys = k + " / F5"
+	}
 	rows := []row{
 		{"↑/k ↓/j", "move selection"},
 		{"←/h", "collapse / go to parent"},
@@ -326,7 +330,7 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["copy-url"] + " / " + m.actionKeys["open-url"], "copy web URL / open in browser (+copy)"},
 		{m.actionKeys["toggle-hidden"], "toggle hidden files"},
 		{m.actionKeys["toggle-ignored"], "toggle gitignored files"},
-		{m.actionKeys["reload"] + " / F5", "reload from disk"},
+		{reloadKeys, "reload from disk"},
 		{m.actionKeys["reveal"], "reveal in Finder"},
 		{m.actionKeys["fuzzy"], "fuzzy find"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},

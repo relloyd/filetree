@@ -92,7 +92,7 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   Replacer tries patterns in argument order). Commands run via `/bin/sh -c`
   with mode "interactive" (tea.ExecProcess suspends the TUI) or
   "background".
-- The scratch view (`S`/`n`) is plain re-rooting: `loadRoot` (internal/app)
+- The scratch view (`S`/`s`) is plain re-rooting: `loadRoot` (internal/app)
   swaps tree+state; per-root state files make each root remember its own
   expansion. `prevRoot` (session-only) powers the Esc/S return; Esc is
   layered — marks clear first, then the view returns.

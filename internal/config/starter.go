@@ -21,7 +21,7 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 # link_ref = "commit"      # ref for u/U web links: "commit" (permanent) or "branch"
 watch_debounce_ms = 150
 
-# Scratch files: "n" creates an empty YYYYMMDDHH.<extension> file here and
+# Scratch files: "s" creates an empty YYYYMMDDHH.<extension> file here and
 # opens it in the default command; "S" toggles the scratch view; Esc (with
 # no marks active) returns to the original root. Defaults shown.
 # [scratch]
@@ -82,13 +82,20 @@ run = 'tmux split-window -fh -c {root} "hx {path}"'
 mode = "background"
 key = "v"
 
+# Open a shell in a new full-height split at the right edge, in the
+# selection's directory ({dir} = the selection itself if it's a dir).
+[commands.shell-here]
+run = 'tmux split-window -fh -c {dir}'
+mode = "background"
+key = "n"
+
 # Prime a ripgrep at the selection's directory in the other tmux pane:
 # the search path is filled in and the cursor waits where the pattern goes.
 # Falls back to a fresh shell split at that directory.
 [commands.grep-here]
 run = 'tmux send-keys -t "{last}" "rg -n {dir} -e " 2>/dev/null || tmux split-window -h -c {dir}'
 mode = "background"
-key = "s"
+key = "r"
 
 # More examples — uncomment what you use:
 #
@@ -111,15 +118,23 @@ key = "s"
 # quit = "q"
 # toggle-hidden = "."
 # toggle-ignored = "i"
-# reload = "R"
+# reload = ""              # unbound: F5 always reloads; set a key to add one
 # reveal = "o"
 # copy-abs = "y"
 # copy-rel = "Y"
 # fuzzy = "/"
 # new-file = "a"
 # new-dir = "A"
-# rename = "r"
+# rename = "R"
 # delete = "d"
+# mark = "space"
+# clear-marks = "esc"
+# copy-here = "p"
+# move-here = "m"
+# copy-url = "u"
+# open-url = "U"
+# scratch = "S"
+# scratch-new = "s"
 # worktrees = "w"
 # worktree-new = "W"
 # collapse-all = "H"

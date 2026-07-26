@@ -620,6 +620,22 @@ func (m *Model) commitPrompt() (tea.Model, tea.Cmd) {
 	return m, m.afterFsMutation(target)
 }
 
+// selectPath puts the cursor on the row for an absolute path, when that path
+// is currently visible.
+func (m *Model) selectPath(path string) {
+	n := m.tr.FindByPath(path)
+	if n == nil {
+		return
+	}
+	for i, r := range m.rows {
+		if r.Node == n {
+			m.cursor = i
+			m.ensureVisible()
+			return
+		}
+	}
+}
+
 // afterFsMutation refreshes the parent of a changed path, reselects it, and
 // kicks a git status refresh.
 func (m *Model) afterFsMutation(target string) tea.Cmd {
@@ -630,15 +646,7 @@ func (m *Model) afterFsMutation(target string) tea.Cmd {
 	}
 	m.reflatten()
 	if target != "" {
-		if n := m.tr.FindByPath(target); n != nil {
-			for i, r := range m.rows {
-				if r.Node == n {
-					m.cursor = i
-					m.ensureVisible()
-					break
-				}
-			}
-		}
+		m.selectPath(target)
 	}
 	m.syncWatches()
 	m.saveState()
@@ -893,15 +901,7 @@ func (m *Model) scratchNew() (tea.Model, tea.Cmd) {
 		_ = m.tr.Refresh(m.tr.Root)
 		m.reflatten()
 	}
-	if n := m.tr.FindByPath(path); n != nil {
-		for i, r := range m.rows {
-			if r.Node == n {
-				m.cursor = i
-				m.ensureVisible()
-				break
-			}
-		}
-	}
+	m.selectPath(path)
 	m.saveState()
 
 	c, ok := m.cfg.Commands[m.cfg.DefaultCommand]
@@ -1073,19 +1073,56 @@ func worktreeNote(dest, ref string, newBranch bool) string {
 	return fmt.Sprintf("Worktree ready: %s (%s %s)", abbrevHome(dest), kind, ref)
 }
 
-// switchToWorktree re-roots into a worktree, remembering the original root
-// so Esc still returns there even after hopping between worktrees.
+// switchToWorktree lands in the worktrees view with dest revealed and
+// selected — the same place "w" takes you — rather than re-rooting into the
+// worktree itself. The original root is remembered once, so Esc still
+// returns to the project even after hopping between worktrees.
 func (m *Model) switchToWorktree(dest, text string) (tea.Model, tea.Cmd) {
-	prev := m.prevRoot
-	if prev == "" {
-		m.prevRoot = m.tr.Root.Path
+	wdir, err := m.worktreesDir()
+	if err != nil {
+		return m, m.note(err.Error(), true)
 	}
-	_, cmd := m.switchRoot(dest)
-	if m.tr.Root.Path != dest {
-		m.prevRoot = prev // the load failed; keep switchRoot's error note
-		return m, cmd
+	var cmds []tea.Cmd
+	if m.tr.Root.Path != wdir {
+		prev := m.prevRoot
+		if prev == "" {
+			m.prevRoot = m.tr.Root.Path
+		}
+		_, cmd := m.switchRoot(wdir)
+		if m.tr.Root.Path != wdir {
+			m.prevRoot = prev // the load failed; keep switchRoot's error note
+			return m, cmd
+		}
+		cmds = append(cmds, cmd)
+	} else {
+		// Already here: the new directory may predate the watcher's batch.
+		_ = m.tr.Refresh(m.tr.Root)
 	}
-	return m, tea.Batch(cmd, m.note(text, false))
+	cmds = append(cmds, m.revealPath(dest)...)
+	cmds = append(cmds, m.note(text, false))
+	return m, tea.Batch(cmds...)
+}
+
+// revealPath expands the tree down to an absolute path and selects it,
+// leaving the path itself collapsed. Directories on the way are refreshed so
+// a just-created entry is picked up before the watcher's batch arrives.
+func (m *Model) revealPath(path string) []tea.Cmd {
+	parent := filepath.Dir(path)
+	if n := m.tr.FindByPath(parent); n != nil && n.Loaded {
+		_ = m.tr.Refresh(n)
+	}
+	m.tr.ExpandRel(m.tr.Rel(parent))
+	m.reflatten()
+	m.selectPath(path)
+	m.syncWatches()
+	m.saveState()
+	cmds := m.ensureStatusesForExpanded()
+	// The revealed directory stays collapsed, so nothing else would read its
+	// status — and the status bar's branch segment comes from that read.
+	if c := m.ensureStatusCmd(path); c != nil {
+		cmds = append(cmds, c)
+	}
+	return cmds
 }
 
 // confirmWorktreeRemove stages a `git worktree remove` for a worktree root,

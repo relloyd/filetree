@@ -8,7 +8,7 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
 - Git aware: status colours (modified, staged, untracked, conflict), greyed
   gitignored entries, and a `•` marker on dirs containing changes.
 - Hot reload: expanded directories are watched (fsnotify); external changes
-  appear automatically. `R`/F5 forces a full reload.
+  appear automatically. F5 forces a full reload.
 - Copy the selection's path as **absolute** (`y`) or **relative to the
   closest parent git repo** (`Y`) — ready to paste into helix, rg, or fd.
 - Copy (`u`) or open-and-copy (`U`) the selection's **web URL** built from
@@ -27,7 +27,7 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   selection, and `d` trashes them. Overwrites go via the Trash; name
   clashes can keep both with `-1` suffixes. Moves across filesystems fall
   back to copy + Trash.
-- Scratch notes: `n` touches an empty `YYYYMMDDHH.md` in the scratch dir
+- Scratch notes: `s` touches an empty `YYYYMMDDHH.md` in the scratch dir
   (`[scratch]` in the config, default `~/.filetree/scratch`) and opens it
   in the default editor — quit and you're in the scratch tree with the
   file selected; `S`/Esc flips between scratch and your project. Marks are
@@ -36,14 +36,14 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
 - Git worktrees: `W` asks for a **branch name or PR number**, creates a
   worktree for the repo containing the selection under
   `~/.filetree/worktrees/<repo>/<branch>` (`[worktrees] dir` in the config)
-  and drops you straight into it; `w` toggles the worktrees view, Esc comes
-  back. A known branch is checked out, a remote-only one is fetched first,
+  then opens the worktrees view with the new worktree selected; `w` toggles
+  that view too, Esc comes back. A known branch is checked out, a remote-only one is fetched first,
   and an unknown name becomes a new branch off HEAD. `d` on a worktree root
   runs `git worktree remove` (offering `--force` when it has local changes)
   instead of trashing the directory.
 - The status bar shows `⎇ <branch>` for the repo containing the highlighted
   item (short commit hash when detached). It refreshes with git status, so a
-  bare `git checkout` elsewhere that touches no watched file needs `R`.
+  bare `git checkout` elsewhere that touches no watched file needs F5.
 - Mouse: wheel scrolls, click selects, chevron-click/double-click expands,
   double-click on a file runs the default command, header toggles are
   clickable.
@@ -73,17 +73,17 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `u` / `U` | copy the selection's web URL (GitHub-style, from the origin remote) / open it in the browser and copy |
 | `.` | toggle hidden files |
 | `i` | toggle gitignored files |
-| `R` / `F5` | reload from disk |
+| `F5` | reload from disk |
 | `o` | reveal in Finder |
 | `/` | fuzzy find (esc cancels, enter jumps) |
 | `a` / `A` | new file / new directory |
-| `r` | rename |
+| `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
 | `g` / `G`, `ctrl+u`/`ctrl+d` | top / bottom, half-page |
 | `S` | toggle the scratch view (and back) |
-| `n` | new scratch file (`YYYYMMDDHH.md`, pre-created empty) opened in the default editor |
+| `s` | new scratch file (`YYYYMMDDHH.md`, pre-created empty) opened in the default editor |
 | `w` | toggle the worktrees view (and back) |
-| `W` | new git worktree for the repo containing the selection, from a branch name or PR number — jumps into it |
+| `W` | new git worktree for the repo containing the selection, from a branch name or PR number — lands in the worktrees view with it selected |
 | `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default editor; config reloads on exit |
 | `?` | help |
@@ -97,7 +97,8 @@ their own keys; the starter config binds:
 | `e` | open the selection in helix — works on directories too (helix shows its file picker) |
 | `t` | smart hand-off to the previously-active tmux pane: opens the file in the helix already running there (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
 | `v` | open the selection in helix in a new full-height split at the right edge — repeatable, one pane per press |
-| `s` | prime an `rg` in the other tmux pane at the selection's directory |
+| `n` | open a shell in a new full-height split at the right edge, in the selection's directory |
+| `r` | prime an `rg` in the other tmux pane at the selection's directory |
 | `L` | open lazygit for the repo containing the selection (commented example in the starter) |
 
 Fuzzy find (`/`) matches fuzzy subsequences, not regexps; include `/` in

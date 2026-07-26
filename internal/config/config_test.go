@@ -31,6 +31,14 @@ func TestLoadStarter(t *testing.T) {
 	if h := cfg.Commands["handoff"]; h.Key != "t" || h.Mode != ModeBackground {
 		t.Errorf("handoff = %+v, want key t, background", h)
 	}
+	// Command keys must not collide with an action default: actions win, so a
+	// clash would silently shadow the command.
+	if g := cfg.Commands["grep-here"]; g.Key != "r" {
+		t.Errorf("grep-here key = %q, want r", g.Key)
+	}
+	if s := cfg.Commands["shell-here"]; s.Key != "n" || s.Mode != ModeBackground {
+		t.Errorf("shell-here = %+v, want key n, background", s)
+	}
 	if cfg.General.ShowHidden || !cfg.General.ShowIgnored {
 		t.Errorf("general toggles = %+v", cfg.General)
 	}
