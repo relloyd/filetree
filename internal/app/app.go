@@ -259,6 +259,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
+	case tea.PasteMsg:
+		return m.handlePaste(msg)
+
 	case tea.MouseClickMsg:
 		return m.handleClick(tea.Mouse(msg))
 
@@ -381,6 +384,23 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return fn()
 	}
 	return m, nil
+}
+
+// handlePaste feeds bracketed-paste text to the text input. A paste arrives as
+// one PasteMsg rather than as key presses, so it has to be routed separately
+// from handleKey or the clipboard is silently ignored in the fuzzy query and
+// the prompts. textinput collapses newlines and tabs to spaces itself, so
+// multi-line clipboard content stays on one line.
+func (m *Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
+	if m.mode != modeFuzzy && m.mode != modePrompt {
+		return m, nil // nothing is accepting text; a stray paste is not a command
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	if m.mode == modeFuzzy {
+		m.refuzzy()
+	}
+	return m, cmd
 }
 
 // buildBindings maps keys to actions: user command keys first, then
