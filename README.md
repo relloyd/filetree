@@ -53,7 +53,8 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
 
 ```sh
 go install ./cmd/ft
-ft [dir]   # defaults to the current directory
+ft [dir]                        # defaults to the current directory
+alias ft='tmux new-session ft'  # use with tmux to enable vsplit commands below
 ```
 
 First run writes a commented starter config to `~/.filetree/config.toml`.
@@ -89,8 +90,13 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `?` | help |
 | `q` | quit |
 
-Keys are remappable in the `[keys]` section of the config. Commands may bind
-their own keys; the starter config binds:
+Keys are remappable in the `[keys]` section of the config.
+
+## Commands
+
+Commands may bind their own keys; the starter config binds the following set:
+
+Use with `tmux` to enable most of these.
 
 | Key | Command |
 |---|---|
@@ -100,6 +106,8 @@ their own keys; the starter config binds:
 | `n` | open a shell in a new full-height split at the right edge, in the selection's directory |
 | `r` | prime an `rg` in the other tmux pane at the selection's directory |
 | `L` | open lazygit for the repo containing the selection (commented example in the starter) |
+
+## Fuzzy Find
 
 Fuzzy find (`/`) matches fuzzy subsequences, not regexps; include `/` in
 the query to constrain by path segments. Navigate results with `↑`/`↓`
