@@ -21,8 +21,8 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 # link_ref = "commit"      # ref for u/U web links: "commit" (permanent) or "branch"
 watch_debounce_ms = 150
 
-# Scratch files: "s" creates an empty YYYYMMDDHH.<extension> file here and
-# opens it in the default command; "S" toggles the scratch view; Esc (with
+# Scratch files: "S" creates an empty YYYYMMDDHH.<extension> file here and
+# opens it in the default command; "s" toggles the scratch view; Esc (with
 # no marks active) returns to the original root. Defaults shown.
 # [scratch]
 # dir = "~/.filetree/scratch"
@@ -133,8 +133,8 @@ key = "r"
 # move-here = "m"
 # copy-url = "u"
 # open-url = "U"
-# scratch = "S"
-# scratch-new = "s"
+# scratch = "s"
+# scratch-new = "S"
 # worktrees = "w"
 # worktree-new = "W"
 # collapse-all = "H"

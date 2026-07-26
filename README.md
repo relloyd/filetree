@@ -27,10 +27,10 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   selection, and `d` trashes them. Overwrites go via the Trash; name
   clashes can keep both with `-1` suffixes. Moves across filesystems fall
   back to copy + Trash.
-- Scratch notes: `s` touches an empty `YYYYMMDDHH.md` in the scratch dir
+- Scratch notes: `S` touches an empty `YYYYMMDDHH.md` in the scratch dir
   (`[scratch]` in the config, default `~/.filetree/scratch`) and opens it
   in the default editor — quit and you're in the scratch tree with the
-  file selected; `S`/Esc flips between scratch and your project. Marks are
+  file selected; `s`/Esc flips between scratch and your project. Marks are
   absolute paths, so you can mark scratch files and paste them into the
   project (or vice versa).
 - Git worktrees: `W` asks for a **branch name or PR number**, creates a
@@ -80,8 +80,8 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
 | `g` / `G`, `ctrl+u`/`ctrl+d` | top / bottom, half-page |
-| `S` | toggle the scratch view (and back) |
-| `s` | new scratch file (`YYYYMMDDHH.md`, pre-created empty) opened in the default editor |
+| `s` | toggle the scratch view (and back) |
+| `S` | new scratch file (`YYYYMMDDHH.md`, pre-created empty) opened in the default editor |
 | `w` | toggle the worktrees view (and back) |
 | `W` | new git worktree for the repo containing the selection, from a branch name or PR number — lands in the worktrees view with it selected |
 | `H` | collapse all (also clears marks) |

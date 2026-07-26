@@ -92,10 +92,10 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   Replacer tries patterns in argument order). Commands run via `/bin/sh -c`
   with mode "interactive" (tea.ExecProcess suspends the TUI) or
   "background".
-- The scratch view (`S`/`s`) is plain re-rooting: `loadRoot` (internal/app)
+- The scratch view (`s`/`S`) is plain re-rooting: `loadRoot` (internal/app)
   swaps tree+state; per-root state files make each root remember its own
-  expansion. `prevRoot` (session-only) powers the Esc/S return; Esc is
-  layered — marks clear first, then the view returns.
+  expansion. `prevRoot` (session-only) powers the Esc/toggle-key return; Esc
+  is layered — marks clear first, then the view returns.
 - Worktrees (`w`/`W`) reuse the same re-rooting: `<[worktrees] dir>/<repo
   basename>/<branch or pr-N>`. `internal/gitx/worktree.go` owns every git
   invocation (add/remove/fetch, linked-worktree detection, input parsing);
