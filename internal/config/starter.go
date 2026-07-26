@@ -23,6 +23,8 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 #                          # in a new tmux session (needs tmux on PATH) so the
 #                          # t/v/n/r split commands below work. "never": run as-is.
 #                          # "ft --no-tmux" turns it off for one run.
+# fuzzy_max_matches = 200  # how many "/" results are ranked and kept; raising
+#                          # it costs sort time on huge trees, not render time
 watch_debounce_ms = 150
 
 # Scratch files: "S" creates an empty YYYYMMDDHH.<extension> file here and

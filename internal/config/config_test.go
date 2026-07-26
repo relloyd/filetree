@@ -49,6 +49,10 @@ func TestLoadStarter(t *testing.T) {
 	if cfg.General.Tmux != tmux.ModeAuto {
 		t.Errorf("general.tmux = %q, want %q", cfg.General.Tmux, tmux.ModeAuto)
 	}
+	// fuzzy_max_matches is commented out in the starter, so the default applies.
+	if cfg.General.FuzzyMaxMatches != DefaultFuzzyMaxMatches {
+		t.Errorf("general.fuzzy_max_matches = %d, want %d", cfg.General.FuzzyMaxMatches, DefaultFuzzyMaxMatches)
+	}
 }
 
 func TestLoadValidation(t *testing.T) {
@@ -63,6 +67,18 @@ func TestLoadValidation(t *testing.T) {
 	}
 	if _, err := loadTOML(t, "[general]\ntmux = \"always\"\n"); err == nil {
 		t.Error("invalid tmux value should fail")
+	}
+	// A zero cap would leave the finder permanently empty; catch it at load.
+	if _, err := loadTOML(t, "[general]\nfuzzy_max_matches = 0\n"); err == nil {
+		t.Error("zero fuzzy_max_matches should fail")
+	}
+	if _, err := loadTOML(t, "[general]\nfuzzy_max_matches = -5\n"); err == nil {
+		t.Error("negative fuzzy_max_matches should fail")
+	}
+	if cfg, err := loadTOML(t, "[general]\nfuzzy_max_matches = 500\n"); err != nil {
+		t.Errorf("fuzzy_max_matches = 500 should load: %v", err)
+	} else if cfg.General.FuzzyMaxMatches != 500 {
+		t.Errorf("fuzzy_max_matches = %d, want 500", cfg.General.FuzzyMaxMatches)
 	}
 	if cfg, err := loadTOML(t, "[general]\ntmux = \"never\"\n"); err != nil {
 		t.Errorf("tmux = never should load: %v", err)

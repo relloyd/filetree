@@ -10,13 +10,22 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/sahilm/fuzzy"
 
+	"github.com/relloyd/filetree/internal/config"
 	"github.com/relloyd/filetree/internal/gitx"
 )
 
-const (
-	fuzzyWalkCap    = 50000
-	fuzzyMaxMatches = 100
-)
+const fuzzyWalkCap = 50000
+
+// fuzzyLimit is how many matches the finder ranks and keeps. It is read at use
+// time rather than cached so editing the config through "C" takes effect on
+// the next query, and it falls back to the default for models built without a
+// config (tests).
+func (m *Model) fuzzyLimit() int {
+	if m.cfg == nil || m.cfg.General.FuzzyMaxMatches < 1 {
+		return config.DefaultFuzzyMaxMatches
+	}
+	return m.cfg.General.FuzzyMaxMatches
+}
 
 func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
 	m.mode = modeFuzzy
@@ -120,18 +129,19 @@ func (m *Model) fuzzyWalkCmd(visible []string) tea.Cmd {
 
 func (m *Model) refuzzy() {
 	q := m.input.Value()
+	limit := m.fuzzyLimit()
 	if q == "" {
 		// Candidate order: what's on screen (tree order), then the BFS walk
 		// shallowest-first — so an empty query browses the visible tree.
-		n := min(fuzzyMaxMatches, len(m.fuzzyCands))
+		n := min(limit, len(m.fuzzyCands))
 		m.fuzzyMatches = make([]fuzzy.Match, n)
 		for i := range n {
 			m.fuzzyMatches[i] = fuzzy.Match{Str: m.fuzzyCands[i]}
 		}
 	} else {
 		matches := rerankMatches(q, fuzzy.Find(q, m.fuzzyCands), m.fuzzyVisible)
-		if len(matches) > fuzzyMaxMatches {
-			matches = matches[:fuzzyMaxMatches]
+		if len(matches) > limit {
+			matches = matches[:limit]
 		}
 		m.fuzzyMatches = matches
 	}

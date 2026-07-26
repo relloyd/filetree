@@ -1,9 +1,13 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 
+	"charm.land/bubbles/v2/textinput"
 	"github.com/sahilm/fuzzy"
+
+	"github.com/relloyd/filetree/internal/config"
 )
 
 // Shallow paths and exact basenames must beat deep vendored copies — the
@@ -96,5 +100,56 @@ func TestMoveFuzzySelScrollsWindow(t *testing.T) {
 func TestRerankEmpty(t *testing.T) {
 	if out := rerankMatches("x", nil, nil); len(out) != 0 {
 		t.Errorf("expected empty, got %v", out)
+	}
+}
+
+func limitModel(limit int) *Model {
+	m := &Model{
+		height: 40,
+		input:  textinput.New(),
+		cfg:    &config.Config{General: config.General{FuzzyMaxMatches: limit}},
+	}
+	for i := range 50 {
+		m.fuzzyCands = append(m.fuzzyCands, fmt.Sprintf("dir%02d/file.go", i))
+	}
+	return m
+}
+
+// general.fuzzy_max_matches caps both the empty-query browse list and real
+// search results.
+func TestFuzzyMaxMatchesCapsResults(t *testing.T) {
+	m := limitModel(5)
+
+	m.refuzzy() // empty query: the browse list
+	if len(m.fuzzyMatches) != 5 {
+		t.Errorf("empty-query matches = %d, want 5", len(m.fuzzyMatches))
+	}
+
+	m.input.SetValue("file.go") // matches all 50 candidates
+	m.refuzzy()
+	if len(m.fuzzyMatches) != 5 {
+		t.Errorf("query matches = %d, want 5", len(m.fuzzyMatches))
+	}
+}
+
+// A limit above the candidate count must not pad or panic.
+func TestFuzzyMaxMatchesAboveCandidateCount(t *testing.T) {
+	m := limitModel(1000)
+
+	m.refuzzy()
+	if len(m.fuzzyMatches) != 50 {
+		t.Errorf("empty-query matches = %d, want all 50 candidates", len(m.fuzzyMatches))
+	}
+}
+
+// Models built without a config (and configs predating the setting) fall back
+// to the default rather than capping at zero.
+func TestFuzzyLimitFallsBackToDefault(t *testing.T) {
+	if got := (&Model{}).fuzzyLimit(); got != config.DefaultFuzzyMaxMatches {
+		t.Errorf("nil cfg limit = %d, want %d", got, config.DefaultFuzzyMaxMatches)
+	}
+	m := &Model{cfg: &config.Config{}} // FuzzyMaxMatches zero-valued
+	if got := m.fuzzyLimit(); got != config.DefaultFuzzyMaxMatches {
+		t.Errorf("zero-valued limit = %d, want %d", got, config.DefaultFuzzyMaxMatches)
 	}
 }

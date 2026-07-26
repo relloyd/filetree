@@ -134,12 +134,13 @@ session automatically, so they work out of the box.
 Fuzzy find (`/`) matches fuzzy subsequences, not regexps; include `/` in
 the query to constrain by path segments. Navigate results with `↑`/`↓`
 (`ctrl+p`/`ctrl+n`), half-page with `ctrl+u`/`ctrl+d`, or the mouse wheel;
-the list scrolls with the selection and shows a `12/100` position counter. Ranking is screen-aware: entries
+the list scrolls with the selection and shows a `12/200` position counter. Ranking is screen-aware: entries
 currently visible in the tree outrank everything else, then shallow paths
 and basename matches beat equally-fuzzy deep ones. With an empty query the
 list shows exactly the visible tree entries in order, so `/` + cursor keys
 doubles as a quick jump list. Candidates come from a breadth-first walk, so
-top-level entries are always indexed even in huge roots.
+top-level entries are always indexed even in huge roots. At most 200 matches
+are kept — raise or lower that with `fuzzy_max_matches` under `[general]`.
 
 ## Config
 

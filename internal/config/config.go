@@ -28,6 +28,11 @@ const (
 	ModeBackground  = "background"  // fire and forget, errors to status bar
 )
 
+// DefaultFuzzyMaxMatches caps how many fuzzy-find results are ranked and kept.
+// The cost of raising it is the sort in rerankMatches, not the render, since
+// only a screenful is drawn.
+const DefaultFuzzyMaxMatches = 200
+
 // Command is a named, user-configured command run against the selection.
 type Command struct {
 	Run  string `toml:"run"`  // template; see ExpandCommand
@@ -41,6 +46,7 @@ type General struct {
 	Icons           string `toml:"icons"`    // "nerd" or "plain"
 	LinkRef         string `toml:"link_ref"` // web links pin to "commit" or "branch"
 	Tmux            string `toml:"tmux"`     // "auto" (relaunch inside tmux) or "never"
+	FuzzyMaxMatches int    `toml:"fuzzy_max_matches"`
 	WatchDebounceMs int    `toml:"watch_debounce_ms"`
 }
 
@@ -73,6 +79,7 @@ func Default() *Config {
 			Icons:           "nerd",
 			LinkRef:         "commit",
 			Tmux:            tmux.ModeAuto,
+			FuzzyMaxMatches: DefaultFuzzyMaxMatches,
 			WatchDebounceMs: 150,
 		},
 		Scratch: Scratch{
@@ -142,6 +149,11 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.General.Tmux != tmux.ModeAuto && cfg.General.Tmux != tmux.ModeNever {
 		return nil, fmt.Errorf("%s: general.tmux must be %q or %q", path, tmux.ModeAuto, tmux.ModeNever)
+	}
+	// A non-positive cap would mean the finder can never show a result, which
+	// is always a mistake rather than an intent worth honouring.
+	if cfg.General.FuzzyMaxMatches < 1 {
+		return nil, fmt.Errorf("%s: general.fuzzy_max_matches must be at least 1", path)
 	}
 	cfg.Scratch.Extension = strings.TrimPrefix(cfg.Scratch.Extension, ".")
 	if cfg.Scratch.Dir == "" {
