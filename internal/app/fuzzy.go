@@ -6,15 +6,43 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/sahilm/fuzzy"
 
 	"github.com/relloyd/filetree/internal/config"
 	"github.com/relloyd/filetree/internal/gitx"
+	"github.com/relloyd/filetree/internal/search"
 )
 
-const fuzzyWalkCap = 50000
+// The walk streams candidates to the model instead of delivering them in one
+// message: a filtered walk of a large root can take seconds, and results have
+// to appear as they are found. Chunks flush on size or on age, whichever comes
+// first, so a filter that matches rarely still shows its first hits promptly.
+const (
+	fuzzyChunkSize  = 512
+	fuzzyFlushEvery = 80 * time.Millisecond
+)
+
+// finderField identifies which of the finder's input lines has focus.
+type finderField int
+
+const (
+	fieldQuery finderField = iota // fuzzy name query
+	fieldType                     // file-type filter (globs)
+	finderFieldCount
+)
+
+// fuzzyChunk is one batch of candidates from the walker goroutine. The final
+// chunk of a walk has done set, and truncated when the candidate cap stopped
+// it early.
+type fuzzyChunk struct {
+	cands     []string
+	done      bool
+	truncated bool
+}
 
 // fuzzyLimit is how many matches the finder ranks and keeps. It is read at use
 // time rather than cached so editing the config through "C" takes effect on
@@ -27,17 +55,29 @@ func (m *Model) fuzzyLimit() int {
 	return m.cfg.General.FuzzyMaxMatches
 }
 
+// fuzzyMaxCands caps how many candidates the walk records. With a type filter
+// set the cap is rarely reached, which is the point: filtering during the walk
+// is what lets a huge root be searched to its leaves.
+func (m *Model) fuzzyMaxCands() int {
+	if m.cfg == nil || m.cfg.General.FuzzyMaxCandidates < 1 {
+		return config.DefaultFuzzyMaxCandidates
+	}
+	return m.cfg.General.FuzzyMaxCandidates
+}
+
 func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
 	m.mode = modeFuzzy
 	m.input.Reset()
-	m.fuzzyCands = nil
-	m.fuzzyMatches = nil
-	m.fuzzySel, m.fuzzyScroll = 0, 0
+	m.typeInput.Reset()
+	m.typeInput.Blur()
+	m.finderField = fieldQuery
+	m.fuzzyFilter, m.fuzzyFilterErr, m.fuzzyFilterRaw = search.Filter{}, "", ""
+	m.fuzzyQuery = ""
 	// Snapshot what is on screen: visible entries seed the candidate list
 	// (in tree order, so an empty query browses exactly what you see) and
 	// get a ranking bonus — if you can see it, typing its name finds it.
 	m.fuzzyVisible = map[string]bool{}
-	var visOrder []string
+	m.fuzzyVisOrder = nil
 	for _, r := range m.rows {
 		if r.Node == m.tr.Root {
 			continue
@@ -45,112 +85,296 @@ func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
 		rel := m.tr.Rel(r.Node.Path)
 		if !m.fuzzyVisible[rel] {
 			m.fuzzyVisible[rel] = true
-			visOrder = append(visOrder, rel)
+			m.fuzzyVisOrder = append(m.fuzzyVisOrder, rel)
 		}
 	}
-	return m, tea.Batch(m.input.Focus(), m.fuzzyWalkCmd(visOrder))
+	return m, tea.Batch(m.input.Focus(), m.restartFuzzyWalk())
 }
 
-// fuzzyWalkCmd gathers candidate paths in the background, honouring the
-// current hidden/ignored toggles. The walk is breadth-first so that when the
-// candidate cap is hit in a huge root, shallow entries are always indexed —
-// a top-level dir can never be crowded out by a deep subtree. Only data
-// captured here is touched from the goroutine; git lookups use a snapshot of
-// loaded statuses.
-func (m *Model) fuzzyWalkCmd(visible []string) tea.Cmd {
-	root := m.tr.Root.Path
-	showHidden, showIgnored := m.showHidden, m.showIgnored
+// walkParams is everything the walker goroutine needs, captured by value so it
+// touches no model state. Git lookups use a snapshot of loaded statuses.
+type walkParams struct {
+	root        string
+	visible     []string
+	filter      search.Filter
+	showHidden  bool
+	showIgnored bool
+	statuses    map[string]*gitx.RepoStatus
+	max         int
+}
+
+// restartFuzzyWalk cancels any walk in flight and starts a fresh one for the
+// current filter, returning the command that receives its first chunk. Every
+// walk carries a generation so chunks from an abandoned one can be dropped.
+func (m *Model) restartFuzzyWalk() tea.Cmd {
+	m.stopFuzzyWalk()
+	m.fuzzyGen++
+	m.fuzzyCands = nil
+	m.fuzzyAll = nil
+	m.fuzzyMatches = nil
+	m.fuzzySel, m.fuzzyScroll = 0, 0
+	m.fuzzyTrunc = false
+	m.fuzzyWalking = true
+
 	statuses := make(map[string]*gitx.RepoStatus, len(m.statuses))
 	for k, v := range m.statuses {
 		statuses[k] = v
 	}
+	p := walkParams{
+		root:        m.tr.Root.Path,
+		visible:     append([]string(nil), m.fuzzyVisOrder...),
+		filter:      m.fuzzyFilter,
+		showHidden:  m.showHidden,
+		showIgnored: m.showIgnored,
+		statuses:    statuses,
+		max:         m.fuzzyMaxCands(),
+	}
+
+	ch := make(chan fuzzyChunk, 4)
+	cancel := make(chan struct{})
+	m.fuzzyWalk, m.fuzzyCancel = ch, cancel
+	go walkCandidates(p, ch, cancel)
+	return waitFuzzyWalk(ch, m.fuzzyGen)
+}
+
+// stopFuzzyWalk tells the walker goroutine to stop. Abandoning a search of a
+// huge root must stop the syscalls, not just ignore their results.
+func (m *Model) stopFuzzyWalk() {
+	if m.fuzzyCancel != nil {
+		close(m.fuzzyCancel)
+		m.fuzzyCancel = nil
+	}
+	m.fuzzyWalk = nil
+	m.fuzzyWalking = false
+}
+
+// waitFuzzyWalk receives one chunk, mirroring waitFs: the Update handler
+// re-arms it until the walk reports done.
+func waitFuzzyWalk(ch <-chan fuzzyChunk, gen int) tea.Cmd {
 	return func() tea.Msg {
-		// Visible entries first (tree order), and guaranteed present even if
-		// the walk cap truncates the rest.
-		seen := make(map[string]bool, len(visible))
-		cands := make([]string, 0, 1024)
-		for _, rel := range visible {
-			seen[rel] = true
-			cands = append(cands, rel)
+		c, ok := <-ch
+		if !ok {
+			return nil
 		}
-		repoRoots := map[string]string{}
-		rootFor := func(dir string) string {
-			if r, ok := repoRoots[dir]; ok {
-				return r
-			}
-			r := gitx.FindRepoRoot(dir)
-			repoRoots[dir] = r
-			return r
-		}
-		type qitem struct {
-			abs string
-			rel string
-		}
-		queue := []qitem{{abs: root, rel: ""}}
-	walk:
-		for len(queue) > 0 {
-			it := queue[0]
-			queue = queue[1:]
-			entries, err := os.ReadDir(it.abs)
-			if err != nil {
-				continue
-			}
-			repo := rootFor(it.abs)
-			for _, de := range entries {
-				name := de.Name()
-				isDir := de.IsDir() // symlinked dirs report false and are not descended
-				if name == ".git" && isDir {
-					continue
-				}
-				if !showHidden && strings.HasPrefix(name, ".") {
-					continue
-				}
-				abs := filepath.Join(it.abs, name)
-				if !showIgnored && repo != "" {
-					if st := statuses[repo]; st != nil && st.CodeFor(gitx.RelPath(repo, abs), isDir) == gitx.Ignored {
-						continue
-					}
-				}
-				rel := path.Join(it.rel, name)
-				if !seen[rel] {
-					cands = append(cands, rel)
-				}
-				if len(cands) >= fuzzyWalkCap {
-					break walk
-				}
-				if isDir {
-					queue = append(queue, qitem{abs: abs, rel: rel})
-				}
-			}
-		}
-		return fuzzyCandsMsg{cands: cands}
+		return fuzzyCandsMsg{gen: gen, cands: c.cands, done: c.done, truncated: c.truncated}
 	}
 }
 
-func (m *Model) refuzzy() {
+// walkCandidates gathers candidate paths breadth-first, honouring the current
+// hidden/ignored toggles and the type filter. Breadth-first means that when
+// the candidate cap is hit in a huge root, shallow entries are always indexed
+// — a top-level dir can never be crowded out by a deep subtree. Directories
+// are descended regardless of the filter; only what gets *recorded* is
+// filtered, so "*.hcl" reaches the leaves of a tree it could never index whole.
+func walkCandidates(p walkParams, out chan<- fuzzyChunk, cancel <-chan struct{}) {
+	defer close(out)
+
+	seen := make(map[string]bool, 1024)
+	buf := make([]string, 0, fuzzyChunkSize)
+	total := 0
+	truncated := false
+	last := time.Now()
+
+	// emit blocks until the chunk is taken or the walk is cancelled; it
+	// reports whether the walk should continue.
+	emit := func(done bool) bool {
+		select {
+		case out <- fuzzyChunk{cands: buf, done: done, truncated: truncated}:
+			buf = make([]string, 0, fuzzyChunkSize)
+			last = time.Now()
+			return true
+		case <-cancel:
+			return false
+		}
+	}
+	add := func(rel string) {
+		if seen[rel] || !p.filter.Match(rel) {
+			return
+		}
+		seen[rel] = true
+		buf = append(buf, rel)
+		total++
+	}
+
+	// Visible entries first (tree order), and guaranteed present even if the
+	// cap truncates the rest.
+	for _, rel := range p.visible {
+		add(rel)
+	}
+
+	repoRoots := map[string]string{}
+	rootFor := func(dir string) string {
+		if r, ok := repoRoots[dir]; ok {
+			return r
+		}
+		r := gitx.FindRepoRoot(dir)
+		repoRoots[dir] = r
+		return r
+	}
+	type qitem struct {
+		abs string
+		rel string
+	}
+	queue := []qitem{{abs: p.root, rel: ""}}
+	for len(queue) > 0 {
+		select {
+		case <-cancel:
+			return
+		default:
+		}
+		it := queue[0]
+		queue = queue[1:]
+		entries, err := os.ReadDir(it.abs)
+		if err != nil {
+			continue
+		}
+		repo := rootFor(it.abs)
+		for _, de := range entries {
+			name := de.Name()
+			isDir := de.IsDir() // symlinked dirs report false and are not descended
+			if name == ".git" && isDir {
+				continue
+			}
+			if !p.showHidden && strings.HasPrefix(name, ".") {
+				continue
+			}
+			abs := filepath.Join(it.abs, name)
+			if !p.showIgnored && repo != "" {
+				if st := p.statuses[repo]; st != nil && st.CodeFor(gitx.RelPath(repo, abs), isDir) == gitx.Ignored {
+					continue
+				}
+			}
+			rel := path.Join(it.rel, name)
+			add(rel)
+			if isDir {
+				queue = append(queue, qitem{abs: abs, rel: rel})
+			}
+		}
+		// The cap is checked between directories, never mid-listing: a
+		// half-indexed directory is worse than a smaller complete one.
+		if total >= p.max {
+			truncated = true
+			break
+		}
+		if len(buf) >= fuzzyChunkSize || (len(buf) > 0 && time.Since(last) >= fuzzyFlushEvery) {
+			if !emit(false) {
+				return
+			}
+		}
+	}
+	emit(true)
+}
+
+// addFuzzyCands folds a streamed chunk into the current results without
+// re-matching what has already been seen.
+func (m *Model) addFuzzyCands(chunk []string) {
+	if len(chunk) == 0 {
+		return
+	}
+	m.fuzzyCands = append(m.fuzzyCands, chunk...)
 	q := m.input.Value()
-	limit := m.fuzzyLimit()
 	if q == "" {
-		// Candidate order: what's on screen (tree order), then the BFS walk
-		// shallowest-first — so an empty query browses the visible tree.
-		n := min(limit, len(m.fuzzyCands))
-		m.fuzzyMatches = make([]fuzzy.Match, n)
-		for i := range n {
-			m.fuzzyMatches[i] = fuzzy.Match{Str: m.fuzzyCands[i]}
+		// Browse order: the candidate order itself. Only a screenful is ever
+		// needed, so stop building the list once it is past the limit.
+		if limit := m.fuzzyLimit(); len(m.fuzzyAll) < limit {
+			for _, c := range chunk[:min(len(chunk), limit-len(m.fuzzyAll))] {
+				m.fuzzyAll = append(m.fuzzyAll, fuzzy.Match{Str: c})
+			}
 		}
 	} else {
-		matches := rerankMatches(q, fuzzy.Find(q, m.fuzzyCands), m.fuzzyVisible)
-		if len(matches) > limit {
-			matches = matches[:limit]
-		}
-		m.fuzzyMatches = matches
+		m.fuzzyAll = rerankMatches(q, append(m.fuzzyAll, fuzzy.Find(q, chunk)...), m.fuzzyVisible)
 	}
+	m.applyFuzzyLimit()
+}
+
+// refuzzy recomputes the match list for the current query. A query that
+// extends the previous one can only shrink the match set (fuzzy matching is
+// subsequence matching), so it is re-run over the previous matches rather than
+// over every candidate — which is what keeps typing responsive on a large
+// corpus.
+func (m *Model) refuzzy() {
+	q, prev := m.input.Value(), m.fuzzyQuery
+	m.fuzzyQuery = q
+	switch {
+	case q == "":
+		n := min(m.fuzzyLimit(), len(m.fuzzyCands))
+		m.fuzzyAll = make([]fuzzy.Match, n)
+		for i := range n {
+			m.fuzzyAll[i] = fuzzy.Match{Str: m.fuzzyCands[i]}
+		}
+	case prev != "" && strings.HasPrefix(q, prev):
+		pool := make([]string, len(m.fuzzyAll))
+		for i, mt := range m.fuzzyAll {
+			pool[i] = mt.Str
+		}
+		m.fuzzyAll = rerankMatches(q, fuzzy.Find(q, pool), m.fuzzyVisible)
+	default:
+		m.fuzzyAll = rerankMatches(q, fuzzy.Find(q, m.fuzzyCands), m.fuzzyVisible)
+	}
+	m.applyFuzzyLimit()
 	m.fuzzySel, m.fuzzyScroll = 0, 0
 }
 
-// fuzzyVisibleRows is how many match lines fit under the input line.
+// applyFuzzyLimit publishes the capped view of the match list, keeping the
+// selection valid as results stream in underneath it.
+func (m *Model) applyFuzzyLimit() {
+	if limit := m.fuzzyLimit(); len(m.fuzzyAll) > limit {
+		m.fuzzyMatches = m.fuzzyAll[:limit]
+	} else {
+		m.fuzzyMatches = m.fuzzyAll
+	}
+	m.fuzzySel = clamp(m.fuzzySel, 0, max(0, len(m.fuzzyMatches)-1))
+	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.fuzzyMatches)-m.fuzzyVisibleRows()))
+}
+
+// applyTypeFilter recompiles the type filter and restarts the walk, since the
+// filter is applied while walking. A malformed glob leaves the previous
+// results in place and reports itself in the finder header. Keys that only
+// move the cursor leave the text alone and must not restart anything.
+func (m *Model) applyTypeFilter() tea.Cmd {
+	if m.typeInput.Value() == m.fuzzyFilterRaw {
+		return nil
+	}
+	m.fuzzyFilterRaw = m.typeInput.Value()
+	f, err := search.CompileFilter(m.typeInput.Value())
+	if err != nil {
+		m.fuzzyFilterErr = err.Error()
+		return nil
+	}
+	m.fuzzyFilterErr = ""
+	m.fuzzyFilter = f
+	return m.restartFuzzyWalk()
+}
+
+// cycleFinderField moves focus between the finder's input lines.
+func (m *Model) cycleFinderField(delta int) tea.Cmd {
+	n := int(finderFieldCount)
+	m.finderField = finderField((int(m.finderField) + delta + n) % n)
+	m.input.Blur()
+	m.typeInput.Blur()
+	return m.finderInput().Focus()
+}
+
+// finderInput is the input line that currently has focus.
+func (m *Model) finderInput() *textinput.Model {
+	if m.finderField == fieldType {
+		return &m.typeInput
+	}
+	return &m.input
+}
+
+// fuzzyVisibleRows is how many match lines fit under the finder's input lines.
 func (m *Model) fuzzyVisibleRows() int {
-	return max(1, m.treeHeight()-1)
+	return max(1, m.treeHeight()-m.finderHeaderLines())
+}
+
+// finderHeaderLines is how many rows the input area occupies: the type filter
+// gets its own line, shown once it is focused or non-empty.
+func (m *Model) finderHeaderLines() int {
+	if m.finderField == fieldType || m.typeInput.Value() != "" {
+		return 2
+	}
+	return 1
 }
 
 // moveFuzzySel moves the fuzzy selection by delta, scrolling the list so
@@ -224,6 +448,7 @@ func rerankMatches(query string, matches []fuzzy.Match, visible map[string]bool)
 // centres the view on it.
 func (m *Model) fuzzyJump() (tea.Model, tea.Cmd) {
 	m.mode = modeNormal
+	m.stopFuzzyWalk()
 	if m.fuzzySel < 0 || m.fuzzySel >= len(m.fuzzyMatches) {
 		return m, nil
 	}

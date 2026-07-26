@@ -25,7 +25,23 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 #                          # "ft --no-tmux" turns it off for one run.
 # fuzzy_max_matches = 200  # how many "/" results are ranked and kept; raising
 #                          # it costs sort time on huge trees, not render time
+# fuzzy_max_candidates = 50000
+#                          # how many paths the "/" walk indexes before it
+#                          # stops. Rarely reached with a Type filter set,
+#                          # since the filter is applied while walking.
 watch_debounce_ms = 150
+
+# The "/" finder has two input lines; "tab" moves between them.
+#   Find:  fuzzy subsequence over paths (include "/" to pin path segments)
+#   Type:  comma-separated file-type globs, applied while walking, so a
+#          filtered search reaches the leaves of a tree too big to index whole
+#          hcl              *.hcl, or a file named exactly "hcl"
+#          .hcl             *.hcl
+#          terragrunt.hcl   that basename, anywhere in the tree
+#          *.tf             matched against the basename
+#          infra/**/*.hcl   matched against the whole path ("**" spans dirs)
+#          !vendor/**       a leading "!" excludes
+# With a Type filter and an empty Find, the list is every file of that type.
 
 # Scratch files: "S" creates an empty YYYYMMDDHH.<extension> file here and
 # opens it in the default command; "s" toggles the scratch view; Esc (with
@@ -129,6 +145,8 @@ key = "r"
 # copy-abs = "y"
 # copy-rel = "Y"
 # fuzzy = "/"
+# finder-next-field = "tab"        # move between the "/" finder's input lines
+# finder-prev-field = "shift+tab"
 # new-file = "a"
 # new-dir = "A"
 # rename = "R"

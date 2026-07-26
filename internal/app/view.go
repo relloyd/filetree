@@ -271,14 +271,50 @@ func (m *Model) renderConfirm() string {
 		styleTitle.Render(" [o]verwrite (to Trash) · [k]eep both · [n]o")
 }
 
+// renderFinderHeader draws the finder's input lines: the fuzzy query always,
+// and the type filter once it is focused or non-empty. It returns exactly
+// finderHeaderLines() lines so the match list below it lines up.
+func (m *Model) renderFinderHeader() []string {
+	label := func(text string, f finderField) string {
+		if m.finderField == f {
+			return styleTitle.Render(text)
+		}
+		return styleDim.Render(text)
+	}
+	lines := []string{label(" Find: ", fieldQuery) + m.input.View() + m.renderFinderCounter()}
+	if m.finderHeaderLines() > 1 {
+		line := label(" Type: ", fieldType) + m.typeInput.View()
+		if m.fuzzyFilterErr != "" {
+			line += styleError.Render("  " + m.fuzzyFilterErr)
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// renderFinderCounter is the position indicator: "12/200", with "…" while the
+// walk is still running and "+" when it stopped at the candidate cap.
+func (m *Model) renderFinderCounter() string {
+	if len(m.fuzzyMatches) == 0 {
+		if m.fuzzyWalking {
+			return styleDim.Render("  …")
+		}
+		return ""
+	}
+	s := fmt.Sprintf("  %d/%d", m.fuzzySel+1, len(m.fuzzyMatches))
+	switch {
+	case m.fuzzyWalking:
+		s += "…"
+	case m.fuzzyTrunc:
+		s += "+"
+	}
+	return styleDim.Render(s)
+}
+
 func (m *Model) renderFuzzy() string {
 	h := m.treeHeight()
 	lines := make([]string, 0, h)
-	counter := ""
-	if len(m.fuzzyMatches) > 0 {
-		counter = styleDim.Render(fmt.Sprintf("  %d/%d", m.fuzzySel+1, len(m.fuzzyMatches)))
-	}
-	lines = append(lines, styleTitle.Render(" Find: ")+m.input.View()+counter)
+	lines = append(lines, m.renderFinderHeader()...)
 	for i := m.fuzzyScroll; i < len(m.fuzzyMatches) && len(lines) < h; i++ {
 		mt := m.fuzzyMatches[i]
 		matched := make(map[int]bool, len(mt.MatchedIndexes))
@@ -333,6 +369,7 @@ func (m *Model) renderHelp() string {
 		{reloadKeys, "reload from disk"},
 		{m.actionKeys["reveal"], "reveal in Finder"},
 		{m.actionKeys["fuzzy"], "fuzzy find"},
+		{m.actionKeys["finder-next-field"], "in the finder: switch Find / Type field"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
 		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},

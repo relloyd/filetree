@@ -99,6 +99,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `F5` | reload from disk |
 | `o` | reveal in Finder |
 | `/` | fuzzy find (esc cancels, enter jumps) |
+| `tab` | in the finder: switch between the `Find:` and `Type:` fields |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -131,16 +132,36 @@ session automatically, so they work out of the box.
 
 ## Fuzzy Find
 
-Fuzzy find (`/`) matches fuzzy subsequences, not regexps; include `/` in
-the query to constrain by path segments. Navigate results with `↑`/`↓`
+Fuzzy find (`/`) has two input lines; `tab` (`shift+tab`) moves between them.
+
+**`Find:`** matches fuzzy subsequences, not regexps; include `/` in the query
+to constrain by path segments. Navigate results with `↑`/`↓`
 (`ctrl+p`/`ctrl+n`), half-page with `ctrl+u`/`ctrl+d`, or the mouse wheel;
-the list scrolls with the selection and shows a `12/200` position counter. Ranking is screen-aware: entries
-currently visible in the tree outrank everything else, then shallow paths
-and basename matches beat equally-fuzzy deep ones. With an empty query the
-list shows exactly the visible tree entries in order, so `/` + cursor keys
-doubles as a quick jump list. Candidates come from a breadth-first walk, so
-top-level entries are always indexed even in huge roots. At most 200 matches
-are kept — raise or lower that with `fuzzy_max_matches` under `[general]`.
+the list scrolls with the selection and shows a `12/200` position counter
+(`…` while the walk is still running, `+` if it stopped at the candidate cap).
+Ranking is screen-aware: entries currently visible in the tree outrank
+everything else, then shallow paths and basename matches beat equally-fuzzy
+deep ones. With an empty query the list shows exactly the visible tree entries
+in order, so `/` + cursor keys doubles as a quick jump list.
+
+**`Type:`** narrows by file type, as a comma-separated list of globs:
+
+| Typed | Matches |
+|---|---|
+| `hcl` | `*.hcl`, or a file named exactly `hcl` |
+| `.hcl` | `*.hcl` |
+| `terragrunt.hcl` | that basename, anywhere in the tree |
+| `*.tf` | matched against the basename |
+| `infra/**/*.hcl` | matched against the whole path (`**` spans directories) |
+| `!vendor/**` | a leading `!` excludes |
+
+The filter is applied **while walking**, not to the results, which is what
+makes it useful on a large root: `Type: terragrunt.hcl` with an empty `Find:`
+lists every one of them in a monorepo far too big to index whole. Candidates
+come from a breadth-first walk, so top-level entries are always indexed even
+in huge roots, and the walk stops as soon as you leave the finder. At most 200
+matches are kept (`fuzzy_max_matches` under `[general]`) out of at most 50,000
+indexed paths (`fuzzy_max_candidates`).
 
 ## Config
 

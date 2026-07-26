@@ -33,6 +33,11 @@ const (
 // only a screenful is drawn.
 const DefaultFuzzyMaxMatches = 200
 
+// DefaultFuzzyMaxCandidates caps how many paths the finder's walk records.
+// With a type filter set the cap is rarely reached — filtering happens during
+// the walk, so "*.hcl" indexes a tree far larger than this many entries.
+const DefaultFuzzyMaxCandidates = 50000
+
 // Command is a named, user-configured command run against the selection.
 type Command struct {
 	Run  string `toml:"run"`  // template; see ExpandCommand
@@ -41,13 +46,14 @@ type Command struct {
 }
 
 type General struct {
-	ShowHidden      bool   `toml:"show_hidden"`
-	ShowIgnored     bool   `toml:"show_ignored"`
-	Icons           string `toml:"icons"`    // "nerd" or "plain"
-	LinkRef         string `toml:"link_ref"` // web links pin to "commit" or "branch"
-	Tmux            string `toml:"tmux"`     // "auto" (relaunch inside tmux) or "never"
-	FuzzyMaxMatches int    `toml:"fuzzy_max_matches"`
-	WatchDebounceMs int    `toml:"watch_debounce_ms"`
+	ShowHidden         bool   `toml:"show_hidden"`
+	ShowIgnored        bool   `toml:"show_ignored"`
+	Icons              string `toml:"icons"`    // "nerd" or "plain"
+	LinkRef            string `toml:"link_ref"` // web links pin to "commit" or "branch"
+	Tmux               string `toml:"tmux"`     // "auto" (relaunch inside tmux) or "never"
+	FuzzyMaxMatches    int    `toml:"fuzzy_max_matches"`
+	FuzzyMaxCandidates int    `toml:"fuzzy_max_candidates"`
+	WatchDebounceMs    int    `toml:"watch_debounce_ms"`
 }
 
 // Scratch configures the scratch-file directory ("n" / "S" keys).
@@ -74,13 +80,14 @@ type Config struct {
 func Default() *Config {
 	return &Config{
 		General: General{
-			ShowHidden:      false,
-			ShowIgnored:     true,
-			Icons:           "nerd",
-			LinkRef:         "commit",
-			Tmux:            tmux.ModeAuto,
-			FuzzyMaxMatches: DefaultFuzzyMaxMatches,
-			WatchDebounceMs: 150,
+			ShowHidden:         false,
+			ShowIgnored:        true,
+			Icons:              "nerd",
+			LinkRef:            "commit",
+			Tmux:               tmux.ModeAuto,
+			FuzzyMaxMatches:    DefaultFuzzyMaxMatches,
+			FuzzyMaxCandidates: DefaultFuzzyMaxCandidates,
+			WatchDebounceMs:    150,
 		},
 		Scratch: Scratch{
 			Dir:       "~/.filetree/scratch",
@@ -154,6 +161,9 @@ func Load(path string) (*Config, error) {
 	// is always a mistake rather than an intent worth honouring.
 	if cfg.General.FuzzyMaxMatches < 1 {
 		return nil, fmt.Errorf("%s: general.fuzzy_max_matches must be at least 1", path)
+	}
+	if cfg.General.FuzzyMaxCandidates < 1 {
+		return nil, fmt.Errorf("%s: general.fuzzy_max_candidates must be at least 1", path)
 	}
 	cfg.Scratch.Extension = strings.TrimPrefix(cfg.Scratch.Extension, ".")
 	if cfg.Scratch.Dir == "" {

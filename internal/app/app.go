@@ -15,6 +15,7 @@ import (
 	"github.com/relloyd/filetree/internal/fsops"
 	"github.com/relloyd/filetree/internal/gitx"
 	"github.com/relloyd/filetree/internal/platform"
+	"github.com/relloyd/filetree/internal/search"
 	"github.com/relloyd/filetree/internal/state"
 	"github.com/relloyd/filetree/internal/tree"
 )
@@ -82,7 +83,15 @@ type (
 		err    error
 	}
 	clearStatusMsg struct{ seq int }
-	fuzzyCandsMsg  struct{ cands []string }
+	// fuzzyCandsMsg is one streamed chunk of finder candidates. gen identifies
+	// the walk that produced it so chunks from an abandoned search can be
+	// dropped instead of resetting the current one.
+	fuzzyCandsMsg struct {
+		gen       int
+		cands     []string
+		done      bool
+		truncated bool
+	}
 )
 
 type opKind int
@@ -142,11 +151,29 @@ type Model struct {
 	marked    map[string]bool // absolute paths, session-only
 	markOrder []string        // oldest first; the tail feeds {marked1}/{marked2}
 
-	fuzzyCands   []string
-	fuzzyMatches []fuzzy.Match
-	fuzzySel     int
-	fuzzyScroll  int             // first visible match row
-	fuzzyVisible map[string]bool // rows on screen when fuzzy started
+	// Finder state. typeInput holds the file-type filter; finderField says
+	// which input line has focus.
+	typeInput   textinput.Model
+	finderField finderField
+
+	fuzzyCands    []string
+	fuzzyAll      []fuzzy.Match // matches before the display cap
+	fuzzyMatches  []fuzzy.Match // what the list shows, capped
+	fuzzyQuery    string        // query the current matches were built from
+	fuzzySel      int
+	fuzzyScroll   int             // first visible match row
+	fuzzyVisible  map[string]bool // rows on screen when fuzzy started
+	fuzzyVisOrder []string        // same rows, in tree order
+
+	fuzzyFilter    search.Filter
+	fuzzyFilterRaw string // filter text the current walk was started with
+	fuzzyFilterErr string
+
+	fuzzyGen     int // identifies the current walk; stale chunks are dropped
+	fuzzyWalk    chan fuzzyChunk
+	fuzzyCancel  chan struct{} // closed to stop the walker goroutine
+	fuzzyWalking bool
+	fuzzyTrunc   bool // the walk stopped at the candidate cap
 
 	statusMsg string
 	statusErr bool
@@ -183,6 +210,9 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 
 	m.input = textinput.New()
 	m.input.SetVirtualCursor(true)
+	m.typeInput = textinput.New()
+	m.typeInput.SetVirtualCursor(true)
+	m.typeInput.Placeholder = "hcl, *.tf, infra/**/*.yaml"
 
 	m.buildBindings()
 
@@ -252,6 +282,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.input.SetWidth(min(60, max(10, msg.Width-10)))
+		m.typeInput.SetWidth(min(60, max(10, msg.Width-10)))
 		m.clampScroll()
 		m.ensureVisible()
 		return m, nil
@@ -323,9 +354,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fuzzyCandsMsg:
-		m.fuzzyCands = msg.cands
-		m.refuzzy()
-		return m, nil
+		// A walk abandoned by esc, enter, or a changed filter keeps streaming
+		// until it notices the cancel; its chunks must not land in the search
+		// that replaced it.
+		if msg.gen != m.fuzzyGen || m.mode != modeFuzzy {
+			return m, nil
+		}
+		m.addFuzzyCands(msg.cands)
+		if msg.done {
+			m.fuzzyWalking, m.fuzzyTrunc = false, msg.truncated
+			return m, nil
+		}
+		return m, waitFuzzyWalk(m.fuzzyWalk, msg.gen)
 	}
 	return m, nil
 }
@@ -357,6 +397,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case modeFuzzy:
 		switch s {
 		case "esc":
+			m.stopFuzzyWalk()
 			m.mode = modeNormal
 			return m, nil
 		case "enter":
@@ -373,11 +414,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "ctrl+d", "pgdown":
 			m.moveFuzzySel(m.fuzzyVisibleRows() / 2)
 			return m, nil
+		case m.actionKeys["finder-next-field"]:
+			return m, m.cycleFinderField(1)
+		case m.actionKeys["finder-prev-field"]:
+			return m, m.cycleFinderField(-1)
 		}
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(msg)
-		m.refuzzy()
-		return m, cmd
+		return m.updateFinderInput(msg)
 	}
 
 	if fn, ok := m.bindings[s]; ok {
@@ -395,11 +437,24 @@ func (m *Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	if m.mode != modeFuzzy && m.mode != modePrompt {
 		return m, nil // nothing is accepting text; a stray paste is not a command
 	}
+	if m.mode == modeFuzzy {
+		return m.updateFinderInput(msg)
+	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
-	if m.mode == modeFuzzy {
-		m.refuzzy()
+	return m, cmd
+}
+
+// updateFinderInput feeds a key or paste to the focused finder field and
+// recomputes whatever that field drives.
+func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	if m.finderField == fieldType {
+		m.typeInput, cmd = m.typeInput.Update(msg)
+		return m, tea.Batch(cmd, m.applyTypeFilter())
 	}
+	m.input, cmd = m.input.Update(msg)
+	m.refuzzy()
 	return m, cmd
 }
 
@@ -423,23 +478,28 @@ func (m *Model) buildBindings() {
 		"copy-abs":       "y",
 		"copy-rel":       "Y",
 		"fuzzy":          "/",
-		"new-file":       "a",
-		"new-dir":        "A",
-		"rename":         "R",
-		"delete":         "d",
-		"collapse-all":   "H",
-		"edit-config":    "C",
-		"help":           "?",
-		"mark":           "space",
-		"clear-marks":    "esc",
-		"copy-here":      "p",
-		"move-here":      "m",
-		"scratch":        "s",
-		"scratch-new":    "S",
-		"copy-url":       "u",
-		"open-url":       "U",
-		"worktrees":      "w",
-		"worktree-new":   "W",
+		// Finder-local: cycles the "/" input lines. Listed here so [keys] can
+		// remap it, but deliberately absent from the actions map below —
+		// m.bindings is normal-mode only.
+		"finder-next-field": "tab",
+		"finder-prev-field": "shift+tab",
+		"new-file":          "a",
+		"new-dir":           "A",
+		"rename":            "R",
+		"delete":            "d",
+		"collapse-all":      "H",
+		"edit-config":       "C",
+		"help":              "?",
+		"mark":              "space",
+		"clear-marks":       "esc",
+		"copy-here":         "p",
+		"move-here":         "m",
+		"scratch":           "s",
+		"scratch-new":       "S",
+		"copy-url":          "u",
+		"open-url":          "U",
+		"worktrees":         "w",
+		"worktree-new":      "W",
 	}
 	m.actionKeys = map[string]string{}
 	for action, key := range defaults {
