@@ -38,6 +38,11 @@ const DefaultFuzzyMaxMatches = 200
 // the walk, so "*.hcl" indexes a tree far larger than this many entries.
 const DefaultFuzzyMaxCandidates = 50000
 
+// DefaultFuzzyGrepMaxPerFile caps how many content matches the finder takes
+// from any one file, so a generated or minified file cannot fill the list.
+// A configured 0 means no limit.
+const DefaultFuzzyGrepMaxPerFile = 5
+
 // Command is a named, user-configured command run against the selection.
 type Command struct {
 	Run  string `toml:"run"`  // template; see ExpandCommand
@@ -46,14 +51,15 @@ type Command struct {
 }
 
 type General struct {
-	ShowHidden         bool   `toml:"show_hidden"`
-	ShowIgnored        bool   `toml:"show_ignored"`
-	Icons              string `toml:"icons"`    // "nerd" or "plain"
-	LinkRef            string `toml:"link_ref"` // web links pin to "commit" or "branch"
-	Tmux               string `toml:"tmux"`     // "auto" (relaunch inside tmux) or "never"
-	FuzzyMaxMatches    int    `toml:"fuzzy_max_matches"`
-	FuzzyMaxCandidates int    `toml:"fuzzy_max_candidates"`
-	WatchDebounceMs    int    `toml:"watch_debounce_ms"`
+	ShowHidden          bool   `toml:"show_hidden"`
+	ShowIgnored         bool   `toml:"show_ignored"`
+	Icons               string `toml:"icons"`    // "nerd" or "plain"
+	LinkRef             string `toml:"link_ref"` // web links pin to "commit" or "branch"
+	Tmux                string `toml:"tmux"`     // "auto" (relaunch inside tmux) or "never"
+	FuzzyMaxMatches     int    `toml:"fuzzy_max_matches"`
+	FuzzyMaxCandidates  int    `toml:"fuzzy_max_candidates"`
+	FuzzyGrepMaxPerFile int    `toml:"fuzzy_grep_max_per_file"`
+	WatchDebounceMs     int    `toml:"watch_debounce_ms"`
 }
 
 // Scratch configures the scratch-file directory ("n" / "S" keys).
@@ -80,14 +86,15 @@ type Config struct {
 func Default() *Config {
 	return &Config{
 		General: General{
-			ShowHidden:         false,
-			ShowIgnored:        true,
-			Icons:              "nerd",
-			LinkRef:            "commit",
-			Tmux:               tmux.ModeAuto,
-			FuzzyMaxMatches:    DefaultFuzzyMaxMatches,
-			FuzzyMaxCandidates: DefaultFuzzyMaxCandidates,
-			WatchDebounceMs:    150,
+			ShowHidden:          false,
+			ShowIgnored:         true,
+			Icons:               "nerd",
+			LinkRef:             "commit",
+			Tmux:                tmux.ModeAuto,
+			FuzzyMaxMatches:     DefaultFuzzyMaxMatches,
+			FuzzyMaxCandidates:  DefaultFuzzyMaxCandidates,
+			FuzzyGrepMaxPerFile: DefaultFuzzyGrepMaxPerFile,
+			WatchDebounceMs:     150,
 		},
 		Scratch: Scratch{
 			Dir:       "~/.filetree/scratch",
@@ -164,6 +171,11 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.General.FuzzyMaxCandidates < 1 {
 		return nil, fmt.Errorf("%s: general.fuzzy_max_candidates must be at least 1", path)
+	}
+	// Zero is meaningful here — it means "every match in a file" — so only a
+	// negative value is a mistake.
+	if cfg.General.FuzzyGrepMaxPerFile < 0 {
+		return nil, fmt.Errorf("%s: general.fuzzy_grep_max_per_file must not be negative", path)
 	}
 	cfg.Scratch.Extension = strings.TrimPrefix(cfg.Scratch.Extension, ".")
 	if cfg.Scratch.Dir == "" {

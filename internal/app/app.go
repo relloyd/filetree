@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"time"
@@ -92,6 +93,17 @@ type (
 		done      bool
 		truncated bool
 	}
+	// grepDebounceMsg fires once the Grep field has been quiet long enough to
+	// be worth spawning ripgrep for.
+	grepDebounceMsg struct{ gen int }
+	// grepResultMsg is one batch of content matches, generation-guarded the
+	// same way as fuzzyCandsMsg.
+	grepResultMsg struct {
+		gen  int
+		hits []search.Hit
+		done bool
+		err  error
+	}
 )
 
 type opKind int
@@ -175,6 +187,19 @@ type Model struct {
 	fuzzyWalking bool
 	fuzzyTrunc   bool // the walk stopped at the candidate cap
 
+	// Content search: grepInput non-empty switches the result list from file
+	// names to matching lines. grepRows indexes grepHits after the Find query
+	// has narrowed them.
+	grepInput   textinput.Model
+	grepHits    []search.Hit
+	grepRows    []int
+	grepRaw     string // pattern the current search was started with
+	grepErr     string
+	grepGen     int
+	grepCh      chan search.Result
+	grepCancel  context.CancelFunc
+	grepRunning bool
+
 	statusMsg string
 	statusErr bool
 	statusSeq int
@@ -213,6 +238,9 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 	m.typeInput = textinput.New()
 	m.typeInput.SetVirtualCursor(true)
 	m.typeInput.Placeholder = "hcl, *.tf, infra/**/*.yaml"
+	m.grepInput = textinput.New()
+	m.grepInput.SetVirtualCursor(true)
+	m.grepInput.Placeholder = "regexp searched with ripgrep"
 
 	m.buildBindings()
 
@@ -283,6 +311,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.input.SetWidth(min(60, max(10, msg.Width-10)))
 		m.typeInput.SetWidth(min(60, max(10, msg.Width-10)))
+		m.grepInput.SetWidth(min(60, max(10, msg.Width-10)))
 		m.clampScroll()
 		m.ensureVisible()
 		return m, nil
@@ -366,6 +395,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, waitFuzzyWalk(m.fuzzyWalk, msg.gen)
+
+	case grepDebounceMsg:
+		if msg.gen != m.grepGen || m.mode != modeFuzzy || !m.grepping() {
+			return m, nil
+		}
+		return m, m.startGrep(msg.gen)
+
+	case grepResultMsg:
+		if msg.gen != m.grepGen || m.mode != modeFuzzy {
+			return m, nil
+		}
+		m.addGrepHits(msg.hits)
+		if msg.done {
+			m.grepRunning = false
+			if msg.err != nil {
+				m.grepErr = msg.err.Error()
+			}
+			return m, nil
+		}
+		return m, waitGrep(m.grepCh, msg.gen)
 	}
 	return m, nil
 }
@@ -398,6 +447,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch s {
 		case "esc":
 			m.stopFuzzyWalk()
+			m.stopGrep()
 			m.mode = modeNormal
 			return m, nil
 		case "enter":
@@ -449,13 +499,18 @@ func (m *Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 // recomputes whatever that field drives.
 func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	if m.finderField == fieldType {
+	switch m.finderField {
+	case fieldType:
 		m.typeInput, cmd = m.typeInput.Update(msg)
 		return m, tea.Batch(cmd, m.applyTypeFilter())
+	case fieldGrep:
+		m.grepInput, cmd = m.grepInput.Update(msg)
+		return m, tea.Batch(cmd, m.applyGrep())
+	default:
+		m.input, cmd = m.input.Update(msg)
+		m.refuzzy()
+		return m, cmd
 	}
-	m.input, cmd = m.input.Update(msg)
-	m.refuzzy()
-	return m, cmd
 }
 
 // buildBindings maps keys to actions: user command keys first, then

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/relloyd/filetree/internal/gitx"
 	"github.com/relloyd/filetree/internal/icons"
+	"github.com/relloyd/filetree/internal/search"
 	"github.com/relloyd/filetree/internal/tree"
 )
 
@@ -282,10 +284,20 @@ func (m *Model) renderFinderHeader() []string {
 		return styleDim.Render(text)
 	}
 	lines := []string{label(" Find: ", fieldQuery) + m.input.View() + m.renderFinderCounter()}
-	if m.finderHeaderLines() > 1 {
+	if m.finderField == fieldType || m.typeInput.Value() != "" {
 		line := label(" Type: ", fieldType) + m.typeInput.View()
 		if m.fuzzyFilterErr != "" {
 			line += styleError.Render("  " + m.fuzzyFilterErr)
+		}
+		lines = append(lines, line)
+	}
+	if m.finderField == fieldGrep || m.grepInput.Value() != "" {
+		line := label(" Grep: ", fieldGrep) + m.grepInput.View()
+		switch {
+		case m.grepErr != "":
+			line += styleError.Render("  " + m.grepErr)
+		case m.grepRunning:
+			line += styleDim.Render("  searching…")
 		}
 		lines = append(lines, line)
 	}
@@ -295,17 +307,22 @@ func (m *Model) renderFinderHeader() []string {
 // renderFinderCounter is the position indicator: "12/200", with "…" while the
 // walk is still running and "+" when it stopped at the candidate cap.
 func (m *Model) renderFinderCounter() string {
-	if len(m.fuzzyMatches) == 0 {
-		if m.fuzzyWalking {
+	busy := m.fuzzyWalking
+	if m.grepping() {
+		busy = m.grepRunning
+	}
+	n := m.finderLen()
+	if n == 0 {
+		if busy {
 			return styleDim.Render("  …")
 		}
 		return ""
 	}
-	s := fmt.Sprintf("  %d/%d", m.fuzzySel+1, len(m.fuzzyMatches))
+	s := fmt.Sprintf("  %d/%d", m.fuzzySel+1, n)
 	switch {
-	case m.fuzzyWalking:
+	case busy:
 		s += "…"
-	case m.fuzzyTrunc:
+	case m.fuzzyTrunc && !m.grepping():
 		s += "+"
 	}
 	return styleDim.Render(s)
@@ -315,6 +332,15 @@ func (m *Model) renderFuzzy() string {
 	h := m.treeHeight()
 	lines := make([]string, 0, h)
 	lines = append(lines, m.renderFinderHeader()...)
+	if m.grepping() {
+		for i := m.fuzzyScroll; i < len(m.grepRows) && len(lines) < h; i++ {
+			lines = append(lines, m.renderGrepRow(m.grepHits[m.grepRows[i]], i == m.fuzzySel))
+		}
+		for len(lines) < h {
+			lines = append(lines, "")
+		}
+		return strings.Join(lines, "\n")
+	}
 	for i := m.fuzzyScroll; i < len(m.fuzzyMatches) && len(lines) < h; i++ {
 		mt := m.fuzzyMatches[i]
 		matched := make(map[int]bool, len(mt.MatchedIndexes))
@@ -340,6 +366,24 @@ func (m *Model) renderFuzzy() string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderGrepRow draws one content match as "path:line  matched text". The
+// location is what enter acts on, so it is never truncated: the matched line
+// takes whatever width is left over.
+func (m *Model) renderGrepRow(h search.Hit, selected bool) string {
+	prefix := "   "
+	if selected {
+		prefix = styleTitle.Render(" > ")
+	}
+	at := ":" + strconv.Itoa(h.Line)
+	line := prefix + h.Path + styleDim.Render(at)
+	if room := m.width - 3 - lipgloss.Width(h.Path) - len(at) - 2; room > 0 {
+		if text := strings.TrimSpace(h.Text); text != "" {
+			line += "  " + styleDim.Render(truncate(text, room))
+		}
+	}
+	return styleBase.MaxWidth(m.width).Render(line)
 }
 
 func (m *Model) renderHelp() string {
@@ -369,7 +413,7 @@ func (m *Model) renderHelp() string {
 		{reloadKeys, "reload from disk"},
 		{m.actionKeys["reveal"], "reveal in Finder"},
 		{m.actionKeys["fuzzy"], "fuzzy find"},
-		{m.actionKeys["finder-next-field"], "in the finder: switch Find / Type field"},
+		{m.actionKeys["finder-next-field"], "in the finder: cycle Find / Type / Grep"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
 		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},

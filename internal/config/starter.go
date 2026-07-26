@@ -29,9 +29,13 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 #                          # how many paths the "/" walk indexes before it
 #                          # stops. Rarely reached with a Type filter set,
 #                          # since the filter is applied while walking.
+# fuzzy_grep_max_per_file = 5
+#                          # matches taken from any one file by the Grep
+#                          # field, so a generated file can't fill the list;
+#                          # 0 means no limit
 watch_debounce_ms = 150
 
-# The "/" finder has two input lines; "tab" moves between them.
+# The "/" finder has three input lines; "tab" cycles them.
 #   Find:  fuzzy subsequence over paths (include "/" to pin path segments)
 #   Type:  comma-separated file-type globs, applied while walking, so a
 #          filtered search reaches the leaves of a tree too big to index whole
@@ -41,6 +45,9 @@ watch_debounce_ms = 150
 #          *.tf             matched against the basename
 #          infra/**/*.hcl   matched against the whole path ("**" spans dirs)
 #          !vendor/**       a leading "!" excludes
+#   Grep:  a regexp searched inside the files Type selected (needs ripgrep).
+#          Rows become "path:line  matched text"; enter still jumps to the
+#          file. Type + Grep together are the "fd ... | rg ..." combination.
 # With a Type filter and an empty Find, the list is every file of that type.
 
 # Scratch files: "S" creates an empty YYYYMMDDHH.<extension> file here and

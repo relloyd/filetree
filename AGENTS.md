@@ -43,11 +43,13 @@ internal/app/       Bubble Tea model — the heart of the tool
   actions.go        navigation, toggles, clipboard, file ops, command exec
   view.go           rendering: header (clickable toggles), tree, status bar
   mouse.go          wheel/click/double-click, header hit-testing
-  fuzzy.go          candidate walk (BFS) + screen-aware ranking
+  fuzzy.go          candidate walk (BFS, streamed) + screen-aware ranking
+  grep.go           content-search mode: debounce, hit list, Find narrowing
   git.go            per-repo status cache plumbing
 internal/tree/      pure tree model: lazy nodes, expand/collapse, flatten
 internal/fsops/     directory listing + fsnotify watcher (debounced batches)
 internal/gitx/      repo discovery, `git status --porcelain -z --ignored` parsing
+internal/search/    finder file-type filter (pure) + the ripgrep integration
 internal/config/    TOML config, command templates + shell quoting, starter
 internal/state/     per-root JSON persistence (expansion, selection, toggles)
 internal/icons/     Nerd Font glyphs; table.go is GENERATED — see below
@@ -65,6 +67,15 @@ Design rules that keep this maintainable:
 - OS-specific behaviour goes behind `platform.Platform` in
   `platform_<goos>.go` files with build tags — never inline `exec.Command`
   for OS integrations elsewhere.
+- Each external *tool* gets one package that owns every invocation of it:
+  `internal/gitx` for `git`, `internal/search` for `rg`. Argument building
+  and output parsing stay pure and table-tested (`search/args.go`,
+  `search/parse.go`); the process spawn lives alone (`search/exec.go`). The
+  app only sequences them in async `tea.Cmd`s.
+- The finder's file-type filter is compiled once, in `internal/search`, and
+  used by both the walk (`Filter.Match`) and ripgrep (`Filter.Globs` becomes
+  `-g` args) — so a filtered file list and a filtered content search can never
+  disagree about which files are in scope.
 - Web links (`u`/`U`): `internal/gitx/link.go` owns remote-URL
   normalisation and URL building (pure, table-tested); `platform.OpenURL`
   owns the browser.
@@ -120,7 +131,8 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
 
 ## Testing a TUI change for real
 
-Unit tests cover tree/gitx/config/state/fuzzy logic. For end-to-end checks,
+Unit tests cover tree/gitx/config/state/search/fuzzy logic. Tests that need
+ripgrep skip when it is absent (`search.Available`). For end-to-end checks,
 drive the real binary:
 
 - Plain pty: `script -q /tmp/out sh -c 'stty rows 30 cols 90; ./ft <dir>'`

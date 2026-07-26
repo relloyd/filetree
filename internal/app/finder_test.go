@@ -1,18 +1,24 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/sahilm/fuzzy"
 
 	"github.com/relloyd/filetree/internal/config"
+	"github.com/relloyd/filetree/internal/fsops"
+	"github.com/relloyd/filetree/internal/gitx"
 	"github.com/relloyd/filetree/internal/search"
+	"github.com/relloyd/filetree/internal/state"
+	"github.com/relloyd/filetree/internal/tree"
 )
 
 // fixtureTree builds a root with a handful of terragrunt.hcl files buried
@@ -166,13 +172,41 @@ func TestWalkStopsWhenCancelled(t *testing.T) {
 
 func finderModel() *Model {
 	m := &Model{
-		height:    40,
-		mode:      modeFuzzy,
-		input:     textinput.New(),
-		typeInput: textinput.New(),
-		cfg:       &config.Config{General: config.General{FuzzyMaxMatches: 200}},
+		height:        40,
+		mode:          modeFuzzy,
+		input:         textinput.New(),
+		typeInput:     textinput.New(),
+		grepInput:     textinput.New(),
+		cfg:           &config.Config{General: config.General{FuzzyMaxMatches: 200}},
+		repoRoots:     map[string]string{},
+		statuses:      map[string]*gitx.RepoStatus{},
+		branches:      map[string]string{},
+		statusPending: map[string]bool{},
+		marked:        map[string]bool{},
+		showIgnored:   true,
 	}
 	m.buildActionKeysForTest()
+	return m
+}
+
+// rootedModel is a finder model backed by a real tree, for the tests that
+// walk, search, and jump for real.
+func rootedModel(t *testing.T, root string) *Model {
+	t.Helper()
+	m := finderModel()
+	m.stateDir = t.TempDir()
+	m.st = state.Load(m.stateDir, root)
+	w, err := fsops.NewWatcher(10 * time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.Close)
+	m.watcher = w
+	m.tr = tree.New(root, fsops.ReadDir)
+	if err := m.tr.Expand(m.tr.Root); err != nil {
+		t.Fatal(err)
+	}
+	m.reflatten()
 	return m
 }
 
@@ -221,29 +255,29 @@ func TestWalkChunksIgnoredOutsideFinder(t *testing.T) {
 	}
 }
 
-// Tab moves between the finder's input lines and each field keeps its text.
+// Tab cycles the finder's input lines and each field keeps its text.
 func TestCycleFinderFieldKeepsText(t *testing.T) {
 	m := finderModel()
 	m.input.SetValue("terragr")
 	m.typeInput.SetValue("hcl")
+	m.grepInput.SetValue("dependency")
 
 	if m.finderField != fieldQuery {
 		t.Fatalf("initial field = %d", m.finderField)
 	}
-	m.cycleFinderField(1)
-	if m.finderField != fieldType {
-		t.Errorf("after tab, field = %d, want fieldType", m.finderField)
-	}
-	m.cycleFinderField(1)
-	if m.finderField != fieldQuery {
-		t.Errorf("tab wrapped to %d, want fieldQuery", m.finderField)
+	for i, want := range []finderField{fieldType, fieldGrep, fieldQuery} {
+		m.cycleFinderField(1)
+		if m.finderField != want {
+			t.Errorf("tab %d landed on field %d, want %d", i+1, m.finderField, want)
+		}
 	}
 	m.cycleFinderField(-1)
-	if m.finderField != fieldType {
-		t.Errorf("shift+tab went to %d, want fieldType", m.finderField)
+	if m.finderField != fieldGrep {
+		t.Errorf("shift+tab went to %d, want fieldGrep", m.finderField)
 	}
-	if m.input.Value() != "terragr" || m.typeInput.Value() != "hcl" {
-		t.Errorf("cycling lost text: %q / %q", m.input.Value(), m.typeInput.Value())
+	if m.input.Value() != "terragr" || m.typeInput.Value() != "hcl" || m.grepInput.Value() != "dependency" {
+		t.Errorf("cycling lost text: %q / %q / %q",
+			m.input.Value(), m.typeInput.Value(), m.grepInput.Value())
 	}
 }
 
@@ -376,6 +410,247 @@ func TestFinderTabIsHandledInFuzzyMode(t *testing.T) {
 	m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	if m.finderField != fieldType {
 		t.Errorf("tab in the finder left the field at %d", m.finderField)
+	}
+}
+
+// --- content mode ---
+
+func hits(paths ...string) []search.Hit {
+	out := make([]search.Hit, len(paths))
+	for i, p := range paths {
+		out[i] = search.Hit{Path: p, Line: i + 1, Text: "dependency \"vpc\""}
+	}
+	return out
+}
+
+// Content mode is derived from the Grep field rather than being a mode of its
+// own, so the single modeFuzzy arm in View and handleKey still covers it.
+func TestGreppingIsDerivedFromTheField(t *testing.T) {
+	m := finderModel()
+	if m.grepping() {
+		t.Error("an empty Grep field should not be content mode")
+	}
+	m.grepInput.SetValue("dependency")
+	if !m.grepping() {
+		t.Error("a non-empty Grep field should be content mode")
+	}
+}
+
+// The Type filter picks the files, the pattern picks the lines, and the Find
+// query narrows which of them are listed — the fd-then-rg combination.
+func TestFindQueryNarrowsContentHits(t *testing.T) {
+	m := finderModel()
+	m.grepInput.SetValue("dependency")
+	m.addGrepHits(hits("infra/prod/terragrunt.hcl", "infra/stage/terragrunt.hcl", "modules/vpc/main.tf"))
+
+	if got := m.finderLen(); got != 3 {
+		t.Fatalf("rows with no query = %d, want 3", got)
+	}
+	m.input.SetValue("prod")
+	m.refuzzy()
+	if got := m.finderLen(); got != 1 {
+		t.Fatalf("rows for query %q = %d, want 1", "prod", got)
+	}
+	if got := m.finderPath(0); got != "infra/prod/terragrunt.hcl" {
+		t.Errorf("row 0 = %q", got)
+	}
+
+	// Clearing the query brings them all back.
+	m.input.SetValue("")
+	m.refuzzy()
+	if got := m.finderLen(); got != 3 {
+		t.Errorf("rows after clearing the query = %d, want 3", got)
+	}
+}
+
+// Enter acts on the file; the line number is context for choosing, not a
+// destination.
+func TestFinderPathUsesContentHits(t *testing.T) {
+	m := finderModel()
+	m.grepInput.SetValue("x")
+	m.addGrepHits(hits("a/one.go", "b/two.go"))
+
+	if got := m.finderPath(1); got != "b/two.go" {
+		t.Errorf("finderPath(1) = %q, want b/two.go", got)
+	}
+	if got := m.finderPath(9); got != "" {
+		t.Errorf("out-of-range finderPath = %q, want empty", got)
+	}
+	if got := m.finderPath(-1); got != "" {
+		t.Errorf("negative finderPath = %q, want empty", got)
+	}
+}
+
+// One file full of matches must not crowd out every other file.
+func TestGrepHitsRespectTheDisplayCap(t *testing.T) {
+	m := finderModel()
+	m.cfg.General.FuzzyMaxMatches = 3
+	m.grepInput.SetValue("x")
+
+	m.addGrepHits(hits("a.go", "b.go"))
+	m.addGrepHits(hits("c.go", "d.go", "e.go"))
+	if got := len(m.grepHits); got != 3 {
+		t.Errorf("hits kept = %d, want the cap of 3", got)
+	}
+}
+
+// A search abandoned by retyping the pattern must not deliver into its
+// replacement.
+func TestStaleGrepResultsAreDropped(t *testing.T) {
+	m := finderModel()
+	m.grepInput.SetValue("dependency")
+	m.grepGen = 2
+
+	m.Update(grepResultMsg{gen: 1, hits: hits("stale.go"), done: true})
+	if len(m.grepHits) != 0 {
+		t.Errorf("stale hits were accepted: %v", m.grepHits)
+	}
+
+	m.Update(grepResultMsg{gen: 2, hits: hits("fresh.go"), done: true})
+	if len(m.grepHits) != 1 || m.grepHits[0].Path != "fresh.go" {
+		t.Errorf("current hits = %v, want fresh.go", m.grepHits)
+	}
+	if m.grepRunning {
+		t.Error("a done result left the search marked as running")
+	}
+}
+
+// ripgrep's own errors (a half-typed regex, most often) have to reach the user.
+func TestGrepErrorIsReported(t *testing.T) {
+	m := finderModel()
+	m.grepInput.SetValue("(")
+	m.grepGen = 1
+	m.Update(grepResultMsg{gen: 1, done: true, err: errors.New("regex parse error")})
+	if m.grepErr != "regex parse error" {
+		t.Errorf("grepErr = %q, want the ripgrep message", m.grepErr)
+	}
+}
+
+// Retyping the pattern invalidates the search in flight rather than mixing its
+// results into the new one.
+func TestRetypingThePatternInvalidatesTheSearch(t *testing.T) {
+	m := finderModel()
+	m.grepInput.SetValue("dep")
+	first := m.scheduleGrep()
+	if first == nil {
+		t.Fatal("scheduleGrep returned no command for a non-empty pattern")
+	}
+	gen := m.grepGen
+
+	m.grepInput.SetValue("depe")
+	m.scheduleGrep()
+	if m.grepGen == gen {
+		t.Error("retyping did not start a new generation")
+	}
+
+	// The first debounce firing is now stale and must not spawn ripgrep.
+	m.Update(grepDebounceMsg{gen: gen})
+	if m.grepCh != nil {
+		t.Error("a stale debounce started a search")
+	}
+}
+
+// Clearing the Grep field leaves content mode without scheduling anything.
+func TestClearingTheGrepFieldEndsContentMode(t *testing.T) {
+	m := finderModel()
+	m.grepInput.SetValue("dependency")
+	m.addGrepHits(hits("a.go"))
+	m.grepInput.SetValue("")
+
+	if cmd := m.scheduleGrep(); cmd != nil {
+		t.Error("an empty pattern scheduled a search")
+	}
+	if m.grepping() {
+		t.Error("still in content mode with an empty pattern")
+	}
+	if len(m.grepHits) != 0 {
+		t.Errorf("hits survived leaving content mode: %v", m.grepHits)
+	}
+}
+
+// Each field in use costs a line of the result list.
+func TestFinderHeaderGrowsWithEachField(t *testing.T) {
+	m := finderModel()
+	base := m.finderHeaderLines()
+	if base != 1 {
+		t.Fatalf("header with only Find = %d lines, want 1", base)
+	}
+	m.typeInput.SetValue("hcl")
+	if got := m.finderHeaderLines(); got != 2 {
+		t.Errorf("header with Type = %d lines, want 2", got)
+	}
+	m.grepInput.SetValue("dependency")
+	if got := m.finderHeaderLines(); got != 3 {
+		t.Errorf("header with Type and Grep = %d lines, want 3", got)
+	}
+}
+
+// The whole pipeline over a real tree and a real ripgrep: the filter selects
+// the files, the pattern selects the lines, and enter reveals the file.
+func TestContentSearchEndToEnd(t *testing.T) {
+	if !search.Available() {
+		t.Skip("ripgrep not installed")
+	}
+	root := t.TempDir()
+	write := func(rel, body string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("infra/prod/terragrunt.hcl", "dependency \"vpc\" {}\n")
+	write("infra/dev/terragrunt.hcl", "locals {}\n")
+	write("notes.md", "dependency notes\n")
+
+	m := rootedModel(t, root)
+
+	f, err := search.CompileFilter("hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.fuzzyFilter = f
+	m.grepInput.SetValue("dependency")
+	m.grepGen = 1
+
+	// Drive the search to completion the way Update would.
+	m.startGrep(1)
+	for {
+		r, ok := <-m.grepCh
+		if !ok {
+			break
+		}
+		m.addGrepHits(r.Hits)
+		if r.Done {
+			if r.Err != nil {
+				t.Fatalf("search failed: %v", r.Err)
+			}
+			break
+		}
+	}
+
+	if m.finderLen() != 1 {
+		var got []string
+		for i := range m.finderLen() {
+			got = append(got, m.finderPath(i))
+		}
+		t.Fatalf("rows = %v, want only infra/prod/terragrunt.hcl "+
+			"(notes.md is the wrong type, dev/ the wrong content)", got)
+	}
+	if got := m.finderPath(0); got != "infra/prod/terragrunt.hcl" {
+		t.Fatalf("row 0 = %q", got)
+	}
+
+	// Enter reveals the file in the tree.
+	m.fuzzyJump()
+	sel := m.selected()
+	if sel == nil || sel.Path != filepath.Join(root, "infra", "prod", "terragrunt.hcl") {
+		t.Errorf("after jumping, selection = %v", sel)
+	}
+	if m.mode != modeNormal {
+		t.Errorf("jump left the finder open")
 	}
 }
 

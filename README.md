@@ -74,7 +74,7 @@ one surfaces as an error in the status bar rather than a failure to start.
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees | optional, but most of the git awareness is dark without it |
 | `tmux` | the `t`/`v`/`n`/`r` split and hand-off commands, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
-| `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | `r` grep-here | optional |
+| `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep:` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L` (commented example in the starter) | optional |
 | `delta` | `D` diff the two most recently marked files (commented example in the starter) | optional |
 
@@ -99,7 +99,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `F5` | reload from disk |
 | `o` | reveal in Finder |
 | `/` | fuzzy find (esc cancels, enter jumps) |
-| `tab` | in the finder: switch between the `Find:` and `Type:` fields |
+| `tab` | in the finder: cycle the `Find:` / `Type:` / `Grep:` fields |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -132,7 +132,7 @@ session automatically, so they work out of the box.
 
 ## Fuzzy Find
 
-Fuzzy find (`/`) has two input lines; `tab` (`shift+tab`) moves between them.
+Fuzzy find (`/`) has three input lines; `tab` (`shift+tab`) cycles them.
 
 **`Find:`** matches fuzzy subsequences, not regexps; include `/` in the query
 to constrain by path segments. Navigate results with `↑`/`↓`
@@ -162,6 +162,18 @@ come from a breadth-first walk, so top-level entries are always indexed even
 in huge roots, and the walk stops as soon as you leave the finder. At most 200
 matches are kept (`fuzzy_max_matches` under `[general]`) out of at most 50,000
 indexed paths (`fuzzy_max_candidates`).
+
+**`Grep:`** searches *inside* the files `Type:` selected, using
+[ripgrep](https://github.com/BurntSushi/ripgrep) — this is the one part of
+`ft` that needs `rg` installed. Together the two fields are the `fd … | rg …`
+combination: `Type: hcl` + `Grep: dependency "` finds every `terragrunt.hcl`
+containing a dependency block. Result rows become `path:line  matched text`,
+and `Find:` narrows them further by path. Enter still jumps to the **file** in
+the tree — the line number is there to help you choose, not to open at. The
+search respects the hidden and gitignored toggles, is debounced so a
+half-typed regexp is never run, and takes at most 5 matches from any one file
+(`fuzzy_grep_max_per_file`). ripgrep's own errors — a malformed regexp, most
+often — appear beside the field.
 
 ## Config
 

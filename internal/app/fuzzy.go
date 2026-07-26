@@ -32,6 +32,7 @@ type finderField int
 const (
 	fieldQuery finderField = iota // fuzzy name query
 	fieldType                     // file-type filter (globs)
+	fieldGrep                     // content regex, run through ripgrep
 	finderFieldCount
 )
 
@@ -70,6 +71,10 @@ func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.typeInput.Reset()
 	m.typeInput.Blur()
+	m.grepInput.Reset()
+	m.grepInput.Blur()
+	m.stopGrep()
+	m.grepHits, m.grepRows, m.grepErr, m.grepRaw = nil, nil, "", ""
 	m.finderField = fieldQuery
 	m.fuzzyFilter, m.fuzzyFilterErr, m.fuzzyFilterRaw = search.Filter{}, "", ""
 	m.fuzzyQuery = ""
@@ -295,6 +300,12 @@ func (m *Model) addFuzzyCands(chunk []string) {
 func (m *Model) refuzzy() {
 	q, prev := m.input.Value(), m.fuzzyQuery
 	m.fuzzyQuery = q
+	if m.grepping() {
+		// In content mode the query narrows the hits ripgrep found, not the
+		// candidate list.
+		m.rebuildGrepRows()
+		return
+	}
 	switch {
 	case q == "":
 		n := min(m.fuzzyLimit(), len(m.fuzzyCands))
@@ -343,6 +354,11 @@ func (m *Model) applyTypeFilter() tea.Cmd {
 	}
 	m.fuzzyFilterErr = ""
 	m.fuzzyFilter = f
+	// The filter scopes the content search too, so a running one is re-run
+	// against the new set of files.
+	if m.grepping() {
+		return tea.Batch(m.restartFuzzyWalk(), m.scheduleGrep())
+	}
 	return m.restartFuzzyWalk()
 }
 
@@ -352,15 +368,20 @@ func (m *Model) cycleFinderField(delta int) tea.Cmd {
 	m.finderField = finderField((int(m.finderField) + delta + n) % n)
 	m.input.Blur()
 	m.typeInput.Blur()
+	m.grepInput.Blur()
 	return m.finderInput().Focus()
 }
 
 // finderInput is the input line that currently has focus.
 func (m *Model) finderInput() *textinput.Model {
-	if m.finderField == fieldType {
+	switch m.finderField {
+	case fieldType:
 		return &m.typeInput
+	case fieldGrep:
+		return &m.grepInput
+	default:
+		return &m.input
 	}
-	return &m.input
 }
 
 // fuzzyVisibleRows is how many match lines fit under the finder's input lines.
@@ -368,19 +389,25 @@ func (m *Model) fuzzyVisibleRows() int {
 	return max(1, m.treeHeight()-m.finderHeaderLines())
 }
 
-// finderHeaderLines is how many rows the input area occupies: the type filter
-// gets its own line, shown once it is focused or non-empty.
+// finderHeaderLines is how many rows the input area occupies. The type and
+// grep fields each get a line of their own, shown once focused or non-empty,
+// so an unused field costs no screen space.
 func (m *Model) finderHeaderLines() int {
+	n := 1
 	if m.finderField == fieldType || m.typeInput.Value() != "" {
-		return 2
+		n++
 	}
-	return 1
+	if m.finderField == fieldGrep || m.grepInput.Value() != "" {
+		n++
+	}
+	return n
 }
 
 // moveFuzzySel moves the fuzzy selection by delta, scrolling the list so
 // the selection stays on screen.
 func (m *Model) moveFuzzySel(delta int) {
-	m.fuzzySel = clamp(m.fuzzySel+delta, 0, max(0, len(m.fuzzyMatches)-1))
+	n := m.finderLen()
+	m.fuzzySel = clamp(m.fuzzySel+delta, 0, max(0, n-1))
 	h := m.fuzzyVisibleRows()
 	if m.fuzzySel < m.fuzzyScroll {
 		m.fuzzyScroll = m.fuzzySel
@@ -388,7 +415,7 @@ func (m *Model) moveFuzzySel(delta int) {
 	if m.fuzzySel >= m.fuzzyScroll+h {
 		m.fuzzyScroll = m.fuzzySel - h + 1
 	}
-	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.fuzzyMatches)-h))
+	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, n-h))
 }
 
 // rerankMatches orders fuzzy matches in two tiers: entries visible in the
@@ -449,10 +476,11 @@ func rerankMatches(query string, matches []fuzzy.Match, visible map[string]bool)
 func (m *Model) fuzzyJump() (tea.Model, tea.Cmd) {
 	m.mode = modeNormal
 	m.stopFuzzyWalk()
-	if m.fuzzySel < 0 || m.fuzzySel >= len(m.fuzzyMatches) {
+	m.stopGrep()
+	rel := m.finderPath(m.fuzzySel)
+	if rel == "" {
 		return m, nil
 	}
-	rel := m.fuzzyMatches[m.fuzzySel].Str
 	m.tr.ExpandRel(path.Dir(rel))
 	m.reflatten()
 	abs := filepath.Join(m.tr.Root.Path, filepath.FromSlash(rel))
