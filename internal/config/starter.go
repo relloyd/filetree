@@ -28,6 +28,14 @@ watch_debounce_ms = 150
 # dir = "~/.filetree/scratch"
 # extension = "md"
 
+# Git worktrees: "W" asks for a branch name or PR number and creates a
+# worktree for the repo containing the selection, then jumps into it; "w"
+# toggles the worktrees view; Esc (with no marks active) returns. "d" on a
+# worktree root runs "git worktree remove" instead of trashing it. Layout is
+# <dir>/<repo name>/<branch or pr-N>. Default shown.
+# [worktrees]
+# dir = "~/.filetree/worktrees"
+
 [commands]
 default = "edit"           # the command Enter runs
 
@@ -112,6 +120,8 @@ key = "s"
 # new-dir = "A"
 # rename = "r"
 # delete = "d"
+# worktrees = "w"
+# worktree-new = "W"
 # collapse-all = "H"
 # edit-config = "C"
 # help = "?"

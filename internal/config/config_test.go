@@ -110,6 +110,28 @@ func TestScratchConfig(t *testing.T) {
 	}
 }
 
+func TestWorktreesConfig(t *testing.T) {
+	cfg, err := loadTOML(t, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Worktrees.Dir != "~/.filetree/worktrees" {
+		t.Errorf("default = %+v", cfg.Worktrees)
+	}
+
+	cfg, err = loadTOML(t, "[worktrees]\ndir = \"~/code/wt\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Worktrees.Dir != "~/code/wt" {
+		t.Errorf("dir override = %q", cfg.Worktrees.Dir)
+	}
+
+	if _, err := loadTOML(t, "[worktrees]\ndir = \"\"\n"); err == nil {
+		t.Error("empty worktrees.dir should fail")
+	}
+}
+
 func TestExpandHome(t *testing.T) {
 	home, _ := os.UserHomeDir()
 	if got := ExpandHome("~/x/y"); got != filepath.Join(home, "x", "y") {

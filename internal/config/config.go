@@ -47,9 +47,16 @@ type Scratch struct {
 	Extension string `toml:"extension"` // without dot; "" for none
 }
 
+// Worktrees configures where git worktrees live ("W" / "w" keys); they are
+// laid out as <dir>/<repo basename>/<branch or pr-N>.
+type Worktrees struct {
+	Dir string `toml:"dir"` // supports ~; created on demand
+}
+
 type Config struct {
 	General        General
 	Scratch        Scratch
+	Worktrees      Worktrees
 	DefaultCommand string // name in Commands that Enter runs
 	Commands       map[string]Command
 	Keys           map[string]string // action name -> key
@@ -67,6 +74,9 @@ func Default() *Config {
 		Scratch: Scratch{
 			Dir:       "~/.filetree/scratch",
 			Extension: "md",
+		},
+		Worktrees: Worktrees{
+			Dir: "~/.filetree/worktrees",
 		},
 		DefaultCommand: "edit",
 		Commands: map[string]Command{
@@ -104,13 +114,15 @@ func EnsureAndLoad(dir string) (*Config, error) {
 func Load(path string) (*Config, error) {
 	cfg := Default()
 	var raw struct {
-		General  *General                  `toml:"general"`
-		Scratch  *Scratch                  `toml:"scratch"`
-		Commands map[string]toml.Primitive `toml:"commands"`
-		Keys     map[string]string         `toml:"keys"`
+		General   *General                  `toml:"general"`
+		Scratch   *Scratch                  `toml:"scratch"`
+		Worktrees *Worktrees                `toml:"worktrees"`
+		Commands  map[string]toml.Primitive `toml:"commands"`
+		Keys      map[string]string         `toml:"keys"`
 	}
 	raw.General = &cfg.General // decode over defaults
 	raw.Scratch = &cfg.Scratch
+	raw.Worktrees = &cfg.Worktrees
 	md, err := toml.DecodeFile(path, &raw)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -127,6 +139,9 @@ func Load(path string) (*Config, error) {
 	cfg.Scratch.Extension = strings.TrimPrefix(cfg.Scratch.Extension, ".")
 	if cfg.Scratch.Dir == "" {
 		return nil, fmt.Errorf("%s: scratch.dir must not be empty", path)
+	}
+	if cfg.Worktrees.Dir == "" {
+		return nil, fmt.Errorf("%s: worktrees.dir must not be empty", path)
 	}
 
 	// [commands] mixes `default = "name"` with per-command sub-tables, so it

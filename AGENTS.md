@@ -96,6 +96,15 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   swaps tree+state; per-root state files make each root remember its own
   expansion. `prevRoot` (session-only) powers the Esc/S return; Esc is
   layered — marks clear first, then the view returns.
+- Worktrees (`w`/`W`) reuse the same re-rooting: `<[worktrees] dir>/<repo
+  basename>/<branch or pr-N>`. `internal/gitx/worktree.go` owns every git
+  invocation (add/remove/fetch, linked-worktree detection, input parsing);
+  the app only sequences them in async `tea.Cmd`s. `d` on a worktree root
+  becomes `git worktree remove` (pendingOp kind `opWorktree`, with an `f`
+  force re-prompt when git refuses a dirty tree).
+- The status-bar branch (`⎇ …`) is cached per repo in `m.branches`, filled
+  by the same async cmds that read git status — so it refreshes wherever
+  status does, and nowhere else.
 - Marks (space bar) live only in the app model (`marked`/`markOrder`,
   path-keyed, session-only). Copy/move of marked items goes through
   `internal/fsops/transfer.go` — destructive steps (overwrite, cross-device

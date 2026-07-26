@@ -2,6 +2,7 @@ package app
 
 import (
 	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -43,6 +44,24 @@ func (m *Model) dirHasChanges(n *tree.Node) bool {
 	return m.statuses[root].DirContainsChanges(gitx.RelPath(root, n.Path))
 }
 
+// selectedBranch is the cached branch of the repo containing the highlighted
+// item; empty until that repo's status has been read.
+func (m *Model) selectedBranch() string {
+	sel := m.selected()
+	if sel == nil {
+		return ""
+	}
+	dir := sel.Path
+	if !sel.IsDir {
+		dir = filepath.Dir(sel.Path)
+	}
+	root := m.repoRootFor(dir)
+	if root == "" {
+		return ""
+	}
+	return m.branches[root]
+}
+
 // ensureStatusCmd starts a background git status read for the repo
 // containing dir, unless one is loaded or already in flight.
 func (m *Model) ensureStatusCmd(dir string) tea.Cmd {
@@ -56,8 +75,26 @@ func (m *Model) ensureStatusCmd(dir string) tea.Cmd {
 	m.statusPending[root] = true
 	return func() tea.Msg {
 		s, err := gitx.ReadStatus(root)
-		return statusLoadedMsg{root: root, status: s, err: err}
+		return statusLoadedMsg{root: root, status: s, branch: headBranch(root), err: err}
 	}
+}
+
+// headBranch is the status-bar label for a repo: the branch name, or a short
+// commit hash when HEAD is detached. Read alongside git status so branch
+// changes ride the existing refresh paths.
+func headBranch(root string) string {
+	ref, err := gitx.HeadRef(root, true)
+	if err != nil {
+		return ""
+	}
+	if len(ref) == 40 && strings.IndexFunc(ref, notHex) < 0 {
+		return ref[:8]
+	}
+	return ref
+}
+
+func notHex(r rune) bool {
+	return !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f')
 }
 
 func (m *Model) ensureStatusesForExpanded() []tea.Cmd {
@@ -88,7 +125,7 @@ func (m *Model) invalidateStatusCmds(dirs []string) []tea.Cmd {
 		m.statusPending[root] = true
 		cmds = append(cmds, func() tea.Msg {
 			s, err := gitx.ReadStatus(root)
-			return statusLoadedMsg{root: root, status: s, err: err}
+			return statusLoadedMsg{root: root, status: s, branch: headBranch(root), err: err}
 		})
 	}
 	return cmds

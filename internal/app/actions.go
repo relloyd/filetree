@@ -234,8 +234,9 @@ func (m *Model) stageTransfer(kind opKind) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleConfirmKey resolves the staged operation: y/n for trash and
-// conflict-free transfers; o(verwrite)/k(eep both)/n when conflicts exist.
+// handleConfirmKey resolves the staged operation: y/n for trash, worktree
+// removal, and conflict-free transfers; o(verwrite)/k(eep both)/n when
+// conflicts exist; f/n when git has refused to drop a dirty worktree.
 func (m *Model) handleConfirmKey(s string) (tea.Model, tea.Cmd) {
 	p := m.pending
 	if p == nil {
@@ -258,6 +259,26 @@ func (m *Model) handleConfirmKey(s string) (tea.Model, tea.Cmd) {
 			return m, m.trashCmd(p.items)
 		case "n", "esc", "q":
 			return cancel()
+		}
+	case opWorktree:
+		// The force variant only accepts "f", so a stray y/enter can't
+		// re-run the removal git has already refused.
+		if p.force {
+			switch s {
+			case "f":
+				m.mode, m.pending = modeNormal, nil
+				return m, m.worktreeRemoveCmd(p.repoRoot, p.items[0], true)
+			case "n", "esc", "q":
+				return cancel()
+			}
+		} else {
+			switch s {
+			case "y", "enter":
+				m.mode, m.pending = modeNormal, nil
+				return m, m.worktreeRemoveCmd(p.repoRoot, p.items[0], false)
+			case "n", "esc", "q":
+				return cancel()
+			}
 		}
 	case opCopy, opMove:
 		if p.conflicts == 0 {
@@ -559,6 +580,11 @@ func (m *Model) createTargetDir() string {
 func (m *Model) commitPrompt() (tea.Model, tea.Cmd) {
 	name := strings.TrimSpace(m.input.Value())
 	m.mode = modeNormal
+	// Branch names legitimately contain slashes, so worktrees are resolved
+	// before the file-name validation below.
+	if m.prompt == promptWorktree {
+		return m.createWorktree(name)
+	}
 	if name == "" || name == "." || name == ".." || strings.ContainsRune(name, '/') {
 		return m, m.note("Invalid name", true)
 	}
@@ -635,6 +661,12 @@ func (m *Model) confirmDelete() (tea.Model, tea.Cmd) {
 		if len(items) == 0 {
 			return m, m.note("Marked items no longer exist", true)
 		}
+		for _, p := range items {
+			// A worktree must be handed to git, one at a time.
+			if gitx.IsLinkedWorktree(p) {
+				return m, m.note("Unmark worktrees — remove them individually with "+m.actionKeys["delete"], true)
+			}
+		}
 		m.pending = &pendingOp{kind: opTrash, items: items}
 		m.mode = modeConfirm
 		return m, nil
@@ -645,6 +677,9 @@ func (m *Model) confirmDelete() (tea.Model, tea.Cmd) {
 	}
 	if n == m.tr.Root {
 		return m, m.note("Cannot delete the root", true)
+	}
+	if n.IsDir && gitx.IsLinkedWorktree(n.Path) {
+		return m.confirmWorktreeRemove(n.Path)
 	}
 	m.pending = &pendingOp{kind: opTrash, items: []string{n.Path}}
 	m.mode = modeConfirm
@@ -815,7 +850,8 @@ func (m *Model) toggleScratch() (tea.Model, tea.Cmd) {
 	return m.switchRoot(sdir)
 }
 
-// escKey layers Esc: clear marks first; otherwise leave the scratch view.
+// escKey layers Esc: clear marks first; otherwise leave the scratch or
+// worktrees view.
 func (m *Model) escKey() (tea.Model, tea.Cmd) {
 	if len(m.marked) > 0 {
 		return m.clearMarks()
@@ -891,6 +927,207 @@ func scratchName(now time.Time, ext string) string {
 		name += "." + ext
 	}
 	return name
+}
+
+// --- worktrees ---
+
+// worktreesDirPath resolves the configured worktrees directory without
+// touching the filesystem (used by rendering).
+func (m *Model) worktreesDirPath() string {
+	return filepath.Clean(config.ExpandHome(m.cfg.Worktrees.Dir))
+}
+
+func (m *Model) worktreesDir() (string, error) {
+	dir := m.worktreesDirPath()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// inWorktreesDir reports whether p is the worktrees directory or lives
+// inside it — true for the view itself and for any worktree created in it.
+func (m *Model) inWorktreesDir(p string) bool {
+	dir := m.worktreesDirPath()
+	return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator))
+}
+
+// toggleWorktrees switches to the worktrees tree, or back to where you were.
+func (m *Model) toggleWorktrees() (tea.Model, tea.Cmd) {
+	wdir, err := m.worktreesDir()
+	if err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	if m.tr.Root.Path == wdir {
+		if m.prevRoot == "" {
+			return m, m.note("Already in the worktrees directory", false)
+		}
+		prev := m.prevRoot
+		m.prevRoot = ""
+		return m.switchRoot(prev)
+	}
+	m.prevRoot = m.tr.Root.Path
+	return m.switchRoot(wdir)
+}
+
+// worktreeNew asks for a branch name or PR number; commitPrompt creates the
+// worktree for the repo containing the selection.
+func (m *Model) worktreeNew() (tea.Model, tea.Cmd) {
+	n := m.selected()
+	if n == nil {
+		return m, nil
+	}
+	dir := n.Path
+	if !n.IsDir {
+		dir = filepath.Dir(n.Path)
+	}
+	root := m.repoRootFor(dir)
+	if root == "" {
+		return m, m.note("Not inside a git repository", true)
+	}
+	// Started from inside a worktree: group the new one with its siblings
+	// under the main repo, not under the worktree we happen to be in.
+	if gitx.IsLinkedWorktree(root) {
+		if main, err := gitx.MainRepoOf(root); err == nil {
+			root = main
+		}
+	}
+	m.worktreeRepo = root
+	return m.startPrompt(promptWorktree)
+}
+
+// createWorktree resolves the prompt input to a destination under the
+// worktrees directory and starts the (possibly slow) git work.
+func (m *Model) createWorktree(input string) (tea.Model, tea.Cmd) {
+	repo := m.worktreeRepo
+	m.worktreeRepo = ""
+	if repo == "" {
+		return m, m.note("Not inside a git repository", true)
+	}
+	name := gitx.WorktreeDirName(input)
+	if name == "" {
+		return m, m.note("Invalid branch name", true)
+	}
+	wdir, err := m.worktreesDir()
+	if err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	dest := filepath.Join(wdir, filepath.Base(repo), name)
+	if gitx.IsLinkedWorktree(dest) {
+		return m.switchToWorktree(dest, "Already exists — switched to "+abbrevHome(dest))
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		return m, m.note("Already exists and is not a worktree: "+dest, true)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	pr, branch := gitx.ParseWorktreeInput(input)
+	return m, tea.Batch(m.note("Creating worktree…", false), worktreeAddCmd(repo, dest, pr, branch))
+}
+
+// worktreeAddCmd does the git work off the update loop: fetching a PR ref or
+// an unknown branch can take seconds.
+func worktreeAddCmd(repo, dest string, pr int, branch string) tea.Cmd {
+	return func() tea.Msg {
+		if pr > 0 {
+			ref, err := gitx.FetchPR(repo, pr)
+			if err != nil {
+				return worktreeDoneMsg{err: err}
+			}
+			if err := gitx.WorktreeAdd(repo, dest, ref, false); err != nil {
+				return worktreeDoneMsg{err: err}
+			}
+			return worktreeDoneMsg{dest: dest, note: worktreeNote(dest, ref, false)}
+		}
+		if gitx.HasRef(repo, branch) {
+			// Known locally: a failure here is real (already checked out).
+			if err := gitx.WorktreeAdd(repo, dest, branch, false); err != nil {
+				return worktreeDoneMsg{err: err}
+			}
+			return worktreeDoneMsg{dest: dest, note: worktreeNote(dest, branch, false)}
+		}
+		// Unknown locally: git DWIMs a tracking branch when exactly one
+		// remote has it, so try a plain add before fetching.
+		addErr := gitx.WorktreeAdd(repo, dest, branch, false)
+		if addErr == nil {
+			return worktreeDoneMsg{dest: dest, note: worktreeNote(dest, branch, false)}
+		}
+		if err := gitx.FetchBranch(repo, branch); err == nil {
+			if err := gitx.WorktreeAdd(repo, dest, branch, false); err == nil {
+				return worktreeDoneMsg{dest: dest, note: worktreeNote(dest, branch, false)}
+			}
+		}
+		if err := gitx.WorktreeAdd(repo, dest, branch, true); err != nil {
+			return worktreeDoneMsg{err: addErr} // the first failure is the informative one
+		}
+		return worktreeDoneMsg{dest: dest, note: worktreeNote(dest, branch, true)}
+	}
+}
+
+func worktreeNote(dest, ref string, newBranch bool) string {
+	kind := "branch"
+	if newBranch {
+		kind = "new branch"
+	}
+	return fmt.Sprintf("Worktree ready: %s (%s %s)", abbrevHome(dest), kind, ref)
+}
+
+// switchToWorktree re-roots into a worktree, remembering the original root
+// so Esc still returns there even after hopping between worktrees.
+func (m *Model) switchToWorktree(dest, text string) (tea.Model, tea.Cmd) {
+	prev := m.prevRoot
+	if prev == "" {
+		m.prevRoot = m.tr.Root.Path
+	}
+	_, cmd := m.switchRoot(dest)
+	if m.tr.Root.Path != dest {
+		m.prevRoot = prev // the load failed; keep switchRoot's error note
+		return m, cmd
+	}
+	return m, tea.Batch(cmd, m.note(text, false))
+}
+
+// confirmWorktreeRemove stages a `git worktree remove` for a worktree root,
+// which must not be trashed like an ordinary directory.
+func (m *Model) confirmWorktreeRemove(dest string) (tea.Model, tea.Cmd) {
+	repo, err := gitx.MainRepoOf(dest)
+	if err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	m.pending = &pendingOp{kind: opWorktree, items: []string{dest}, repoRoot: repo}
+	m.mode = modeConfirm
+	return m, nil
+}
+
+func (m *Model) worktreeRemoveCmd(repo, dest string, force bool) tea.Cmd {
+	return func() tea.Msg {
+		err := gitx.WorktreeRemove(repo, dest, force)
+		return worktreeRemovedMsg{repo: repo, dest: dest, forced: force, err: err}
+	}
+}
+
+func (m *Model) handleWorktreeRemoved(msg worktreeRemovedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		// Local changes: offer the forced retry rather than just failing.
+		if !msg.forced && gitx.IsDirtyWorktreeError(msg.err) {
+			m.pending = &pendingOp{kind: opWorktree, items: []string{msg.dest}, repoRoot: msg.repo, force: true}
+			m.mode = modeConfirm
+			return m, nil
+		}
+		return m, m.note(msg.err.Error(), true)
+	}
+	m.unmark(msg.dest)
+	parent := filepath.Dir(msg.dest)
+	if n := m.tr.FindByPath(parent); n != nil && n.Loaded {
+		_ = m.tr.Refresh(n)
+	}
+	m.reflatten()
+	m.syncWatches()
+	m.saveState()
+	cmds := m.invalidateStatusCmds([]string{msg.repo})
+	cmds = append(cmds, m.note("Removed worktree: "+filepath.Base(msg.dest), false))
+	return m, tea.Batch(cmds...)
 }
 
 // --- misc ---

@@ -33,6 +33,17 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   file selected; `S`/Esc flips between scratch and your project. Marks are
   absolute paths, so you can mark scratch files and paste them into the
   project (or vice versa).
+- Git worktrees: `W` asks for a **branch name or PR number**, creates a
+  worktree for the repo containing the selection under
+  `~/.filetree/worktrees/<repo>/<branch>` (`[worktrees] dir` in the config)
+  and drops you straight into it; `w` toggles the worktrees view, Esc comes
+  back. A known branch is checked out, a remote-only one is fetched first,
+  and an unknown name becomes a new branch off HEAD. `d` on a worktree root
+  runs `git worktree remove` (offering `--force` when it has local changes)
+  instead of trashing the directory.
+- The status bar shows `⎇ <branch>` for the repo containing the highlighted
+  item (short commit hash when detached). It refreshes with git status, so a
+  bare `git checkout` elsewhere that touches no watched file needs `R`.
 - Mouse: wheel scrolls, click selects, chevron-click/double-click expands,
   double-click on a file runs the default command, header toggles are
   clickable.
@@ -56,7 +67,7 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `→`/`l` | expand, or step into first child |
 | `enter` | file: run default command · dir: toggle |
 | `space` | mark/unmark the selection (and move down) |
-| `esc` | clear all marks; with none, return from the scratch view |
+| `esc` | clear all marks; with none, return from the scratch or worktrees view |
 | `p` / `m` | copy / move marked items into the selected dir (or the selected file's parent); conflicts prompt overwrite-to-Trash vs keep-both |
 | `y` / `Y` | copy absolute / git-relative path |
 | `u` / `U` | copy the selection's web URL (GitHub-style, from the origin remote) / open it in the browser and copy |
@@ -67,10 +78,12 @@ First run writes a commented starter config to `~/.filetree/config.toml`.
 | `/` | fuzzy find (esc cancels, enter jumps) |
 | `a` / `A` | new file / new directory |
 | `r` | rename |
-| `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted) |
+| `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
 | `g` / `G`, `ctrl+u`/`ctrl+d` | top / bottom, half-page |
 | `S` | toggle the scratch view (and back) |
 | `n` | new scratch file (`YYYYMMDDHH.md`, pre-created empty) opened in the default editor |
+| `w` | toggle the worktrees view (and back) |
+| `W` | new git worktree for the repo containing the selection, from a branch name or PR number — jumps into it |
 | `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default editor; config reloads on exit |
 | `?` | help |

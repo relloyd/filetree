@@ -4,6 +4,7 @@ package app
 
 import (
 	"path/filepath"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
@@ -34,12 +35,14 @@ const (
 	promptNewFile promptKind = iota
 	promptNewDir
 	promptRename
+	promptWorktree
 )
 
 type (
 	statusLoadedMsg struct {
 		root   string
 		status *gitx.RepoStatus
+		branch string // branch name, or short hash on a detached HEAD
 		err    error
 	}
 	fsBatchMsg []string
@@ -67,6 +70,17 @@ type (
 		untracked bool
 		err       error
 	}
+	worktreeDoneMsg struct {
+		dest string
+		note string // status text to show once the explorer has switched
+		err  error
+	}
+	worktreeRemovedMsg struct {
+		repo   string
+		dest   string
+		forced bool
+		err    error
+	}
 	clearStatusMsg struct{ seq int }
 	fuzzyCandsMsg  struct{ cands []string }
 )
@@ -77,14 +91,17 @@ const (
 	opTrash opKind = iota
 	opCopy
 	opMove
+	opWorktree
 )
 
 // pendingOp is a staged operation awaiting confirmation in modeConfirm.
 type pendingOp struct {
 	kind      opKind
-	items     []string // one path for trash; marked paths (in order) otherwise
+	items     []string // one path for trash/worktree; marked paths otherwise
 	targetDir string   // copy/move destination
 	conflicts int      // destinations that already exist
+	repoRoot  string   // opWorktree: the repo owning the worktree
+	force     bool     // opWorktree: re-asking after a dirty-worktree refusal
 }
 
 type Model struct {
@@ -105,17 +122,22 @@ type Model struct {
 	showHidden  bool
 	showIgnored bool
 
-	// prevRoot remembers where to return from the scratch view (session-only).
+	// prevRoot remembers where to return from the scratch or worktrees view
+	// (session-only).
 	prevRoot string
 
 	repoRoots     map[string]string           // dir -> repo root ("" = none)
 	statuses      map[string]*gitx.RepoStatus // repo root -> parsed status
+	branches      map[string]string           // repo root -> branch/short hash
 	statusPending map[string]bool
 
 	mode    mode
 	input   textinput.Model
 	prompt  promptKind
 	pending *pendingOp
+
+	// worktreeRepo is the repo the pending worktree prompt creates into.
+	worktreeRepo string
 
 	marked    map[string]bool // absolute paths, session-only
 	markOrder []string        // oldest first; the tail feeds {marked1}/{marked2}
@@ -151,6 +173,7 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 		plat:          plat,
 		repoRoots:     map[string]string{},
 		statuses:      map[string]*gitx.RepoStatus{},
+		branches:      map[string]string{},
 		statusPending: map[string]bool{},
 		marked:        map[string]bool{},
 		width:         80,
@@ -249,6 +272,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statuses[msg.root] = nil // don't retry a failing repo on every expand
 		}
+		if msg.branch != "" {
+			m.branches[msg.root] = msg.branch
+		}
 		m.reflatten() // ignored-file visibility may have changed
 		return m, nil
 
@@ -277,6 +303,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			text += "  (untracked — not on the remote)"
 		}
 		return m, m.note(text, false)
+
+	case worktreeDoneMsg:
+		if msg.err != nil {
+			return m, m.note(msg.err.Error(), true)
+		}
+		return m.switchToWorktree(msg.dest, msg.note)
+
+	case worktreeRemovedMsg:
+		return m.handleWorktreeRemoved(msg)
 
 	case clearStatusMsg:
 		if msg.seq == m.statusSeq {
@@ -383,6 +418,8 @@ func (m *Model) buildBindings() {
 		"scratch-new":    "n",
 		"copy-url":       "u",
 		"open-url":       "U",
+		"worktrees":      "w",
+		"worktree-new":   "W",
 	}
 	m.actionKeys = map[string]string{}
 	for action, key := range defaults {
@@ -416,6 +453,8 @@ func (m *Model) buildBindings() {
 		"scratch-new":    m.scratchNew,
 		"copy-url":       func() (tea.Model, tea.Cmd) { return m.linkAction(false) },
 		"open-url":       func() (tea.Model, tea.Cmd) { return m.linkAction(true) },
+		"worktrees":      m.toggleWorktrees,
+		"worktree-new":   m.worktreeNew,
 	}
 	for action, fn := range actions {
 		b[m.actionKeys[action]] = fn
@@ -531,7 +570,10 @@ func (m *Model) saveState() {
 }
 
 // note sets a transient status-bar message that clears after a few seconds.
+// Newlines are folded away: git and command output is multi-line, and the
+// status bar is a single row of the rendered frame.
 func (m *Model) note(s string, isErr bool) tea.Cmd {
+	s = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", " "), "\n", " "))
 	m.statusMsg, m.statusErr = s, isErr
 	m.statusSeq++
 	seq := m.statusSeq

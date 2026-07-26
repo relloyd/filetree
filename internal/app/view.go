@@ -72,9 +72,12 @@ func (m *Model) renderHeader() string {
 	m.zoneIgnored = [2]int{rightStart + len(hBtn) + 2, rightStart + len(hBtn) + 2 + len(iBtn)}
 
 	title := " ft "
-	chip := ""
+	chip, chipStyle := "", styleMark
 	if m.tr.Root.Path == m.scratchDirPath() {
 		chip = "scratch "
+	}
+	if m.inWorktreesDir(m.tr.Root.Path) {
+		chip, chipStyle = "worktrees ", styleTitle
 	}
 	root := " " + abbrevHome(m.tr.Root.Path)
 	leftW := len(title) + len(chip) + lipgloss.Width(root)
@@ -83,7 +86,7 @@ func (m *Model) renderHeader() string {
 		root = truncateLeft(root, keep)
 	}
 	gap := max(1, rightStart-len(title)-len(chip)-lipgloss.Width(root))
-	return styleTitle.Render(title) + styleMark.Render(chip) + styleDim.Render(root) +
+	return styleTitle.Render(title) + chipStyle.Render(chip) + styleDim.Render(root) +
 		strings.Repeat(" ", gap) +
 		checkboxStyle(m.showHidden).Render(hBtn) + "  " +
 		checkboxStyle(m.showIgnored).Render(iBtn) + " "
@@ -186,9 +189,10 @@ func (m *Model) renderStatus() string {
 	switch m.mode {
 	case modePrompt:
 		labels := map[promptKind]string{
-			promptNewFile: " New file: ",
-			promptNewDir:  " New directory: ",
-			promptRename:  " Rename: ",
+			promptNewFile:  " New file: ",
+			promptNewDir:   " New directory: ",
+			promptRename:   " Rename: ",
+			promptWorktree: " Worktree (branch or PR#): ",
 		}
 		return styleTitle.Render(labels[m.prompt]) + m.input.View()
 	case modeConfirm:
@@ -210,6 +214,9 @@ func (m *Model) renderStatus() string {
 	if n := len(m.marked); n > 0 {
 		right = styleMark.Render(fmt.Sprintf("● %d marked  ", n)) + right
 	}
+	if b := m.selectedBranch(); b != "" {
+		right = styleTitle.Render("⎇ "+truncate(b, 24)+"  ") + right
+	}
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		return styleBase.MaxWidth(m.width).Render(left)
@@ -221,6 +228,14 @@ func (m *Model) renderConfirm() string {
 	p := m.pending
 	if p == nil {
 		return ""
+	}
+	if p.kind == opWorktree {
+		name := filepath.Base(p.items[0])
+		if p.force {
+			return styleError.Render(" Worktree "+name+" has changes:") +
+				styleTitle.Render(" [f]orce remove · [n]o")
+		}
+		return styleError.Render(" Remove worktree " + name + "? (y/n)")
 	}
 	if p.kind == opTrash {
 		if len(p.items) == 1 {
@@ -301,9 +316,11 @@ func (m *Model) renderHelp() string {
 		{"g G", "top / bottom"},
 		{"ctrl+u ctrl+d", "half page up / down"},
 		{m.actionKeys["mark"], "mark/unmark selection (and move down)"},
-		{m.actionKeys["clear-marks"], "clear marks, else leave scratch view"},
+		{m.actionKeys["clear-marks"], "clear marks, else leave scratch/worktrees view"},
 		{m.actionKeys["scratch"], "toggle scratch view"},
 		{m.actionKeys["scratch-new"], "new scratch file, opened in editor"},
+		{m.actionKeys["worktrees"], "toggle worktrees view"},
+		{m.actionKeys["worktree-new"], "new git worktree (branch name or PR#)"},
 		{m.actionKeys["copy-here"] + " / " + m.actionKeys["move-here"], "copy / move marked items here"},
 		{m.actionKeys["copy-abs"] + " / " + m.actionKeys["copy-rel"], "copy absolute / git-relative path"},
 		{m.actionKeys["copy-url"] + " / " + m.actionKeys["open-url"], "copy web URL / open in browser (+copy)"},
@@ -314,7 +331,7 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["fuzzy"], "fuzzy find"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
-		{m.actionKeys["delete"], "delete marked (or selection) to Trash"},
+		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},
 		{m.actionKeys["collapse-all"], "collapse all"},
 		{m.actionKeys["edit-config"], "edit config (reloads on exit)"},
 		{m.actionKeys["help"], "toggle this help"},
@@ -351,6 +368,18 @@ func abbrevHome(p string) string {
 		return "~" + strings.TrimPrefix(p, home)
 	}
 	return p
+}
+
+// truncate keeps the head of s within w runes, suffixing an ellipsis.
+func truncate(s string, w int) string {
+	r := []rune(s)
+	if len(r) <= w {
+		return s
+	}
+	if w <= 1 {
+		return "…"
+	}
+	return string(r[:w-1]) + "…"
 }
 
 // truncateLeft keeps the tail of s within w cells, prefixing an ellipsis.
