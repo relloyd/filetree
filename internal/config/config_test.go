@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/relloyd/filetree/internal/tmux"
 )
 
 func loadTOML(t *testing.T, body string) (*Config, error) {
@@ -42,6 +44,11 @@ func TestLoadStarter(t *testing.T) {
 	if cfg.General.ShowHidden || !cfg.General.ShowIgnored {
 		t.Errorf("general toggles = %+v", cfg.General)
 	}
+	// The starter leaves tmux commented out, so the default must be the one
+	// that makes the tmux commands above work out of the box.
+	if cfg.General.Tmux != tmux.ModeAuto {
+		t.Errorf("general.tmux = %q, want %q", cfg.General.Tmux, tmux.ModeAuto)
+	}
 }
 
 func TestLoadValidation(t *testing.T) {
@@ -53,6 +60,14 @@ func TestLoadValidation(t *testing.T) {
 	}
 	if _, err := loadTOML(t, "[general]\nicons = \"emoji\"\n"); err == nil {
 		t.Error("invalid icons value should fail")
+	}
+	if _, err := loadTOML(t, "[general]\ntmux = \"always\"\n"); err == nil {
+		t.Error("invalid tmux value should fail")
+	}
+	if cfg, err := loadTOML(t, "[general]\ntmux = \"never\"\n"); err != nil {
+		t.Errorf("tmux = never should load: %v", err)
+	} else if cfg.General.Tmux != tmux.ModeNever {
+		t.Errorf("general.tmux = %q, want %q", cfg.General.Tmux, tmux.ModeNever)
 	}
 }
 

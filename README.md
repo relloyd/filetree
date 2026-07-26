@@ -53,11 +53,33 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
 
 ```sh
 go install ./cmd/ft
-ft [dir]                        # defaults to the current directory
-alias ft='tmux new-session ft'  # use with tmux to enable vsplit commands below
+ft [dir]                  # defaults to the current directory
 ```
 
 First run writes a commented starter config to `~/.filetree/config.toml`.
+
+When started outside tmux, `ft` relaunches itself in a new tmux session so the
+split and hand-off commands work — no alias needed, and starting it inside an
+existing session (over ssh, say) just runs it there. Opt out per run with
+`ft --no-tmux`, or permanently with `tmux = "never"` under `[general]`.
+
+## Dependencies
+
+Nothing here is mandatory: `ft` browses, marks, copies, moves, and trashes with
+none of it installed. Each tool switches on a specific feature, and a missing
+one surfaces as an error in the status bar rather than a failure to start.
+
+| Tool | Enables | |
+|---|---|---|
+| `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees | optional, but most of the git awareness is dark without it |
+| `tmux` | the `t`/`v`/`n`/`r` split and hand-off commands, and the auto-relaunch above | optional |
+| `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
+| `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | `r` grep-here | optional |
+| `lazygit` | `L` (commented example in the starter) | optional |
+| `delta` | `D` diff the two most recently marked files (commented example in the starter) | optional |
+
+Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
+`osascript` — all macOS built-ins, nothing to install.
 
 ## Keys
 
@@ -94,9 +116,9 @@ Keys are remappable in the `[keys]` section of the config.
 
 ## Commands
 
-Commands may bind their own keys; the starter config binds the following set:
-
-Use with `tmux` to enable most of these.
+Commands may bind their own keys; the starter config binds the following set.
+Most need `tmux` (see [Dependencies](#dependencies)); `ft` puts itself in a
+session automatically, so they work out of the box.
 
 | Key | Command |
 |---|---|

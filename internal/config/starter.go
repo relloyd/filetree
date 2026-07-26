@@ -19,6 +19,10 @@ show_hidden = false
 show_ignored = true        # gitignored entries are shown greyed-out; "i" toggles
 icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 # link_ref = "commit"      # ref for u/U web links: "commit" (permanent) or "branch"
+# tmux = "auto"            # "auto": when started outside tmux, ft relaunches itself
+#                          # in a new tmux session (needs tmux on PATH) so the
+#                          # t/v/n/r split commands below work. "never": run as-is.
+#                          # "ft --no-tmux" turns it off for one run.
 watch_debounce_ms = 150
 
 # Scratch files: "S" creates an empty YYYYMMDDHH.<extension> file here and

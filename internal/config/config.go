@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/relloyd/filetree/internal/tmux"
 )
 
 // ExpandHome resolves a leading ~ to the user's home directory.
@@ -38,6 +40,7 @@ type General struct {
 	ShowIgnored     bool   `toml:"show_ignored"`
 	Icons           string `toml:"icons"`    // "nerd" or "plain"
 	LinkRef         string `toml:"link_ref"` // web links pin to "commit" or "branch"
+	Tmux            string `toml:"tmux"`     // "auto" (relaunch inside tmux) or "never"
 	WatchDebounceMs int    `toml:"watch_debounce_ms"`
 }
 
@@ -69,6 +72,7 @@ func Default() *Config {
 			ShowIgnored:     true,
 			Icons:           "nerd",
 			LinkRef:         "commit",
+			Tmux:            tmux.ModeAuto,
 			WatchDebounceMs: 150,
 		},
 		Scratch: Scratch{
@@ -135,6 +139,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.General.LinkRef != "commit" && cfg.General.LinkRef != "branch" {
 		return nil, fmt.Errorf("%s: general.link_ref must be \"commit\" or \"branch\"", path)
+	}
+	if cfg.General.Tmux != tmux.ModeAuto && cfg.General.Tmux != tmux.ModeNever {
+		return nil, fmt.Errorf("%s: general.tmux must be %q or %q", path, tmux.ModeAuto, tmux.ModeNever)
 	}
 	cfg.Scratch.Extension = strings.TrimPrefix(cfg.Scratch.Extension, ".")
 	if cfg.Scratch.Dir == "" {

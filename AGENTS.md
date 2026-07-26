@@ -52,6 +52,7 @@ internal/config/    TOML config, command templates + shell quoting, starter
 internal/state/     per-root JSON persistence (expansion, selection, toggles)
 internal/icons/     Nerd Font glyphs; table.go is GENERATED — see below
 internal/platform/  OS interface; darwin impl (pbcopy, open -R, Finder trash)
+internal/tmux/      self-relaunch into a tmux session (decision + syscall.Exec)
 ```
 
 Design rules that keep this maintainable:
@@ -67,6 +68,11 @@ Design rules that keep this maintainable:
 - Web links (`u`/`U`): `internal/gitx/link.go` owns remote-URL
   normalisation and URL building (pure, table-tested); `platform.OpenURL`
   owns the browser.
+- The tmux self-relaunch keeps its decision pure: `tmux.ShouldWrap` takes an
+  `Env` struct so it is table-tested, and the `syscall.Exec` lives alone in
+  `internal/tmux/exec.go`. It runs in `main` *after* root validation and config
+  load, so startup errors print in the user's terminal instead of dying with
+  the session they would have created.
 - New keybindings are wired in `buildBindings` (internal/app/app.go); make
   them remappable via the `[keys]` action map and list them in the `?` help
   overlay (view.go) and README.
