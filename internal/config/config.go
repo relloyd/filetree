@@ -30,8 +30,9 @@ const (
 
 // DefaultFuzzyMaxMatches caps how many fuzzy-find results are ranked and kept.
 // The cost of raising it is the sort in rerankMatches, not the render, since
-// only a screenful is drawn.
-const DefaultFuzzyMaxMatches = 200
+// only a screenful is drawn. "ctrl+g" in the finder multiplies it for the
+// session when a search turns out to need more.
+const DefaultFuzzyMaxMatches = 1000
 
 // DefaultFuzzyMaxCandidates caps how many paths the finder's walk records.
 // With a type filter set the cap is rarely reached — filtering happens during

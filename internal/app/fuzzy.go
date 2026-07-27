@@ -45,15 +45,53 @@ type fuzzyChunk struct {
 	truncated bool
 }
 
-// fuzzyLimit is how many matches the finder ranks and keeps. It is read at use
-// time rather than cached so editing the config through "C" takes effect on
-// the next query, and it falls back to the default for models built without a
-// config (tests).
-func (m *Model) fuzzyLimit() int {
+// fuzzyBaseLimit is the configured match cap. It is read at use time rather
+// than cached so editing the config through "C" takes effect on the next
+// query, and it falls back to the default for models built without a config
+// (tests).
+func (m *Model) fuzzyBaseLimit() int {
 	if m.cfg == nil || m.cfg.General.FuzzyMaxMatches < 1 {
 		return config.DefaultFuzzyMaxMatches
 	}
 	return m.cfg.General.FuzzyMaxMatches
+}
+
+// fuzzyLimit is how many matches the finder ranks and keeps: the configured
+// cap times whatever the session has raised it by.
+func (m *Model) fuzzyLimit() int {
+	return m.fuzzyBaseLimit() * m.fuzzyFactor()
+}
+
+// fuzzyFactor is the session multiplier applied to the configured cap. It
+// starts at one and only "ctrl+g" moves it, so the zero value is the default.
+func (m *Model) fuzzyFactor() int {
+	return max(1, m.fuzzyLimitFactor)
+}
+
+// raiseFuzzyLimit multiplies the match cap by one more, for the rest of the
+// session — the finder said the list was capped and the user asked for more.
+// The two modes recover the dropped results differently: name-mode candidates
+// are still in hand, but content-mode hits past the old cap were discarded and
+// have to be searched for again.
+func (m *Model) raiseFuzzyLimit() tea.Cmd {
+	m.fuzzyLimitFactor = m.fuzzyFactor() + 1
+	if m.grepping() {
+		return m.scheduleGrep()
+	}
+	m.rebuildFinderMatches()
+	return nil
+}
+
+// rebuildFinderMatches recomputes the match list from the candidates already
+// walked, keeping the selection where it is. It differs from refuzzy in not
+// resetting the cursor: raising the limit adds rows below, it does not start a
+// new search.
+func (m *Model) rebuildFinderMatches() {
+	sel, scroll := m.fuzzySel, m.fuzzyScroll
+	m.fuzzyQuery = "" // force a full re-match rather than narrowing
+	m.refuzzy()
+	m.fuzzySel, m.fuzzyScroll = sel, scroll
+	m.applyFuzzyLimit()
 }
 
 // fuzzyMaxCands caps how many candidates the walk records. With a type filter
@@ -329,11 +367,16 @@ func (m *Model) refuzzy() {
 // applyFuzzyLimit publishes the capped view of the match list, keeping the
 // selection valid as results stream in underneath it.
 func (m *Model) applyFuzzyLimit() {
-	if limit := m.fuzzyLimit(); len(m.fuzzyAll) > limit {
+	limit := m.fuzzyLimit()
+	if len(m.fuzzyAll) > limit {
 		m.fuzzyMatches = m.fuzzyAll[:limit]
 	} else {
 		m.fuzzyMatches = m.fuzzyAll
 	}
+	// With an empty query addFuzzyCands stops building fuzzyAll at the limit,
+	// so the candidate count is what says whether anything was left out.
+	m.fuzzyCapped = len(m.fuzzyAll) > limit ||
+		(m.input.Value() == "" && len(m.fuzzyCands) > limit)
 	m.fuzzySel = clamp(m.fuzzySel, 0, max(0, len(m.fuzzyMatches)-1))
 	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.fuzzyMatches)-m.fuzzyVisibleRows()))
 }
@@ -370,6 +413,14 @@ func (m *Model) cycleFinderField(delta int) tea.Cmd {
 	m.typeInput.Blur()
 	m.grepInput.Blur()
 	return m.finderInput().Focus()
+}
+
+// finderCanDeleteForward reports whether the focused input has a character to
+// the right of the cursor — that is, whether a forward delete would do
+// anything. textinput applies the same test before deleting.
+func (m *Model) finderCanDeleteForward() bool {
+	in := m.finderInput()
+	return in.Position() < len([]rune(in.Value()))
 }
 
 // finderInput is the input line that currently has focus.

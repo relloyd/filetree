@@ -147,6 +147,94 @@ func (f Filter) Globs() []string {
 	return out
 }
 
+// Span is a byte range within a path.
+type Span struct{ Start, End int }
+
+// Highlight returns the parts of rel that the type filter literally accounts
+// for, so the finder can colour them. It is a display aid, not a second
+// matcher: it reports the literal runs of the first include pattern that
+// matches, located left to right.
+//
+// Recovering the exact span a glob covered would mean a matcher that records
+// backtracking through "**", "?" and character classes. The literal runs give
+// the same answer for the patterns people actually type — ".hcl" of "*.hcl",
+// the whole basename of "terragrunt.hcl" — and something sensible for the
+// rest.
+func (f Filter) Highlight(rel string) []Span {
+	if !f.Match(rel) {
+		return nil
+	}
+	for _, p := range f.include {
+		if !p.match(rel) {
+			continue
+		}
+		// Basename patterns match the last segment, so their spans are
+		// offset to where that segment starts in rel.
+		target, offset := rel, 0
+		if p.base {
+			base := path.Base(rel)
+			target, offset = base, len(rel)-len(base)
+		}
+		return locateRuns(literalRuns(p.glob), target, offset)
+	}
+	return nil
+}
+
+// literalRuns splits a glob into its maximal wildcard-free substrings. The
+// contents of a "[...]" class are not literals, and a backslash escapes the
+// byte after it. Scanning by byte is safe because every metacharacter is
+// ASCII, so a UTF-8 continuation byte can never be mistaken for one — and it
+// keeps the offsets byte offsets, which is what the renderer wants.
+func literalRuns(glob string) []string {
+	var runs []string
+	start := -1
+	flush := func(end int) {
+		if start >= 0 {
+			runs = append(runs, glob[start:end])
+			start = -1
+		}
+	}
+	for i := 0; i < len(glob); i++ {
+		switch glob[i] {
+		case '[':
+			flush(i)
+			for i < len(glob) && glob[i] != ']' {
+				i++
+			}
+		case '\\':
+			flush(i)
+			i++ // the escaped byte is literal, but not worth painting alone
+		case '*', '?', '{', '}', ']':
+			flush(i)
+		default:
+			if start < 0 {
+				start = i
+			}
+		}
+	}
+	flush(len(glob))
+	return runs
+}
+
+// locateRuns finds each run in target in order, each search resuming where the
+// previous run ended, and returns their spans shifted by offset. A run that
+// cannot be found is skipped rather than abandoning the rest: the pattern
+// already matched, so this is only about where to paint.
+func locateRuns(runs []string, target string, offset int) []Span {
+	var spans []Span
+	at := 0
+	for _, run := range runs {
+		i := strings.Index(target[at:], run)
+		if i < 0 {
+			continue
+		}
+		start := at + i
+		spans = append(spans, Span{Start: offset + start, End: offset + start + len(run)})
+		at = start + len(run)
+	}
+	return spans
+}
+
 func (p pattern) match(rel string) bool {
 	if p.base {
 		ok, err := path.Match(p.glob, path.Base(rel))

@@ -23,8 +23,10 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 #                          # in a new tmux session (needs tmux on PATH) so the
 #                          # t/v/n/r split commands below work. "never": run as-is.
 #                          # "ft --no-tmux" turns it off for one run.
-# fuzzy_max_matches = 200  # how many "/" results are ranked and kept; raising
-#                          # it costs sort time on huge trees, not render time
+# fuzzy_max_matches = 1000 # how many "/" results are ranked and kept; raising
+#                          # it costs sort time on huge trees, not render time.
+#                          # "ctrl+g" in the finder doubles, triples, ... this
+#                          # for the rest of the session when you need more
 # fuzzy_max_candidates = 50000
 #                          # how many paths the "/" walk indexes before it
 #                          # stops. Rarely reached with a Type filter set,
@@ -154,6 +156,7 @@ key = "r"
 # fuzzy = "/"
 # finder-next-field = "tab"        # move between the "/" finder's input lines
 # finder-prev-field = "shift+tab"
+# finder-more = "ctrl+g"           # raise fuzzy_max_matches for this session
 # new-file = "a"
 # new-dir = "A"
 # rename = "R"

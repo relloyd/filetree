@@ -186,6 +186,9 @@ func finderModel() *Model {
 		showIgnored:   true,
 	}
 	m.buildActionKeysForTest()
+	// startFuzzy focuses the query field; textinput drops every key when it is
+	// not focused, so a fixture that skips this silently ignores edits.
+	m.input.Focus()
 	return m
 }
 
@@ -216,6 +219,7 @@ func (m *Model) buildActionKeysForTest() {
 	m.actionKeys = map[string]string{
 		"finder-next-field": "tab",
 		"finder-prev-field": "shift+tab",
+		"finder-more":       "ctrl+g",
 	}
 }
 
@@ -651,6 +655,230 @@ func TestContentSearchEndToEnd(t *testing.T) {
 	}
 	if m.mode != modeNormal {
 		t.Errorf("jump left the finder open")
+	}
+}
+
+// --- session match limit ---
+
+// candModel is a finder holding n candidates and a low configured cap, for
+// exercising the limit.
+func candModel(n, limit int) *Model {
+	m := finderModel()
+	m.cfg.General.FuzzyMaxMatches = limit
+	for i := range n {
+		m.fuzzyCands = append(m.fuzzyCands, fmt.Sprintf("pkg%03d/handler.go", i))
+	}
+	return m
+}
+
+// The zero value has to mean 1×, since tests and fresh models never set it.
+func TestFuzzyFactorDefaultsToOne(t *testing.T) {
+	m := candModel(0, 10)
+	if got := m.fuzzyFactor(); got != 1 {
+		t.Errorf("fuzzyFactor() = %d, want 1", got)
+	}
+	if got := m.fuzzyLimit(); got != 10 {
+		t.Errorf("fuzzyLimit() = %d, want the configured 10", got)
+	}
+}
+
+// The list has to say when it is hiding results, or there is no reason to
+// press ctrl+g.
+func TestFinderCappedReportsDroppedResults(t *testing.T) {
+	m := candModel(50, 5)
+	m.refuzzy() // empty query: the browse list
+	if !m.finderCapped() {
+		t.Error("50 candidates under a cap of 5 did not report capped")
+	}
+
+	small := candModel(3, 5)
+	small.refuzzy()
+	if small.finderCapped() {
+		t.Error("3 candidates under a cap of 5 reported capped")
+	}
+
+	// And with a query in play.
+	q := candModel(50, 5)
+	q.input.SetValue("handler")
+	q.refuzzy()
+	if !q.finderCapped() {
+		t.Error("a capped query result did not report capped")
+	}
+}
+
+// Raising the limit reveals more of the candidates already walked — no second
+// walk, and the selection stays where the user left it.
+func TestRaiseFuzzyLimitRevealsMoreWithoutRewalking(t *testing.T) {
+	m := candModel(50, 5)
+	m.input.SetValue("handler")
+	m.refuzzy()
+	if len(m.fuzzyMatches) != 5 {
+		t.Fatalf("matches = %d, want the cap of 5", len(m.fuzzyMatches))
+	}
+	m.moveFuzzySel(3)
+	cands := len(m.fuzzyCands)
+
+	if cmd := m.raiseFuzzyLimit(); cmd != nil {
+		t.Error("raising in name mode returned a command; no re-walk should be needed")
+	}
+	if got := m.fuzzyFactor(); got != 2 {
+		t.Errorf("factor = %d, want 2", got)
+	}
+	if len(m.fuzzyMatches) != 10 {
+		t.Errorf("matches after raising = %d, want 10", len(m.fuzzyMatches))
+	}
+	if m.fuzzySel != 3 {
+		t.Errorf("selection = %d, want it kept at 3", m.fuzzySel)
+	}
+	if len(m.fuzzyCands) != cands {
+		t.Errorf("candidates changed (%d -> %d); the walk should not have re-run", cands, len(m.fuzzyCands))
+	}
+
+	// Each press multiplies by one more.
+	m.raiseFuzzyLimit()
+	if got := m.fuzzyFactor(); got != 3 {
+		t.Errorf("factor after a second raise = %d, want 3", got)
+	}
+	if len(m.fuzzyMatches) != 15 {
+		t.Errorf("matches after a second raise = %d, want 15", len(m.fuzzyMatches))
+	}
+}
+
+// Raising past the number of candidates shows them all and stops reporting a cap.
+func TestRaiseFuzzyLimitPastEveryCandidate(t *testing.T) {
+	m := candModel(12, 5)
+	m.refuzzy()
+	for range 3 { // 5 -> 20
+		m.raiseFuzzyLimit()
+	}
+	if len(m.fuzzyMatches) != 12 {
+		t.Errorf("matches = %d, want all 12 candidates", len(m.fuzzyMatches))
+	}
+	if m.finderCapped() {
+		t.Error("still reporting capped with every candidate shown")
+	}
+}
+
+// The raise is a session setting: reopening the finder keeps it.
+func TestRaisedLimitSurvivesReopeningTheFinder(t *testing.T) {
+	root := t.TempDir()
+	m := rootedModel(t, root)
+	m.raiseFuzzyLimit()
+	m.raiseFuzzyLimit()
+
+	m.startFuzzy()
+	if got := m.fuzzyFactor(); got != 3 {
+		t.Errorf("factor after reopening = %d, want it kept at 3", got)
+	}
+}
+
+// Content-mode hits past the cap were discarded, so raising has to search again.
+func TestRaiseInContentModeResearches(t *testing.T) {
+	m := finderModel()
+	m.cfg.General.FuzzyMaxMatches = 2
+	m.grepInput.SetValue("dependency")
+	m.addGrepHits(hits("a.go", "b.go", "c.go"))
+
+	if !m.finderCapped() {
+		t.Fatal("dropped content hits did not report capped")
+	}
+	cmd := m.raiseFuzzyLimit()
+	if cmd == nil {
+		t.Error("raising in content mode returned no command; the search has to re-run")
+	}
+	if len(m.grepHits) != 0 {
+		t.Errorf("old hits survived the re-search: %v", m.grepHits)
+	}
+	if m.grepCapped {
+		t.Error("capped flag survived the re-search")
+	}
+}
+
+// ctrl+g is remappable like the other finder-local keys, and never leaks into
+// normal mode where it would shadow a command key.
+func TestFinderMoreIsFinderLocal(t *testing.T) {
+	cfg := config.Default()
+	m := &Model{cfg: cfg}
+	m.buildBindings()
+
+	if got := m.actionKeys["finder-more"]; got != "ctrl+g" {
+		t.Errorf("default finder-more = %q, want ctrl+g", got)
+	}
+	if _, ok := m.bindings["ctrl+g"]; ok {
+		t.Error("finder-more leaked into the normal-mode binding table")
+	}
+}
+
+// --- forward delete vs half-page scroll ---
+
+func TestCtrlDDeletesForwardOnlyWhenThereIsSomethingToDelete(t *testing.T) {
+	ctrlD := tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}
+
+	// Cursor mid-text: ctrl+d edits.
+	edit := candModel(50, 5)
+	edit.input.SetValue("terragrunt")
+	edit.input.SetCursor(4)
+	edit.refuzzy()
+	sel := edit.fuzzySel
+	edit.handleKey(ctrlD)
+	if got := edit.input.Value(); got != "terrgrunt" {
+		t.Errorf("value = %q, want %q (the \"a\" deleted)", got, "terrgrunt")
+	}
+	if edit.fuzzySel != sel {
+		t.Errorf("editing also scrolled the list: sel %d -> %d", sel, edit.fuzzySel)
+	}
+
+	// Cursor at the end: nothing to delete, so it scrolls.
+	scroll := candModel(50, 50)
+	scroll.input.SetValue("handler")
+	scroll.input.CursorEnd()
+	scroll.refuzzy()
+	scroll.handleKey(ctrlD)
+	if got := scroll.input.Value(); got != "handler" {
+		t.Errorf("value = %q, want it untouched", got)
+	}
+	if scroll.fuzzySel == 0 {
+		t.Error("ctrl+d at end of text did not scroll the list")
+	}
+
+	// Empty field: scrolls too — this is the browsing case.
+	empty := candModel(50, 50)
+	empty.refuzzy()
+	empty.handleKey(ctrlD)
+	if empty.fuzzySel == 0 {
+		t.Error("ctrl+d with an empty query did not scroll the list")
+	}
+}
+
+// The rule follows focus: deleting in the Type field edits that field. This
+// needs a real root, because editing the filter restarts the walk.
+func TestCtrlDFollowsTheFocusedField(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.finderField = fieldType
+	m.input.Blur()
+	m.typeInput.Focus()
+	m.typeInput.SetValue("hcl")
+	m.typeInput.SetCursor(0)
+
+	m.handleKey(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if got := m.typeInput.Value(); got != "cl" {
+		t.Errorf("Type field = %q, want %q", got, "cl")
+	}
+}
+
+// pgdown is unambiguous: it always scrolls, whatever the cursor is doing.
+func TestPgDownAlwaysScrolls(t *testing.T) {
+	m := candModel(50, 50)
+	m.input.SetValue("handler")
+	m.input.SetCursor(0)
+	m.refuzzy()
+
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if got := m.input.Value(); got != "handler" {
+		t.Errorf("pgdown edited the query: %q", got)
+	}
+	if m.fuzzySel == 0 {
+		t.Error("pgdown did not scroll")
 	}
 }
 

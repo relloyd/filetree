@@ -44,6 +44,7 @@ func (m *Model) applyGrep() tea.Cmd {
 func (m *Model) scheduleGrep() tea.Cmd {
 	m.stopGrep()
 	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
+	m.grepCapped = false
 	m.fuzzySel, m.fuzzyScroll = 0, 0
 	if !m.grepping() {
 		return nil
@@ -95,16 +96,27 @@ func (m *Model) stopGrep() {
 	m.grepRunning = false
 }
 
-// addGrepHits appends a batch, stopping at the display cap.
+// addGrepHits appends a batch, stopping at the display cap. Hits past the cap
+// are dropped rather than held, so raising the limit has to search again.
 func (m *Model) addGrepHits(hits []search.Hit) {
 	limit := m.fuzzyLimit()
 	for _, h := range hits {
 		if len(m.grepHits) >= limit {
+			m.grepCapped = true
 			break
 		}
 		m.grepHits = append(m.grepHits, h)
 	}
 	m.rebuildGrepRows()
+}
+
+// finderCapped reports whether results were left out because of the match cap,
+// in whichever mode the finder is in.
+func (m *Model) finderCapped() bool {
+	if m.grepping() {
+		return m.grepCapped
+	}
+	return m.fuzzyCapped
 }
 
 // rebuildGrepRows applies the Find query on top of the content hits: the Type

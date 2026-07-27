@@ -100,6 +100,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `o` | reveal in Finder |
 | `/` | fuzzy find (esc cancels, enter jumps) |
 | `tab` | in the finder: cycle the `Find:` / `Type:` / `Grep:` fields |
+| `ctrl+g` | in the finder: raise the match limit for the session (2×, 3×, …) |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -137,7 +138,7 @@ Fuzzy find (`/`) has three input lines; `tab` (`shift+tab`) cycles them.
 **`Find:`** matches fuzzy subsequences, not regexps; include `/` in the query
 to constrain by path segments. Navigate results with `↑`/`↓`
 (`ctrl+p`/`ctrl+n`), half-page with `ctrl+u`/`ctrl+d`, or the mouse wheel;
-the list scrolls with the selection and shows a `12/200` position counter
+the list scrolls with the selection and shows a `12/1000` position counter
 (`…` while the walk is still running, `+` if it stopped at the candidate cap).
 Ranking is screen-aware: entries currently visible in the tree outrank
 everything else, then shallow paths and basename matches beat equally-fuzzy
@@ -159,9 +160,30 @@ The filter is applied **while walking**, not to the results, which is what
 makes it useful on a large root: `Type: terragrunt.hcl` with an empty `Find:`
 lists every one of them in a monorepo far too big to index whole. Candidates
 come from a breadth-first walk, so top-level entries are always indexed even
-in huge roots, and the walk stops as soon as you leave the finder. At most 200
+in huge roots, and the walk stops as soon as you leave the finder. At most 1000
 matches are kept (`fuzzy_max_matches` under `[general]`) out of at most 50,000
 indexed paths (`fuzzy_max_candidates`).
+
+When results are being dropped at that cap the counter says so — `12/1000 max`
+in amber — and **`ctrl+g`** multiplies the limit for the rest of the ft session:
+once for 2×, again for 3×, and so on. The counter turns green and gains a `×3`
+once raised, so a session running on a raised limit is never a surprise. In name
+mode this is instant, since the candidates are already walked; in content mode
+it re-runs the ripgrep search. The raise survives closing and reopening the
+finder, and resets when you quit.
+
+The part of each filename that the `Type:` filter accounts for is highlighted in
+gold — the `.hcl` of `*.hcl`, the whole basename of `terragrunt.hcl` — while
+`Find:` matches stay blue. Where they overlap, `Find:` wins.
+
+**Editing the fields.** The finder's inputs take the usual readline keys, with
+two exceptions where list navigation gets there first: `ctrl+u` is half-page up
+rather than delete-to-start, and `ctrl+d` is half-page down *unless the cursor
+has a character to its right*, in which case it deletes forward. That makes
+`ctrl+d` — and the macOS Fn+Backspace that many terminals send as `ctrl+d` —
+work as a delete key while you are editing, and as a scroll key while you are
+browsing results, which is where the cursor sits once a query is typed. Word
+deletion (`ctrl+w`, `alt+backspace`) and delete-to-end (`ctrl+k`) are untouched.
 
 **`Grep:`** searches *inside* the files `Type:` selected, using
 [ripgrep](https://github.com/BurntSushi/ripgrep) — this is the one part of

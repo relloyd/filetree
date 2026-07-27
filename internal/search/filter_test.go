@@ -62,6 +62,84 @@ func TestCompileFilterBadPattern(t *testing.T) {
 	}
 }
 
+func TestFilterHighlight(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+		rel  string
+		want []string // the substrings the returned spans cover
+	}{
+		{"extension marks the suffix", "hcl", "infra/prod/terragrunt.hcl", []string{".hcl"}},
+		{"filename marks the whole basename", "terragrunt.hcl", "a/b/terragrunt.hcl", []string{"terragrunt.hcl"}},
+		{"glob marks its literal tail", "*.tf", "modules/vpc/main.tf", []string{".tf"}},
+		{"path glob marks each literal run", "infra/**/*.hcl", "infra/prod/eu/terragrunt.hcl", []string{"infra/", "/", ".hcl"}},
+		{"bare word matching by name marks it all", "Makefile", "src/Makefile", []string{"Makefile"}},
+		{"a non-matching path has no spans", "hcl", "docs/notes.md", nil},
+		{"multibyte names keep byte offsets aligned", "hcl", "ドキュメント/naïve-café.hcl", []string{".hcl"}},
+		{"an empty filter highlights nothing", "", "a/b.go", nil},
+		{"exclusions do not highlight", "!vendor/**", "cmd/main.go", nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := CompileFilter(tc.expr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spans := f.Highlight(tc.rel)
+			var got []string
+			for _, s := range spans {
+				if s.Start < 0 || s.End > len(tc.rel) || s.Start > s.End {
+					t.Fatalf("span %+v out of range for %q (len %d)", s, tc.rel, len(tc.rel))
+				}
+				got = append(got, tc.rel[s.Start:s.End])
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("Highlight(%q) covers %q, want %q", tc.rel, got, tc.want)
+			}
+		})
+	}
+}
+
+// Spans must not overlap or run backwards, or the renderer would paint the
+// same byte twice.
+func TestFilterHighlightSpansAreOrdered(t *testing.T) {
+	f, err := CompileFilter("infra/**/*.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spans := f.Highlight("infra/prod/eu/terragrunt.hcl")
+	if len(spans) < 2 {
+		t.Fatalf("expected several spans, got %+v", spans)
+	}
+	for i := 1; i < len(spans); i++ {
+		if spans[i].Start < spans[i-1].End {
+			t.Errorf("span %d %+v overlaps the previous %+v", i, spans[i], spans[i-1])
+		}
+	}
+}
+
+func TestLiteralRuns(t *testing.T) {
+	tests := []struct {
+		glob string
+		want []string
+	}{
+		{"*.hcl", []string{".hcl"}},
+		{"terragrunt.hcl", []string{"terragrunt.hcl"}},
+		{"infra/**/*.hcl", []string{"infra/", "/", ".hcl"}},
+		{"a?b", []string{"a", "b"}},
+		{"[abc]x", []string{"x"}},
+		{"***", nil},
+		{"", nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.glob, func(t *testing.T) {
+			if got := literalRuns(tc.glob); !slices.Equal(got, tc.want) {
+				t.Errorf("literalRuns(%q) = %q, want %q", tc.glob, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFilterMatch(t *testing.T) {
 	tests := []struct {
 		name string

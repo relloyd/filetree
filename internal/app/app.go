@@ -181,6 +181,11 @@ type Model struct {
 	fuzzyFilterRaw string // filter text the current walk was started with
 	fuzzyFilterErr string
 
+	// fuzzyLimitFactor multiplies the configured match cap. "ctrl+g" raises
+	// it and it lasts the whole ft session, so reopening the finder keeps it.
+	fuzzyLimitFactor int
+	fuzzyCapped      bool // results were dropped at the match cap
+
 	fuzzyGen     int // identifies the current walk; stale chunks are dropped
 	fuzzyWalk    chan fuzzyChunk
 	fuzzyCancel  chan struct{} // closed to stop the walker goroutine
@@ -195,6 +200,7 @@ type Model struct {
 	grepRows    []int
 	grepRaw     string // pattern the current search was started with
 	grepErr     string
+	grepCapped  bool // hits were dropped at the match cap
 	grepGen     int
 	grepCh      chan search.Result
 	grepCancel  context.CancelFunc
@@ -461,9 +467,22 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "ctrl+u", "pgup":
 			m.moveFuzzySel(-m.fuzzyVisibleRows() / 2)
 			return m, nil
-		case "ctrl+d", "pgdown":
+		case "ctrl+d":
+			// textinput binds ctrl+d to delete-forward, and some terminals
+			// send it for fn+backspace. Let it edit when there is something
+			// to the right of the cursor to delete; otherwise — which is
+			// where the cursor sits whenever you are browsing results — keep
+			// it on half-page down.
+			if m.finderCanDeleteForward() {
+				return m.updateFinderInput(msg)
+			}
 			m.moveFuzzySel(m.fuzzyVisibleRows() / 2)
 			return m, nil
+		case "pgdown":
+			m.moveFuzzySel(m.fuzzyVisibleRows() / 2)
+			return m, nil
+		case m.actionKeys["finder-more"]:
+			return m, m.raiseFuzzyLimit()
 		case m.actionKeys["finder-next-field"]:
 			return m, m.cycleFinderField(1)
 		case m.actionKeys["finder-prev-field"]:
@@ -538,6 +557,7 @@ func (m *Model) buildBindings() {
 		// m.bindings is normal-mode only.
 		"finder-next-field": "tab",
 		"finder-prev-field": "shift+tab",
+		"finder-more":       "ctrl+g",
 		"new-file":          "a",
 		"new-dir":           "A",
 		"rename":            "R",

@@ -26,6 +26,7 @@ var (
 	colChanged = lipgloss.Color("#E2C08D")
 	colTitle   = lipgloss.Color("#569CD6")
 	colMark    = lipgloss.Color("#C586C0") // marks: magenta, distinct from git colours
+	colType    = lipgloss.Color("#D7BA7D") // finder: what the Type filter matched
 
 	styleBase    = lipgloss.NewStyle()
 	styleDim     = lipgloss.NewStyle().Foreground(colDim)
@@ -35,6 +36,7 @@ var (
 	styleChevron = lipgloss.NewStyle().Foreground(colDim)
 	styleChanged = lipgloss.NewStyle().Foreground(colChanged)
 	styleMark    = lipgloss.NewStyle().Foreground(colMark)
+	styleType    = lipgloss.NewStyle().Foreground(colType)
 
 	codeColors = map[gitx.Code]color.Color{
 		gitx.Ignored:   lipgloss.Color("#6D6D6D"),
@@ -304,8 +306,10 @@ func (m *Model) renderFinderHeader() []string {
 	return lines
 }
 
-// renderFinderCounter is the position indicator: "12/200", with "…" while the
-// walk is still running and "+" when it stopped at the candidate cap.
+// renderFinderCounter is the position indicator: "12/1000", with "…" while the
+// walk is still running, "+" when it stopped at the candidate cap, "max" when
+// results were dropped at the match cap, and "×N" once the session limit has
+// been raised. It brightens at ×2 and above so a raised limit is obvious.
 func (m *Model) renderFinderCounter() string {
 	busy := m.fuzzyWalking
 	if m.grepping() {
@@ -325,6 +329,18 @@ func (m *Model) renderFinderCounter() string {
 	case m.fuzzyTrunc && !m.grepping():
 		s += "+"
 	}
+	if factor := m.fuzzyFactor(); factor > 1 {
+		s += fmt.Sprintf(" ×%d", factor)
+		if m.finderCapped() {
+			// Still capped even after raising: say so in the same bright
+			// style rather than mixing two colours on one counter.
+			s += " max"
+		}
+		return styleOK.Render(s)
+	}
+	if m.finderCapped() {
+		return styleDim.Render(s) + styleChanged.Render(" max")
+	}
 	return styleDim.Render(s)
 }
 
@@ -343,29 +359,52 @@ func (m *Model) renderFuzzy() string {
 	}
 	for i := m.fuzzyScroll; i < len(m.fuzzyMatches) && len(lines) < h; i++ {
 		mt := m.fuzzyMatches[i]
-		matched := make(map[int]bool, len(mt.MatchedIndexes))
-		for _, idx := range mt.MatchedIndexes {
-			matched[idx] = true
-		}
-		var b strings.Builder
-		for bi, r := range mt.Str {
-			if matched[bi] {
-				b.WriteString(styleTitle.Render(string(r)))
-			} else {
-				b.WriteString(string(r))
-			}
-		}
 		prefix := "   "
-		line := b.String()
 		if i == m.fuzzySel {
 			prefix = styleTitle.Render(" > ")
 		}
+		line := m.highlightPath(mt.Str, mt.MatchedIndexes)
 		lines = append(lines, styleBase.MaxWidth(m.width).Render(prefix+line))
 	}
 	for len(lines) < h {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// highlightPath colours a result path: the runes the Find query matched in
+// blue, and the parts the Type filter accounts for in gold. Find wins any
+// overlap — it is what the user is actively typing.
+//
+// Both index sets are byte offsets: sahilm/fuzzy walks its candidate by byte
+// (advancing by rune size), search.Span is documented as a byte range, and
+// "for bi := range s" yields byte offsets too, so multi-byte names line up.
+func (m *Model) highlightPath(s string, matched []int) string {
+	find := make(map[int]bool, len(matched))
+	for _, idx := range matched {
+		find[idx] = true
+	}
+	typed := make(map[int]bool)
+	if !m.fuzzyFilter.Empty() {
+		for _, sp := range m.fuzzyFilter.Highlight(s) {
+			for bi := sp.Start; bi < sp.End; bi++ {
+				typed[bi] = true
+			}
+		}
+	}
+
+	var b strings.Builder
+	for bi, r := range s {
+		switch {
+		case find[bi]:
+			b.WriteString(styleTitle.Render(string(r)))
+		case typed[bi]:
+			b.WriteString(styleType.Render(string(r)))
+		default:
+			b.WriteString(string(r))
+		}
+	}
+	return b.String()
 }
 
 // renderGrepRow draws one content match as "path:line  matched text". The
@@ -377,7 +416,7 @@ func (m *Model) renderGrepRow(h search.Hit, selected bool) string {
 		prefix = styleTitle.Render(" > ")
 	}
 	at := ":" + strconv.Itoa(h.Line)
-	line := prefix + h.Path + styleDim.Render(at)
+	line := prefix + m.highlightPath(h.Path, nil) + styleDim.Render(at)
 	if room := m.width - 3 - lipgloss.Width(h.Path) - len(at) - 2; room > 0 {
 		if text := strings.TrimSpace(h.Text); text != "" {
 			line += "  " + styleDim.Render(truncate(text, room))
@@ -414,6 +453,7 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["reveal"], "reveal in Finder"},
 		{m.actionKeys["fuzzy"], "fuzzy find"},
 		{m.actionKeys["finder-next-field"], "in the finder: cycle Find / Type / Grep"},
+		{m.actionKeys["finder-more"], "in the finder: raise the match limit (2×, 3×, …)"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
 		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},
