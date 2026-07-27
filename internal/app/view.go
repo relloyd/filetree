@@ -307,6 +307,11 @@ func (m *Model) renderFinderHeader() []string {
 		case m.grepRunning:
 			line += styleDim.Render("  searching…")
 		}
+		// A skipped match means the search was not exhaustive, so the note
+		// stays up after it finishes rather than clearing with the spinner.
+		if n := m.grepSkipped; n > 0 {
+			line += styleChanged.Render(fmt.Sprintf("  %d skipped (line too long)", n))
+		}
 		lines = append(lines, line)
 	}
 	return lines

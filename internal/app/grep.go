@@ -43,14 +43,13 @@ func (m *Model) applyGrep() tea.Cmd {
 
 // scheduleGrep cancels the running search and arms the debounce for a new one.
 func (m *Model) scheduleGrep() tea.Cmd {
-	m.stopGrep()
+	m.stopGrep() // bumps the generation, so results in flight are now stale
 	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
-	m.grepCapped = false
+	m.grepCapped, m.grepSkipped = false, 0
 	m.fuzzySel, m.fuzzyScroll = 0, 0
 	if !m.grepping() {
 		return nil
 	}
-	m.grepGen++
 	m.grepRunning = true
 	gen := m.grepGen
 	return tea.Tick(grepDebounce, func(time.Time) tea.Msg { return grepDebounceMsg{gen: gen} })
@@ -75,12 +74,18 @@ func waitGrep(ch <-chan search.Result, gen int) tea.Cmd {
 		if !ok {
 			return nil
 		}
-		return grepResultMsg{gen: gen, hits: r.Hits, done: r.Done, err: r.Err}
+		return grepResultMsg{gen: gen, hits: r.Hits, skipped: r.Skipped, done: r.Done, err: r.Err}
 	}
 }
 
 // stopGrep kills a running ripgrep. Leaving the finder or retyping the pattern
 // should not leave a search of a huge root grinding away.
+//
+// It bumps the generation, so stopping and superseding are the same thing: a
+// batch still in flight can never be mistaken for the current search by a
+// caller that only stopped (startFuzzy, fuzzyJump, esc). Without that, a stale
+// batch delivered into a reopened finder would re-arm on the nilled channel and
+// block forever.
 func (m *Model) stopGrep() {
 	if m.grepCancel != nil {
 		m.grepCancel()
@@ -88,6 +93,7 @@ func (m *Model) stopGrep() {
 	}
 	m.grepCh = nil
 	m.grepRunning = false
+	m.grepGen++
 }
 
 // addGrepHits appends a batch, stopping at the display cap. Hits past the cap

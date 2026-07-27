@@ -222,6 +222,32 @@ matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
 own `--sort path` would make the order stable at the cost of running
 single-threaded.
 
+### Limits
+
+Several caps are in play, at different layers, and they do not all apply to
+both modes:
+
+| Limit | Default | Config key | Enforced by | Mode | What you see |
+|---|---|---|---|---|---|
+| Candidate cap | 50,000 | `fuzzy_max_candidates` | the walk, between directories | name only | `+` on the counter; deep files absent |
+| Match cap | 1,000 (× `ctrl+g`) | `fuzzy_max_matches` | `ft`, as results arrive | both | ` max` on the counter; the search stops there |
+| Matches per file | 5 | `fuzzy_grep_max_per_file` | ripgrep `--max-count` | content only | at most 5 rows from one file |
+| Line length | 1 MiB | — | `ft`, while parsing | content only | `3 skipped (line too long)` beside the pattern |
+| Debounce | 150 ms | — | `ft` | content only | the pause before ripgrep runs |
+
+The parts that surprise people:
+
+- **The candidate cap does not constrain a content search.** ripgrep does its
+  own traversal, so `Grep:` reaches files the name list had truncated away —
+  the two modes genuinely see different sets.
+- **5 per file × 1000 total means at most 200 distinct files** in a content
+  search before the cap bites.
+- **The line-length cap exists because ripgrep has no way to bound it.**
+  `--max-columns` is ignored in the `--json` mode `ft` parses, and a 2.5 MB
+  minified line becomes an 11 MB JSON event. Matches on such lines are dropped
+  and counted rather than buffered, so a search over a tree full of bundles and
+  sourcemaps stays responsive — and tells you what it left out.
+
 ## Config
 
 See `~/.filetree/config.toml` (created on first run) for command templates,

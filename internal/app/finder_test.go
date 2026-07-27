@@ -520,6 +520,97 @@ func TestStaleGrepResultsAreDropped(t *testing.T) {
 	}
 }
 
+// Reaching the cap has to stop the search. Draining the rest of a full-tree
+// run to throw it away is wasted work on both sides, and leaves "searching…"
+// up beside a counter that already says the results are capped.
+func TestReachingTheCapStopsTheSearch(t *testing.T) {
+	m := finderModel()
+	m.cfg.General.FuzzyMaxMatches = 2
+	m.grepInput.SetValue("dependency")
+	m.grepGen = 1
+	m.grepRunning = true
+	m.grepCh = make(chan search.Result, 1)
+	m.grepCancel = func() {}
+
+	_, cmd := m.Update(grepResultMsg{gen: 1, hits: hits("a.go", "b.go", "c.go")})
+
+	if !m.grepCapped {
+		t.Fatal("three hits under a cap of two did not report capped")
+	}
+	if cmd != nil {
+		t.Error("the search was re-armed after the cap was reached")
+	}
+	if m.grepRunning {
+		t.Error("still reporting a running search after stopping at the cap")
+	}
+	if m.grepCancel != nil {
+		t.Error("ripgrep was not cancelled at the cap")
+	}
+}
+
+// Below the cap the search carries on.
+func TestBelowTheCapTheSearchContinues(t *testing.T) {
+	m := finderModel()
+	m.cfg.General.FuzzyMaxMatches = 50
+	m.grepInput.SetValue("dependency")
+	m.grepGen = 1
+	m.grepRunning = true
+	m.grepCh = make(chan search.Result, 1)
+
+	_, cmd := m.Update(grepResultMsg{gen: 1, hits: hits("a.go")})
+	if cmd == nil {
+		t.Error("an uncapped batch did not re-arm the search")
+	}
+	if !m.grepRunning {
+		t.Error("an uncapped batch stopped the search")
+	}
+}
+
+// Matches dropped for sitting on an over-long line accumulate across batches
+// and reset with each new search — the user needs to know the search was not
+// exhaustive.
+func TestSkippedCountAccumulatesAndResets(t *testing.T) {
+	m := finderModel()
+	m.grepInput.SetValue("source")
+	m.grepGen = 1
+	m.grepCh = make(chan search.Result, 1)
+
+	m.Update(grepResultMsg{gen: 1, hits: hits("a.go"), skipped: 1})
+	m.Update(grepResultMsg{gen: 1, hits: hits("b.go"), skipped: 2, done: true})
+	if m.grepSkipped != 3 {
+		t.Errorf("grepSkipped = %d, want 3", m.grepSkipped)
+	}
+
+	m.grepInput.SetValue("other")
+	m.scheduleGrep()
+	if m.grepSkipped != 0 {
+		t.Errorf("grepSkipped = %d after a new search, want 0", m.grepSkipped)
+	}
+}
+
+// Stopping a search invalidates it, so a batch still in flight when the finder
+// is reopened cannot be taken for the current one — it used to be accepted and
+// then re-arm on the nilled channel, blocking a goroutine forever.
+func TestStoppingInvalidatesResultsInFlight(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.grepInput.SetValue("source")
+	m.grepGen = 1
+	m.grepCh = make(chan search.Result, 1)
+	gen := m.grepGen
+
+	// Leaving the finder and coming back: both stop the search.
+	m.startFuzzy()
+	m.grepInput.SetValue("source") // as if retyped, so grepping() is true again
+
+	_, cmd := m.Update(grepResultMsg{gen: gen, hits: hits("stale.go")})
+	if len(m.grepHits) != 0 {
+		t.Errorf("stale hits landed in the new session: %v", m.grepHits)
+	}
+	if cmd != nil {
+		t.Error("a stale batch re-armed the reader — on a nil channel it blocks forever")
+	}
+}
+
 // ripgrep's own errors (a half-typed regex, most often) have to reach the user.
 func TestGrepErrorIsReported(t *testing.T) {
 	m := finderModel()
