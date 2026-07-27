@@ -70,7 +70,7 @@ func collectWalk(t *testing.T, p walkParams) ([]string, bool) {
 
 func params(root string, expr string, maxCands int) walkParams {
 	f, _ := search.CompileFilter(expr)
-	return walkParams{root: root, filter: f, showIgnored: true, max: maxCands}
+	return walkParams{start: root, filter: f, showIgnored: true, max: maxCands}
 }
 
 // The headline case: every terragrunt.hcl in a tree far larger than the
@@ -664,20 +664,21 @@ func TestClearingTheGrepFieldEndsContentMode(t *testing.T) {
 	}
 }
 
-// Each field in use costs a line of the result list.
+// Each field in use costs a line of the result list. Dir and Find are always
+// drawn, so two is the floor.
 func TestFinderHeaderGrowsWithEachField(t *testing.T) {
 	m := finderModel()
 	base := m.finderHeaderLines()
-	if base != 1 {
-		t.Fatalf("header with only Find = %d lines, want 1", base)
+	if base != 2 {
+		t.Fatalf("header with only Dir and Find = %d lines, want 2", base)
 	}
 	m.typeInput.SetValue("hcl")
-	if got := m.finderHeaderLines(); got != 2 {
-		t.Errorf("header with Type = %d lines, want 2", got)
+	if got := m.finderHeaderLines(); got != 3 {
+		t.Errorf("header with Type = %d lines, want 3", got)
 	}
 	m.grepInput.SetValue("dependency")
-	if got := m.finderHeaderLines(); got != 3 {
-		t.Errorf("header with Type and Grep = %d lines, want 3", got)
+	if got := m.finderHeaderLines(); got != 4 {
+		t.Errorf("header with Type and Grep = %d lines, want 4", got)
 	}
 }
 
@@ -1083,6 +1084,17 @@ func TestGrepCommandIsPasteable(t *testing.T) {
 	if !strings.HasSuffix(got, config.ShellQuote(root)) {
 		t.Errorf("command %q does not end with the root %q", got, root)
 	}
+
+	// Scoped, that path narrows with it — otherwise the copied command would
+	// describe a different result set than the one on screen.
+	sub := filepath.Join(root, "infra", "prod")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m.scoped, m.scopeDir = true, "infra/prod"
+	if got := m.finderCommand(); !strings.HasSuffix(got, config.ShellQuote(sub)) {
+		t.Errorf("scoped command %q does not end with %q", got, sub)
+	}
 }
 
 // A pattern that would be read as a flag, or that contains a quote, must not
@@ -1473,5 +1485,207 @@ func TestCtrlEIsClaimedButEndStillWorks(t *testing.T) {
 	m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnd})
 	if got := m.input.Position(); got != 3 {
 		t.Errorf("end put the cursor at %d, want 3", got)
+	}
+}
+
+// --- scoping the finder to a directory ---
+
+// The assertion the whole design rests on: a walk started inside the tree
+// still speaks root-relative. Everything downstream — fuzzyJump, the ranking
+// map, resume, runFinderCommand — resolves finder paths against the tree root,
+// so a scoped walk that rebased its output would silently open wrong files.
+func TestScopedWalkStillEmitsRootRelativePaths(t *testing.T) {
+	root := fixtureTree(t, 0)
+
+	p := params(filepath.Join(root, "infra", "prod"), "", 1000)
+	p.startRel = "infra/prod"
+	got, _ := collectWalk(t, p)
+	slices.Sort(got)
+
+	want := []string{
+		"infra/prod/eu",
+		"infra/prod/eu/terragrunt.hcl",
+		"infra/prod/us",
+		"infra/prod/us/terragrunt.hcl",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("scoped walk = %v,\nwant %v", got, want)
+	}
+}
+
+// The walk seeds its candidates with the rows on screen, which come from the
+// whole tree. Unfiltered, a scoped search would offer files from outside it.
+func TestScopedWalkDropsVisibleRowsOutsideIt(t *testing.T) {
+	rels := []string{"a.go", "infra/prod/x.hcl", "infra/stage/y.hcl", "infra/prod"}
+
+	if got := underScope(rels, "infra/prod"); !slices.Equal(got, []string{"infra/prod/x.hcl"}) {
+		t.Errorf("underScope = %v, want only infra/prod/x.hcl", got)
+	}
+	// Unscoped keeps everything, including the directory row itself.
+	if got := underScope(rels, ""); !slices.Equal(got, rels) {
+		t.Errorf("unscoped underScope = %v, want all of %v", got, rels)
+	}
+}
+
+// scopeRel is what reaches the walk and ripgrep, so it has to be empty
+// whenever the toggle is off, whatever directory was captured earlier.
+func TestScopeRelFollowsTheToggle(t *testing.T) {
+	m := finderModel()
+	m.scopeDir = "internal/app"
+
+	if got := m.scopeRel(); got != "" {
+		t.Errorf("unscoped scopeRel = %q, want empty", got)
+	}
+	m.scoped = true
+	if got := m.scopeRel(); got != "internal/app" {
+		t.Errorf("scoped scopeRel = %q, want internal/app", got)
+	}
+}
+
+// The directory is the selection itself when it is one, else its parent; the
+// root normalises to "" since scoping to it is a no-op.
+func TestSelectionDir(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"infra/prod/terragrunt.hcl"} {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := rootedModel(t, root)
+	m.tr.ExpandRel("infra")
+	m.tr.ExpandRel("infra/prod")
+	m.reflatten()
+
+	if got := m.selectionDir(); got != "" {
+		t.Errorf("on the root, selectionDir = %q, want empty", got)
+	}
+	for _, tc := range []struct{ sel, want string }{
+		{"infra", "infra"},                          // a directory scopes to itself
+		{"infra/prod", "infra/prod"},                //
+		{"infra/prod/terragrunt.hcl", "infra/prod"}, // a file scopes to its parent
+	} {
+		m.selectPath(filepath.Join(root, filepath.FromSlash(tc.sel)))
+		if got := m.selectionDir(); got != tc.want {
+			t.Errorf("on %s, selectionDir = %q, want %q", tc.sel, got, tc.want)
+		}
+	}
+}
+
+// The capture rule: "/" reads the scope from the cursor, resume deliberately
+// does not, and switching the toggle on means "scope to here, now".
+func TestScopeCaptureRule(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"a/one.go", "b/two.go"} {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := rootedModel(t, root)
+	m.scoped = true
+	m.selectPath(filepath.Join(root, "a"))
+
+	m.startFuzzy()
+	if got := m.scopeDir; got != "a" {
+		t.Fatalf("after /, scopeDir = %q, want a", got)
+	}
+
+	// Resuming keeps the scope even though the cursor has moved on — that is
+	// what makes f return to the results it left.
+	m.mode = modeNormal
+	m.selectPath(filepath.Join(root, "b"))
+	m.resumeFuzzy()
+	if got := m.scopeDir; got != "a" {
+		t.Errorf("after f, scopeDir = %q, want a — resume must not re-capture", got)
+	}
+
+	// Off then on re-reads it, so ctrl+r always means "here".
+	m.toggleScope()
+	m.toggleScope()
+	if got := m.scopeDir; got != "b" {
+		t.Errorf("after ctrl+r ctrl+r, scopeDir = %q, want b", got)
+	}
+}
+
+// ctrl+l empties the three fields. The scope is a different axis — and one
+// that is persisted and drawn in the tree header — so it must survive.
+func TestClearFinderKeepsTheScope(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal", "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := rootedModel(t, root)
+	m.scoped, m.scopeDir = true, "internal/app"
+	m.input.SetValue("handle")
+	m.typeInput.SetValue("go")
+	m.grepInput.SetValue("KeyPress")
+
+	m.clearFinder()
+
+	if !m.scoped || m.scopeDir != "internal/app" {
+		t.Errorf("clear changed the scope: scoped=%v dir=%q", m.scoped, m.scopeDir)
+	}
+	if m.input.Value() != "" || m.typeInput.Value() != "" || m.grepInput.Value() != "" {
+		t.Error("clear left a field populated")
+	}
+}
+
+// Toggling restarts the walk, which resets the selection. Narrowing to the
+// directory you were already looking at should keep your place.
+func TestToggleScopeKeepsTheHighlightedRow(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.fuzzyMatches = []fuzzy.Match{{Str: "a/one.go"}, {Str: "a/two.go"}}
+	m.fuzzySel = 1
+
+	m.toggleScope()
+
+	if !m.scoped {
+		t.Fatal("toggle did not switch the scope on")
+	}
+	if m.resumeWant.rel != "a/two.go" {
+		t.Errorf("resumeWant = %+v, want a/two.go so the row can be found again", m.resumeWant)
+	}
+}
+
+// A scope that vanished while the finder was away must not present as an empty
+// result list: ReadDir failure inside the walk is silent, so it is caught first.
+func TestMissingScopeFallsBackToTheRoot(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.scoped, m.scopeDir = true, "gone"
+
+	m.restartFuzzyWalk()
+
+	if m.scopeDir != "" {
+		t.Errorf("scopeDir = %q, want it cleared back to the root", m.scopeDir)
+	}
+	if m.statusMsg == "" {
+		t.Error("the fallback was silent; it should say why the scope was dropped")
+	}
+}
+
+// Finder paths are root-relative, so none of them mean anything after a root
+// switch: a bare "README.md" would resolve against the new tree.
+func TestLoadRootClearsScopeAndResumeState(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.scopeDir = "internal/app"
+	m.lastPick = finderPick{rel: "README.md", line: 3}
+	m.resumeWant = finderPick{rel: "README.md"}
+
+	if err := m.loadRoot(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+
+	if m.scopeDir != "" {
+		t.Errorf("scopeDir = %q, want empty after a root switch", m.scopeDir)
+	}
+	if m.lastPick != (finderPick{}) || m.resumeWant != (finderPick{}) {
+		t.Errorf("resume state survived a root switch: last=%+v want=%+v", m.lastPick, m.resumeWant)
 	}
 }

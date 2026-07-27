@@ -9,17 +9,25 @@ type Query struct {
 	Hidden     bool   // search hidden files too
 	NoIgnore   bool   // search gitignored files too
 	MaxPerFile int    // stop after this many matches per file; 0 for no limit
+	Path       string // search only here, relative to the root; "" is the root
 }
 
 // Args builds the ripgrep argument list Run executes.
 //
-// The search path is left implicit: Run sets the working directory to the tree
-// root, so ripgrep reports root-relative paths and there is nothing to strip
-// or rejoin on our side.
+// The search path stays relative: Run sets the working directory to the tree
+// root, so ripgrep reports root-relative paths whether it is given a
+// subdirectory to search or nothing at all, and there is nothing to strip or
+// rejoin on our side. DisplayArgs and FileListArgs deliberately leave the path
+// out — they build a command for a shell that has no such working directory,
+// so their caller supplies an absolute one.
 func Args(q Query) []string {
 	// --json is for the parser in parse.go; the rest of the output shape
 	// follows from it.
-	return append([]string{"--json", "--no-heading", "--color=never"}, matchArgs(q)...)
+	args := append([]string{"--json", "--no-heading", "--color=never"}, matchArgs(q)...)
+	if q.Path != "" {
+		args = append(args, q.Path)
+	}
+	return args
 }
 
 // DisplayArgs builds the same search with human-readable output, for showing

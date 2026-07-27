@@ -18,6 +18,10 @@ const starterTOML = `# filetree configuration
 [general]
 show_hidden = false
 show_ignored = true        # gitignored entries are shown greyed-out; "i" toggles
+scope_finder = false       # when true, "/" searches only the selected directory
+                           # (its parent for a file) instead of the whole tree.
+                           # "ctrl+r" toggles it, in the tree and in the finder;
+                           # the finder's "Dir" line always shows where it looks.
 icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 # link_ref = "commit"      # ref for u/U web links: "commit" (permanent) or "branch"
 # tmux = "auto"            # "auto": when started outside tmux, ft relaunches itself
@@ -162,6 +166,8 @@ key = "r"
 # quit = "q"
 # toggle-hidden = "."
 # toggle-ignored = "i"
+# toggle-scope = "ctrl+r"          # confine "/" to the selected dir; a chord
+#                                  # because it works inside the finder too
 # reload = ""              # unbound: F5 always reloads; set a key to add one
 # reveal = "o"
 # copy-abs = "y"

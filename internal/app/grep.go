@@ -120,6 +120,7 @@ func (m *Model) grepQuery() search.Query {
 		Hidden:     m.showHidden,
 		NoIgnore:   m.showIgnored,
 		MaxPerFile: m.grepMaxPerFile(),
+		Path:       m.scopeRel(),
 	}
 }
 
@@ -130,11 +131,12 @@ func (m *Model) grepQuery() search.Query {
 // status bar goes back to showing the selection.
 //
 // It differs from what Run executes in two deliberate ways: the output flags
-// are human-readable rather than --json, and the root is passed as an argument
-// instead of being the working directory. Neither changes which files or lines
-// match, so the command is self-contained — paste it into any shell and it
-// reproduces the result set, printed with absolute paths rather than
-// root-relative ones.
+// are human-readable rather than --json, and the search path is passed as an
+// absolute argument instead of being the working directory. Neither changes
+// which files or lines match, so the command is self-contained — paste it into
+// any shell and it reproduces the result set, printed with absolute paths
+// rather than root-relative ones. When the finder is scoped, that path is the
+// scope directory, so the command stays a faithful description of the list.
 //
 // One caveat for the --files form: the finder's own list comes from the walk
 // in fuzzy.go, which applies the same globs but takes gitignore state from the
@@ -155,7 +157,7 @@ func (m *Model) finderCommand() string {
 	for _, a := range args {
 		parts = append(parts, config.ShellQuote(a))
 	}
-	return strings.Join(append(parts, config.ShellQuote(m.tr.Root.Path)), " ")
+	return strings.Join(append(parts, config.ShellQuote(m.scopeAbs())), " ")
 }
 
 // copyFinderCommand puts the command on the clipboard, since the status bar

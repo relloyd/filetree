@@ -20,6 +20,7 @@ type State struct {
 	ScrollOffset int       `json:"scroll_offset"`
 	ShowHidden   *bool     `json:"show_hidden,omitempty"`  // nil = use config default
 	ShowIgnored  *bool     `json:"show_ignored,omitempty"` // nil = use config default
+	ScopeFinder  *bool     `json:"scope_finder,omitempty"` // nil = use config default
 	LastUsed     time.Time `json:"last_used"`
 }
 

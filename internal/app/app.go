@@ -144,6 +144,13 @@ type Model struct {
 	showHidden  bool
 	showIgnored bool
 
+	// scoped confines the finder to scopeDir, a root-relative directory ("" is
+	// the root itself, for which scoping is a no-op). The toggle is persisted
+	// per root; the directory is not — it is captured from the selection when
+	// the finder opens and when the toggle is switched on.
+	scoped   bool
+	scopeDir string
+
 	// prevRoot remembers where to return from the scratch or worktrees view
 	// (session-only).
 	prevRoot string
@@ -230,6 +237,7 @@ type Model struct {
 	// Clickable header button x-ranges, recomputed each render.
 	zoneHidden  [2]int
 	zoneIgnored [2]int
+	zoneScoped  [2]int
 }
 
 func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Model, error) {
@@ -292,6 +300,16 @@ func (m *Model) loadRoot(root string) error {
 	if st.ShowIgnored != nil {
 		m.showIgnored = *st.ShowIgnored
 	}
+	m.scoped = m.cfg.General.ScopeFinder
+	if st.ScopeFinder != nil {
+		m.scoped = *st.ScopeFinder
+	}
+
+	// Every finder path is relative to the root, so none of them survive a
+	// change of root: a bare "README.md" would otherwise resolve against the
+	// new tree and silently select a different file.
+	m.scopeDir = ""
+	m.lastPick, m.resumeWant = finderPick{}, finderPick{}
 
 	// Restore remembered expansion (parents come first in the saved list);
 	// dirs deleted since last run are silently skipped.
@@ -519,6 +537,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.cycleFinderField(1)
 		case m.actionKeys["finder-prev-field"]:
 			return m, m.cycleFinderField(-1)
+		case m.actionKeys["toggle-scope"]:
+			return m.toggleScope()
 		}
 		// Command chords come last, so a finder key can never be displaced
 		// by a finder_key in the config.
@@ -591,11 +611,14 @@ func (m *Model) buildBindings() {
 		"quit":           "q",
 		"toggle-hidden":  ".",
 		"toggle-ignored": "i",
-		"reload":         "", // F5 reloads; listed so [keys] can still bind one
-		"reveal":         "o",
-		"copy-abs":       "y",
-		"copy-rel":       "Y",
-		"fuzzy":          "/",
+		// Live in the tree and in the finder both, so it has to be a chord:
+		// a bare key would be typed into the finder's input.
+		"toggle-scope": "ctrl+r",
+		"reload":       "", // F5 reloads; listed so [keys] can still bind one
+		"reveal":       "o",
+		"copy-abs":     "y",
+		"copy-rel":     "Y",
+		"fuzzy":        "/",
 		// Finder-local: cycles the "/" input lines. Listed here so [keys] can
 		// remap it, but deliberately absent from the actions map below —
 		// m.bindings is normal-mode only.
@@ -637,6 +660,7 @@ func (m *Model) buildBindings() {
 		"quit":           m.quit,
 		"toggle-hidden":  m.toggleHidden,
 		"toggle-ignored": m.toggleIgnored,
+		"toggle-scope":   m.toggleScope,
 		"reload":         m.reloadAll,
 		"reveal":         m.reveal,
 		"copy-abs":       m.copyAbs,
@@ -771,8 +795,8 @@ func (m *Model) saveState() {
 		m.st.Selected = m.tr.Rel(sel.Path)
 	}
 	m.st.ScrollOffset = m.scroll
-	h, ig := m.showHidden, m.showIgnored
-	m.st.ShowHidden, m.st.ShowIgnored = &h, &ig
+	h, ig, sc := m.showHidden, m.showIgnored, m.scoped
+	m.st.ShowHidden, m.st.ShowIgnored, m.st.ScopeFinder = &h, &ig, &sc
 	_ = m.st.Save(m.stateDir)
 }
 

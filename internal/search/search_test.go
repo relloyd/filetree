@@ -73,6 +73,25 @@ func TestArgsPatternIsNotReadAsAFlag(t *testing.T) {
 	}
 }
 
+// A scoped search passes the directory as a trailing positional. It stays
+// relative because Run keeps the working directory at the root, which is what
+// makes ripgrep go on reporting root-relative paths.
+func TestArgsScopePath(t *testing.T) {
+	got := Args(Query{Regex: "x", Path: "infra/prod"})
+	if last := got[len(got)-1]; last != "infra/prod" {
+		t.Errorf("Args() last = %q, want infra/prod", last)
+	}
+	// The pattern must still be the last thing before it, or "-e" would eat
+	// the path instead.
+	if got[len(got)-3] != "-e" || got[len(got)-2] != "x" {
+		t.Errorf("Args() tail = %v, want [-e x infra/prod]", got[len(got)-3:])
+	}
+	// Unscoped, there is no positional at all: ripgrep defaults to the cwd.
+	if got := Args(Query{Regex: "x"}); got[len(got)-1] != "x" {
+		t.Errorf("unscoped Args() ends %q, want the pattern", got[len(got)-1])
+	}
+}
+
 // Listing files and searching them must agree on which files are in scope,
 // which is the whole point of a Type filter that works before a pattern is
 // typed. The listing carries nothing that only makes sense when searching.
@@ -419,4 +438,46 @@ func containsSeq(haystack, needle []string) bool {
 		}
 	}
 	return false
+}
+
+// A scoped search must stay root-relative: the finder resolves every hit
+// against the tree root, so a path rebased on the scope would open the wrong
+// file. Run keeps the working directory at the root and passes the scope as a
+// relative argument, which is what makes ripgrep go on reporting from the root.
+func TestRunScopedStaysRootRelative(t *testing.T) {
+	if !Available() {
+		t.Skip("ripgrep not installed")
+	}
+	root := t.TempDir()
+	for _, rel := range []string{"in/a.go", "in/deep/b.go", "out/c.go"} {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("package x // needle\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ch := make(chan Result)
+	go Run(t.Context(), root, Query{Regex: "needle", Path: "in"}, ch)
+	var got []string
+	for r := range ch {
+		if r.Err != nil {
+			t.Fatal(r.Err)
+		}
+		for _, h := range r.Hits {
+			got = append(got, h.Path)
+		}
+	}
+	slices.Sort(got)
+
+	if !slices.Equal(got, []string{"in/a.go", "in/deep/b.go"}) {
+		t.Fatalf("scoped hits = %v, want in/a.go and in/deep/b.go only", got)
+	}
+	for _, p := range got {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(p))); err != nil {
+			t.Errorf("hit %q does not resolve against the root: %v", p, err)
+		}
+	}
 }

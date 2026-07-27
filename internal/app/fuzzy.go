@@ -123,6 +123,11 @@ func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
 	m.grepRaw = ""
 	m.finderField = fieldQuery
 	m.resumeWant = finderPick{}
+	// Opening fresh re-reads the scope from wherever the cursor is; resuming
+	// deliberately does not, so "f" returns to the results it left.
+	if m.scoped {
+		m.scopeDir = m.selectionDir()
+	}
 	return m.enterFuzzy()
 }
 
@@ -209,7 +214,13 @@ func (m *Model) clearFinder() tea.Cmd {
 // walkParams is everything the walker goroutine needs, captured by value so it
 // touches no model state. Git lookups use a snapshot of loaded statuses.
 type walkParams struct {
-	root        string
+	// start is where the traversal begins and startRel is that directory
+	// relative to the tree root. They are separate because scoping the finder
+	// moves the start without moving the base every emitted path is relative
+	// to — the rest of the app resolves finder paths against the tree root, so
+	// a scoped walk still has to speak root-relative.
+	start       string
+	startRel    string
 	visible     []string
 	filter      search.Filter
 	showHidden  bool
@@ -235,9 +246,22 @@ func (m *Model) restartFuzzyWalk() tea.Cmd {
 	for k, v := range m.statuses {
 		statuses[k] = v
 	}
+	// A scope directory can vanish while the finder is away (an editor session,
+	// a delete elsewhere). ReadDir failure inside the walk is a bare continue,
+	// which would show an empty finder and no reason for it, so catch it here.
+	start, startRel := m.scopeAbs(), m.scopeRel()
+	var note tea.Cmd
+	if startRel != "" {
+		if fi, err := os.Stat(start); err != nil || !fi.IsDir() {
+			note = m.note("Scope directory is gone; searching the whole tree", true)
+			m.scopeDir = ""
+			start, startRel = m.tr.Root.Path, ""
+		}
+	}
 	p := walkParams{
-		root:        m.tr.Root.Path,
-		visible:     append([]string(nil), m.fuzzyVisOrder...),
+		start:       start,
+		startRel:    startRel,
+		visible:     underScope(m.fuzzyVisOrder, startRel),
 		filter:      m.fuzzyFilter,
 		showHidden:  m.showHidden,
 		showIgnored: m.showIgnored,
@@ -249,7 +273,28 @@ func (m *Model) restartFuzzyWalk() tea.Cmd {
 	cancel := make(chan struct{})
 	m.fuzzyWalk, m.fuzzyCancel = ch, cancel
 	go walkCandidates(p, ch, cancel)
+	if note != nil {
+		return tea.Batch(note, waitFuzzyWalk(ch, m.fuzzyGen))
+	}
 	return waitFuzzyWalk(ch, m.fuzzyGen)
+}
+
+// underScope keeps the root-relative paths that live under dir. The walk seeds
+// its candidate list with the rows currently on screen, which are taken from
+// the whole tree — unfiltered, a scoped walk would offer entries from outside
+// the scope.
+func underScope(rels []string, dir string) []string {
+	if dir == "" {
+		return append([]string(nil), rels...)
+	}
+	prefix := dir + "/"
+	out := make([]string, 0, len(rels))
+	for _, rel := range rels {
+		if strings.HasPrefix(rel, prefix) {
+			out = append(out, rel)
+		}
+	}
+	return out
 }
 
 // stopFuzzyWalk tells the walker goroutine to stop. Abandoning a search of a
@@ -330,7 +375,7 @@ func walkCandidates(p walkParams, out chan<- fuzzyChunk, cancel <-chan struct{})
 		abs string
 		rel string
 	}
-	queue := []qitem{{abs: p.root, rel: ""}}
+	queue := []qitem{{abs: p.start, rel: p.startRel}}
 	for len(queue) > 0 {
 		select {
 		case <-cancel:
@@ -514,7 +559,7 @@ func (m *Model) fuzzyVisibleRows() int {
 // grep fields each get a line of their own, shown once focused or non-empty,
 // so an unused field costs no screen space.
 func (m *Model) finderHeaderLines() int {
-	n := 1
+	n := 2 // the Dir line is always drawn, then Find
 	if m.finderField == fieldType || m.typeInput.Value() != "" {
 		n++
 	}

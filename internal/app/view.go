@@ -65,15 +65,28 @@ func (m *Model) View() tea.View {
 	return v
 }
 
-// renderHeader draws the title, root path, and the two clickable toggle
-// buttons, recording their x-ranges for mouse hit-testing.
+// renderHeader draws the title, root path, and the clickable toggle buttons,
+// recording their x-ranges for mouse hit-testing.
 func (m *Model) renderHeader() string {
-	hBtn := checkbox("hidden", m.showHidden)
-	iBtn := checkbox("ignored", m.showIgnored)
-	rightPlain := hBtn + "  " + iBtn + " "
+	btns := []struct {
+		label string
+		on    bool
+		zone  *[2]int
+	}{
+		{"hidden", m.showHidden, &m.zoneHidden},
+		{"ignored", m.showIgnored, &m.zoneIgnored},
+		{"scoped", m.scoped, &m.zoneScoped},
+	}
+	const btnGap = 2
+
+	rightPlain := " " // the trailing space after the last button
+	for i, b := range btns {
+		if i > 0 {
+			rightPlain += strings.Repeat(" ", btnGap)
+		}
+		rightPlain += checkbox(b.label, b.on)
+	}
 	rightStart := max(0, m.width-len(rightPlain))
-	m.zoneHidden = [2]int{rightStart, rightStart + len(hBtn)}
-	m.zoneIgnored = [2]int{rightStart + len(hBtn) + 2, rightStart + len(hBtn) + 2 + len(iBtn)}
 
 	title := " ft "
 	chip, chipStyle := "", styleMark
@@ -90,10 +103,26 @@ func (m *Model) renderHeader() string {
 		root = truncateLeft(root, keep)
 	}
 	gap := max(1, rightStart-len(title)-len(chip)-lipgloss.Width(root))
+
+	// Place the zones from where the buttons actually start, not from
+	// rightStart: on a terminal too narrow to squeeze the root path into, the
+	// gap bottoms out at one column and pushes them right of it. Offsets are
+	// accumulated per button, so adding a fourth is a line in the slice above.
+	right := ""
+	x := len(title) + len(chip) + lipgloss.Width(root) + gap
+	for i, b := range btns {
+		if i > 0 {
+			right += strings.Repeat(" ", btnGap)
+			x += btnGap
+		}
+		txt := checkbox(b.label, b.on)
+		*b.zone = [2]int{x, x + len(txt)}
+		right += checkboxStyle(b.on).Render(txt)
+		x += len(txt)
+	}
+	right += " "
 	return styleTitle.Render(title) + chipStyle.Render(chip) + styleDim.Render(root) +
-		strings.Repeat(" ", gap) +
-		checkboxStyle(m.showHidden).Render(hBtn) + "  " +
-		checkboxStyle(m.showIgnored).Render(iBtn) + " "
+		strings.Repeat(" ", gap) + right
 }
 
 func checkbox(label string, on bool) string {
@@ -291,7 +320,8 @@ func (m *Model) renderFinderHeader() []string {
 		}
 		return styleDim.Render(text)
 	}
-	lines := []string{label(" Find ", fieldQuery) + m.input.View() + m.renderFinderCounter()}
+	lines := []string{m.renderFinderScope()}
+	lines = append(lines, label(" Find ", fieldQuery)+m.input.View()+m.renderFinderCounter())
 	if m.finderField == fieldType || m.typeInput.Value() != "" {
 		line := label(" Type ", fieldType) + m.typeInput.View()
 		if m.fuzzyFilterErr != "" {
@@ -315,6 +345,26 @@ func (m *Model) renderFinderHeader() []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// renderFinderScope is the "Dir" line: where the finder is searching. It is
+// always drawn, so the toggle's state is never in doubt. Scoped, it shows the
+// directory in force; unscoped it is dimmed and shows the directory that
+// turning the scope on would pick — a preview of the key rather than a stale
+// record of the last one.
+func (m *Model) renderFinderScope() string {
+	dir := m.scopeDir
+	if !m.scoped {
+		dir = m.selectionDir()
+	}
+	if dir == "" {
+		dir = abbrevHome(m.tr.Root.Path)
+	}
+	style := styleDim
+	if m.scoped {
+		style = styleOK
+	}
+	return styleDim.Render(" Dir  ") + style.Render(truncateLeft(dir, max(1, m.width-6)))
 }
 
 // renderFinderCounter is the position indicator: "12/1000", with "…" while the
@@ -460,6 +510,7 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["copy-url"] + " / " + m.actionKeys["open-url"], "copy web URL / open in browser (+copy)"},
 		{m.actionKeys["toggle-hidden"], "toggle hidden files"},
 		{m.actionKeys["toggle-ignored"], "toggle gitignored files"},
+		{m.actionKeys["toggle-scope"], "confine the fuzzy finder to the selected dir (works inside it too)"},
 		{reloadKeys, "reload from disk"},
 		{m.actionKeys["reveal"], "reveal in Finder"},
 		{m.actionKeys["fuzzy"], "fuzzy finder"},

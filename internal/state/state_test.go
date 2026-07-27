@@ -29,6 +29,27 @@ func TestRoundTrip(t *testing.T) {
 	if got.ShowHidden == nil || !*got.ShowHidden || got.ShowIgnored != nil {
 		t.Errorf("toggles: hidden=%v ignored=%v", got.ShowHidden, got.ShowIgnored)
 	}
+	// Never set here, so it stays nil and the config default wins — which is
+	// also how a state file written before the field existed behaves.
+	if got.ScopeFinder != nil {
+		t.Errorf("scope_finder = %v, want nil for an unset toggle", *got.ScopeFinder)
+	}
+}
+
+// The finder scope persists per root like the other two toggles.
+func TestScopeFinderRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	s := New("/some/root")
+	scoped := true
+	s.ScopeFinder = &scoped
+	if err := s.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	got := Load(dir, "/some/root")
+	if got.ScopeFinder == nil || !*got.ScopeFinder {
+		t.Errorf("scope_finder = %v, want true", got.ScopeFinder)
+	}
 }
 
 func TestLoadMissingOrCorrupt(t *testing.T) {

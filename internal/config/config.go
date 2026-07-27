@@ -63,15 +63,16 @@ type Command struct {
 var finderReservedKeys = []string{
 	"esc", "enter", "up", "down", "pgup", "pgdown",
 	"ctrl+p", "ctrl+n", "ctrl+u", "ctrl+d",
-	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+l",
+	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+l", "ctrl+r",
 }
 
 type General struct {
 	ShowHidden          bool   `toml:"show_hidden"`
 	ShowIgnored         bool   `toml:"show_ignored"`
-	Icons               string `toml:"icons"`    // "nerd" or "plain"
-	LinkRef             string `toml:"link_ref"` // web links pin to "commit" or "branch"
-	Tmux                string `toml:"tmux"`     // "auto" (relaunch inside tmux) or "never"
+	ScopeFinder         bool   `toml:"scope_finder"` // "/" searches the selected dir only
+	Icons               string `toml:"icons"`        // "nerd" or "plain"
+	LinkRef             string `toml:"link_ref"`     // web links pin to "commit" or "branch"
+	Tmux                string `toml:"tmux"`         // "auto" (relaunch inside tmux) or "never"
 	FuzzyMaxMatches     int    `toml:"fuzzy_max_matches"`
 	FuzzyMaxCandidates  int    `toml:"fuzzy_max_candidates"`
 	FuzzyGrepMaxPerFile int    `toml:"fuzzy_grep_max_per_file"`
@@ -104,6 +105,7 @@ func Default() *Config {
 		General: General{
 			ShowHidden:          false,
 			ShowIgnored:         true,
+			ScopeFinder:         false,
 			Icons:               "nerd",
 			LinkRef:             "commit",
 			Tmux:                tmux.ModeAuto,

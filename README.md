@@ -98,6 +98,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `u` / `U` | copy the selection's web URL (GitHub-style, from the origin remote) / open it in the browser and copy |
 | `.` | toggle hidden files |
 | `i` | toggle gitignored files |
+| `ctrl+r` | confine the fuzzy finder to the selected directory (its parent for a file) — works inside the finder too |
 | `F5` | reload from disk |
 | `o` | reveal in Finder |
 | `/` | fuzzy finder (esc cancels, enter jumps) |
@@ -146,7 +147,9 @@ input; the keys the finder handles itself are rejected at config load.
 
 ## Fuzzy Find
 
-Fuzzy find (`/`) has three input lines; `tab` (`shift+tab`) cycles them.
+Fuzzy find (`/`) has three input lines; `tab` (`shift+tab`) cycles them. Above
+them, a `Dir` line shows where it is searching — see
+[Scoping to a directory](#scoping-to-a-directory).
 
 ### Find
 
@@ -230,6 +233,30 @@ matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
 *which* files made it in is down to timing. `ctrl+g` raises the cap; ripgrep's
 own `--sort path` would make the order stable at the cost of running
 single-threaded.
+
+### Scoping to a directory
+
+By default the finder searches the whole tree. **`ctrl+r`** confines it to the
+selected directory — its parent when a file is selected — and the `Dir` line
+shows what is in force. The walk starts there and `rg` is constrained to the
+same place, so a `Grep` on a large repo costs what the subtree costs rather
+than what the repo does, and the candidate cap stops being a factor.
+
+The toggle works in the tree and inside the finder, and is remembered per root
+(`scope_finder` in `[general]` sets the starting value). There is a `[x] scoped`
+checkbox in the header alongside `hidden` and `ignored`.
+
+The directory is read from the cursor when `/` opens the finder, and again each
+time `ctrl+r` switches the scope on — so `ctrl+r` always means "scope to here,
+now". It is *not* re-read by `f`, which returns you to the results you left, or
+by `ctrl+l`, which empties the three fields and nothing else. Turn the scope off
+and the `Dir` line dims to show the directory that turning it back on would
+pick, so the key is always a preview of itself.
+
+Results are still listed relative to the tree root, not to the scope, so
+jumping and the `{path}` a command receives are unaffected. If the scope
+directory disappears while you are away, the finder says so and falls back to
+the whole tree.
 
 ### Running commands on a result
 
