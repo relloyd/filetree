@@ -593,7 +593,7 @@ func (m *Model) buildBindings() {
 		"finder-clear":        "ctrl+l",
 		// finder-resume is a normal-mode action, so unlike the finder-local
 		// keys above it does belong in the actions map below.
-		"finder-resume": "ctrl+f",
+		"finder-resume": "f",
 		"new-file":      "a",
 		"new-dir":       "A",
 		"rename":        "R",

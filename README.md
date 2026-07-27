@@ -98,12 +98,12 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `i` | toggle gitignored files |
 | `F5` | reload from disk |
 | `o` | reveal in Finder |
-| `/` | fuzzy find (esc cancels, enter jumps) |
-| `tab` | in the finder: cycle the `Find:` / `Type:` / `Grep:` fields |
-| `ctrl+g` | in the finder: raise the match limit for the session (2×, 3×, …) |
-| `ctrl+y` | in the finder: copy the `rg` command behind the `Type:`/`Grep:` fields |
-| `ctrl+f` | reopen the finder with the last `Find:`/`Type:`/`Grep:` still in place |
-| `ctrl+l` | in the finder: empty all three fields |
+| `/` | fuzzy finder (esc cancels, enter jumps) |
+| `tab` | in the fuzzy finder: cycle the `Find:` / `Type:` / `Grep:` fields |
+| `ctrl+g` | in the fuzzy finder: raise the match limit for the session (2×, 3×, …) |
+| `ctrl+y` | in the fuzzy finder: copy the `rg` command behind the `Type:`/`Grep:` fields |
+| `f` | reopen the fuzzy finder with the last `Find:`/`Type:`/`Grep:` still in place |
+| `ctrl+l` | in the fuzzy finder: empty all three fields |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -215,7 +215,7 @@ matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
 own `--sort path` would make the order stable at the cost of running
 single-threaded.
 
-**Picking up where you left off.** `/` always opens empty; **`ctrl+f`** reopens
+**Picking up where you left off.** `/` always opens empty; **`f`** reopens
 the finder with all three fields exactly as you left them, and puts the
 selection back on the row you jumped from — so the search → open a file →
 look at it → back to the same results loop costs one keystroke instead of

@@ -25,7 +25,7 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 #                          # "ft --no-tmux" turns it off for one run.
 # fuzzy_max_matches = 1000 # how many "/" results are ranked and kept; raising
 #                          # it costs sort time on huge trees, not render time.
-#                          # "ctrl+g" in the finder doubles, triples, ... this
+#                          # "ctrl+g" in the fuzzy finder doubles, triples, ... this
 #                          # for the rest of the session when you need more
 # fuzzy_max_candidates = 50000
 #                          # how many paths the "/" walk indexes before it
@@ -162,7 +162,7 @@ key = "r"
 # finder-more = "ctrl+g"           # raise fuzzy_max_matches for this session
 # finder-copy-command = "ctrl+y"   # copy the rg command behind Type/Grep
 # finder-clear = "ctrl+l"          # empty all three finder fields
-# finder-resume = "ctrl+f"         # reopen the finder where you left it
+# finder-resume = "f"              # reopen the finder where you left it
 # new-file = "a"
 # new-dir = "A"
 # rename = "R"

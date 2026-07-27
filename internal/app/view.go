@@ -210,10 +210,10 @@ func (m *Model) renderStatus() string {
 	case m.statusMsg != "":
 		left = styleOK.Render(" " + m.statusMsg)
 	case m.mode == modeFuzzy && m.finderCommand() != "":
-		// The tree cursor is not what you are looking at in the finder, so the
-		// status bar shows the ripgrep command instead — the one place a long
-		// line fits without adding a row. Truncated from the left so the
-		// pattern, the interesting end, always survives.
+		// The tree cursor is not what you are looking at in the fuzzy
+		// finder, so the status bar shows the ripgrep command instead — the
+		// one place a long line fits without adding a row. Truncated from
+		// the left so the pattern, the interesting end, always survives.
 		left = styleDim.Render(" " + truncateLeft(m.finderCommand(), max(1, m.width-2)))
 	default:
 		if sel := m.selected(); sel != nil {
@@ -462,12 +462,12 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["toggle-ignored"], "toggle gitignored files"},
 		{reloadKeys, "reload from disk"},
 		{m.actionKeys["reveal"], "reveal in Finder"},
-		{m.actionKeys["fuzzy"], "fuzzy find"},
-		{m.actionKeys["finder-next-field"], "in the finder: cycle Find / Type / Grep"},
-		{m.actionKeys["finder-more"], "in the finder: raise the match limit (2×, 3×, …)"},
-		{m.actionKeys["finder-copy-command"], "in the finder: copy the rg command"},
-		{m.actionKeys["finder-clear"], "in the finder: empty all three fields"},
-		{m.actionKeys["finder-resume"], "reopen the finder where you left it"},
+		{m.actionKeys["fuzzy"], "fuzzy finder"},
+		{m.actionKeys["finder-next-field"], "in the fuzzy finder: cycle Find / Type / Grep"},
+		{m.actionKeys["finder-more"], "in the fuzzy finder: raise the match limit (2×, 3×, …)"},
+		{m.actionKeys["finder-copy-command"], "in the fuzzy finder: copy the rg command"},
+		{m.actionKeys["finder-clear"], "in the fuzzy finder: empty all three fields"},
+		{m.actionKeys["finder-resume"], "reopen the fuzzy finder where you left it"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
 		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},

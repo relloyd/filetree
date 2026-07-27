@@ -962,28 +962,28 @@ func TestFinderClearIsFinderLocal(t *testing.T) {
 		t.Error("finder-clear leaked into the normal-mode binding table")
 	}
 	// Resume is the opposite: it is a normal-mode action and must be bound.
-	if got := m.actionKeys["finder-resume"]; got != "ctrl+f" {
-		t.Errorf("default finder-resume = %q, want ctrl+f", got)
+	if got := m.actionKeys["finder-resume"]; got != "f" {
+		t.Errorf("default finder-resume = %q, want f", got)
 	}
-	if _, ok := m.bindings["ctrl+f"]; !ok {
+	if _, ok := m.bindings["f"]; !ok {
 		t.Error("finder-resume is not bound in normal mode")
 	}
 }
 
-// The mode collision guard: ctrl+f resumes from the tree, but inside the
-// finder it belongs to the text input as move-cursor-right.
-func TestCtrlFMovesTheCursorInsideTheFinder(t *testing.T) {
+// The mode collision guard: "f" resumes from the tree, but inside the finder
+// it is an ordinary character and has to reach the query.
+func TestPlainFTypesInsideTheFinder(t *testing.T) {
 	m := finderModel()
 	m.input.SetValue("abc")
 	m.input.SetCursor(0)
 
-	m.handleKey(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	m.handleKey(tea.KeyPressMsg{Code: 'f', Text: "f"})
 
-	if m.input.Value() != "abc" {
-		t.Errorf("ctrl+f changed the query to %q", m.input.Value())
+	if got := m.input.Value(); got != "fabc" {
+		t.Errorf("query = %q, want fabc — f should type, not resume", got)
 	}
-	if got := m.input.Position(); got != 1 {
-		t.Errorf("cursor at %d, want 1 — ctrl+f should move it, not resume", got)
+	if m.mode != modeFuzzy {
+		t.Error("f left the finder")
 	}
 }
 
