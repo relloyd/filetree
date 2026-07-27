@@ -1,12 +1,16 @@
 package search
 
 import (
+	"bufio"
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestArgs(t *testing.T) {
@@ -26,9 +30,11 @@ func TestArgs(t *testing.T) {
 			want: []string{"--json", "--no-heading", "--color=never", "--hidden", "--no-ignore", "-g", "!.git/", "-e", "x"},
 		},
 		{
+			// The scope flags come first because searching and listing share
+			// them; --max-count is search-only and follows.
 			name: "per-file cap",
 			q:    Query{Regex: "x", MaxPerFile: 5},
-			want: []string{"--json", "--no-heading", "--color=never", "--max-count", "5", "-g", "!.git/", "-e", "x"},
+			want: []string{"--json", "--no-heading", "--color=never", "-g", "!.git/", "--max-count", "5", "-e", "x"},
 		},
 		{
 			name: "a zero cap is left off",
@@ -64,6 +70,31 @@ func TestArgsPatternIsNotReadAsAFlag(t *testing.T) {
 	got := Args(Query{Regex: "--force"})
 	if got[len(got)-2] != "-e" || got[len(got)-1] != "--force" {
 		t.Errorf("Args() tail = %v, want [-e --force]", got[len(got)-2:])
+	}
+}
+
+// Listing files and searching them must agree on which files are in scope,
+// which is the whole point of a Type filter that works before a pattern is
+// typed. The listing carries nothing that only makes sense when searching.
+func TestFileListArgs(t *testing.T) {
+	f, err := CompileFilter("hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := Query{Regex: "x", Filter: f, Hidden: true, NoIgnore: true, MaxPerFile: 5}
+
+	got := FileListArgs(q)
+	want := []string{"--files", "--hidden", "--no-ignore", "-g", "*.hcl", "-g", "hcl", "-g", "!.git/"}
+	if !slices.Equal(got, want) {
+		t.Errorf("FileListArgs() = %v\nwant             %v", got, want)
+	}
+
+	// The scope it lists is exactly the scope a search would read.
+	searchScope := Args(q)
+	for i := 0; i+1 < len(want); i++ {
+		if want[i] == "-g" && !containsSeq(searchScope, []string{"-g", want[i+1]}) {
+			t.Errorf("glob %q is in the listing but not in the search", want[i+1])
+		}
 	}
 }
 
@@ -263,6 +294,114 @@ func TestRunCancelled(t *testing.T) {
 	cancel()
 	if _, err := runAll(t, ctx, grepFixture(t), Query{Regex: "dependency"}); err != nil {
 		t.Errorf("cancelled search reported %v, want no error", err)
+	}
+}
+
+func TestReadBoundedLine(t *testing.T) {
+	const limit = 16
+	// A short line, one far over the limit, then a short one again.
+	long := strings.Repeat("x", limit*4)
+	input := "alpha\n" + long + "\nomega\n"
+	r := bufio.NewReaderSize(strings.NewReader(input), 8) // tiny buffer: force ErrBufferFull
+
+	line, over, err := readBoundedLine(r, limit)
+	if over || err != nil || string(line) != "alpha\n" {
+		t.Fatalf("first line = %q over=%v err=%v", line, over, err)
+	}
+
+	line, over, err = readBoundedLine(r, limit)
+	if !over {
+		t.Errorf("over-long line was not reported as skipped (line %q)", line)
+	}
+	if err != nil {
+		t.Errorf("over-long line returned err %v, want nil — the stream continues", err)
+	}
+	if len(line) > limit {
+		t.Errorf("kept %d bytes of an over-long line, want at most %d", len(line), limit)
+	}
+
+	// The critical property: the reader is left at the start of the *next*
+	// line, so one monstrous line costs a result rather than the search.
+	line, over, err = readBoundedLine(r, limit)
+	if over || string(line) != "omega\n" {
+		t.Errorf("line after the over-long one = %q over=%v, want %q", line, over, "omega\n")
+	}
+	if err != nil {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestReadBoundedLineEdges(t *testing.T) {
+	// Exactly at the limit is kept.
+	r := bufio.NewReaderSize(strings.NewReader("abcd\n"), 16)
+	line, over, err := readBoundedLine(r, 5)
+	if over || err != nil || string(line) != "abcd\n" {
+		t.Errorf("at-limit line = %q over=%v err=%v", line, over, err)
+	}
+
+	// A final line with no trailing newline comes back with io.EOF.
+	r = bufio.NewReaderSize(strings.NewReader("tail"), 16)
+	line, over, err = readBoundedLine(r, 16)
+	if string(line) != "tail" || over || !errors.Is(err, io.EOF) {
+		t.Errorf("unterminated line = %q over=%v err=%v, want %q with io.EOF", line, over, err, "tail")
+	}
+}
+
+// The regression test for the hang: a match on a line too long to buffer used
+// to abort the scanner, leaving ripgrep blocked writing to a pipe nobody read
+// and cmd.Wait blocked forever. The search must now finish, return the normal
+// hits, and say how many it dropped.
+func TestRunSurvivesAnOverLongLine(t *testing.T) {
+	requireRipgrep(t)
+	root := t.TempDir()
+	// ~3 MB on one line: past maxLine even before ripgrep's JSON escaping,
+	// which inflates it roughly fourfold.
+	huge := "prefix " + strings.Repeat("sourceMappingURL,", 180000) + " end\n"
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("bundle.min.js", huge)
+	write("a.txt", "a source line\n")
+	write("b.txt", "another source line\n")
+
+	done := make(chan struct{})
+	var hits []Hit
+	var skipped int
+	var err error
+	go func() {
+		defer close(done)
+		out := make(chan Result)
+		go Run(t.Context(), root, Query{Regex: "source"}, out)
+		for r := range out {
+			hits = append(hits, r.Hits...)
+			skipped += r.Skipped
+			if r.Done {
+				err = r.Err
+			}
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("Run did not finish: the over-long line deadlocked it")
+	}
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1 (the minified bundle)", skipped)
+	}
+	var paths []string
+	for _, h := range hits {
+		paths = append(paths, h.Path)
+	}
+	slices.Sort(paths)
+	if !slices.Equal(paths, []string{"a.txt", "b.txt"}) {
+		t.Errorf("hits = %v, want the two normal files", paths)
 	}
 }
 

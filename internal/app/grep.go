@@ -43,14 +43,13 @@ func (m *Model) applyGrep() tea.Cmd {
 
 // scheduleGrep cancels the running search and arms the debounce for a new one.
 func (m *Model) scheduleGrep() tea.Cmd {
-	m.stopGrep()
+	m.stopGrep() // bumps the generation, so results in flight are now stale
 	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
-	m.grepCapped = false
+	m.grepCapped, m.grepSkipped = false, 0
 	m.fuzzySel, m.fuzzyScroll = 0, 0
 	if !m.grepping() {
 		return nil
 	}
-	m.grepGen++
 	m.grepRunning = true
 	gen := m.grepGen
 	return tea.Tick(grepDebounce, func(time.Time) tea.Msg { return grepDebounceMsg{gen: gen} })
@@ -75,12 +74,18 @@ func waitGrep(ch <-chan search.Result, gen int) tea.Cmd {
 		if !ok {
 			return nil
 		}
-		return grepResultMsg{gen: gen, hits: r.Hits, done: r.Done, err: r.Err}
+		return grepResultMsg{gen: gen, hits: r.Hits, skipped: r.Skipped, done: r.Done, err: r.Err}
 	}
 }
 
 // stopGrep kills a running ripgrep. Leaving the finder or retyping the pattern
 // should not leave a search of a huge root grinding away.
+//
+// It bumps the generation, so stopping and superseding are the same thing: a
+// batch still in flight can never be mistaken for the current search by a
+// caller that only stopped (startFuzzy, fuzzyJump, esc). Without that, a stale
+// batch delivered into a reopened finder would re-arm on the nilled channel and
+// block forever.
 func (m *Model) stopGrep() {
 	if m.grepCancel != nil {
 		m.grepCancel()
@@ -88,6 +93,7 @@ func (m *Model) stopGrep() {
 	}
 	m.grepCh = nil
 	m.grepRunning = false
+	m.grepGen++
 }
 
 // addGrepHits appends a batch, stopping at the display cap. Hits past the cap
@@ -117,29 +123,45 @@ func (m *Model) grepQuery() search.Query {
 	}
 }
 
-// grepCommand renders the current content search as a shell command, for
-// checking the finder's results against ripgrep directly.
+// finderCommand renders what the finder is doing as a shell command, for
+// checking its results against ripgrep directly. With a pattern typed that is
+// a content search; with only a Type filter it is `rg --files`, listing the
+// files the filter selects. With neither there is nothing to express, and the
+// status bar goes back to showing the selection.
 //
 // It differs from what Run executes in two deliberate ways: the output flags
 // are human-readable rather than --json, and the root is passed as an argument
-// instead of being the working directory. Neither changes which lines match,
-// so the command is self-contained — paste it into any shell and it reproduces
-// the result set (printed with absolute paths rather than root-relative ones).
-func (m *Model) grepCommand() string {
-	if !m.grepping() {
+// instead of being the working directory. Neither changes which files or lines
+// match, so the command is self-contained — paste it into any shell and it
+// reproduces the result set, printed with absolute paths rather than
+// root-relative ones.
+//
+// One caveat for the --files form: the finder's own list comes from the walk
+// in fuzzy.go, which applies the same globs but takes gitignore state from the
+// cached `git status` and stops at the candidate cap. So it answers "does my
+// Type filter select what I think it does", not "is the walk complete".
+func (m *Model) finderCommand() string {
+	q := m.grepQuery()
+	var args []string
+	switch {
+	case m.grepping():
+		args = search.DisplayArgs(q)
+	case !q.Filter.Empty():
+		args = search.FileListArgs(q)
+	default:
 		return ""
 	}
 	parts := []string{"rg"}
-	for _, a := range search.DisplayArgs(m.grepQuery()) {
+	for _, a := range args {
 		parts = append(parts, config.ShellQuote(a))
 	}
 	return strings.Join(append(parts, config.ShellQuote(m.tr.Root.Path)), " ")
 }
 
-// copyGrepCommand puts the command on the clipboard, since the status bar can
-// only show as much of it as fits.
-func (m *Model) copyGrepCommand() (tea.Model, tea.Cmd) {
-	cmd := m.grepCommand()
+// copyFinderCommand puts the command on the clipboard, since the status bar
+// can only show as much of it as fits.
+func (m *Model) copyFinderCommand() (tea.Model, tea.Cmd) {
+	cmd := m.finderCommand()
 	if cmd == "" {
 		return m, nil
 	}

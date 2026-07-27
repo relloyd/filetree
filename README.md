@@ -101,7 +101,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `/` | fuzzy find (esc cancels, enter jumps) |
 | `tab` | in the finder: cycle the `Find:` / `Type:` / `Grep:` fields |
 | `ctrl+g` | in the finder: raise the match limit for the session (2×, 3×, …) |
-| `ctrl+y` | in the finder: copy the `rg` command behind a content search |
+| `ctrl+y` | in the finder: copy the `rg` command behind the `Type:`/`Grep:` fields |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -199,13 +199,21 @@ half-typed regexp is never run, and takes at most 5 matches from any one file
 `--max-count`, so ripgrep enforces it while reading). ripgrep's own errors — a
 malformed regexp, most often — appear beside the field.
 
-While a content search is up, the **status bar shows the ripgrep command** it
-amounts to, and **`ctrl+y`** copies the whole thing to the clipboard so you can
-run it yourself and check the finder against it. The copied command is
-self-contained — the tree root is the search path, so it works from any
-directory. It differs from what `ft` actually runs in two ways that cannot
-change which lines match: the output flags are human-readable instead of
-`--json`, and paths print absolute rather than root-relative.
+Whenever `Type:` or `Grep:` has anything in it, the **status bar shows the
+ripgrep command** the finder amounts to, and **`ctrl+y`** copies the whole thing
+to the clipboard so you can run it yourself and check the finder against it.
+With a pattern typed that is a content search; with only a type filter it is
+`rg --files`, listing the files the filter selects — handy for confirming a
+glob does what you meant before typing a pattern.
+
+The copied command is self-contained — the tree root is the search path, so it
+works from any directory. It differs from what `ft` actually runs in two ways
+that cannot change which files or lines match: the output flags are
+human-readable instead of `--json`, and paths print absolute rather than
+root-relative. One caveat for the `--files` form: the finder's own file list
+comes from its walk, which applies the same globs but takes gitignore state
+from the cached `git status` and stops at `fuzzy_max_candidates`. So it answers
+"does my filter select what I think it does", not "is the walk complete".
 
 Results arrive in whatever order ripgrep finds them — it searches files in
 parallel, and sorting would mean waiting for the whole search to finish. That
@@ -213,6 +221,32 @@ matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
 *which* files made it in is down to timing. `ctrl+g` raises the cap; ripgrep's
 own `--sort path` would make the order stable at the cost of running
 single-threaded.
+
+### Limits
+
+Several caps are in play, at different layers, and they do not all apply to
+both modes:
+
+| Limit | Default | Config key | Enforced by | Mode | What you see |
+|---|---|---|---|---|---|
+| Candidate cap | 50,000 | `fuzzy_max_candidates` | the walk, between directories | name only | `+` on the counter; deep files absent |
+| Match cap | 1,000 (× `ctrl+g`) | `fuzzy_max_matches` | `ft`, as results arrive | both | ` max` on the counter; the search stops there |
+| Matches per file | 5 | `fuzzy_grep_max_per_file` | ripgrep `--max-count` | content only | at most 5 rows from one file |
+| Line length | 1 MiB | — | `ft`, while parsing | content only | `3 skipped (line too long)` beside the pattern |
+| Debounce | 150 ms | — | `ft` | content only | the pause before ripgrep runs |
+
+The parts that surprise people:
+
+- **The candidate cap does not constrain a content search.** ripgrep does its
+  own traversal, so `Grep:` reaches files the name list had truncated away —
+  the two modes genuinely see different sets.
+- **5 per file × 1000 total means at most 200 distinct files** in a content
+  search before the cap bites.
+- **The line-length cap exists because ripgrep has no way to bound it.**
+  `--max-columns` is ignored in the `--json` mode `ft` parses, and a 2.5 MB
+  minified line becomes an 11 MB JSON event. Matches on such lines are dropped
+  and counted rather than buffered, so a search over a tree full of bundles and
+  sourcemaps stays responsive — and tells you what it left out.
 
 ## Config
 

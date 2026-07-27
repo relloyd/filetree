@@ -50,7 +50,9 @@ watch_debounce_ms = 150
 #   Grep:  a regexp searched inside the files Type selected (needs ripgrep).
 #          Rows become "path:line  matched text"; enter still jumps to the
 #          file. Type + Grep together are the "fd ... | rg ..." combination.
-#          The status bar shows the rg command; "ctrl+y" copies it.
+#          With Type or Grep filled in, the status bar shows the rg command
+#          the finder amounts to ("rg --files ..." when only Type is set);
+#          "ctrl+y" copies it so you can run it yourself.
 # With a Type filter and an empty Find, the list is every file of that type.
 
 # Scratch files: "S" creates an empty YYYYMMDDHH.<extension> file here and
@@ -158,7 +160,7 @@ key = "r"
 # finder-next-field = "tab"        # move between the "/" finder's input lines
 # finder-prev-field = "shift+tab"
 # finder-more = "ctrl+g"           # raise fuzzy_max_matches for this session
-# finder-copy-command = "ctrl+y"   # copy the rg command behind a Grep search
+# finder-copy-command = "ctrl+y"   # copy the rg command behind Type/Grep
 # new-file = "a"
 # new-dir = "A"
 # rename = "R"

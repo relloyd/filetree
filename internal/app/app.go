@@ -99,10 +99,11 @@ type (
 	// grepResultMsg is one batch of content matches, generation-guarded the
 	// same way as fuzzyCandsMsg.
 	grepResultMsg struct {
-		gen  int
-		hits []search.Hit
-		done bool
-		err  error
+		gen     int
+		hits    []search.Hit
+		skipped int // matches dropped for sitting on an over-long line
+		done    bool
+		err     error
 	}
 )
 
@@ -201,6 +202,7 @@ type Model struct {
 	grepRaw     string // pattern the current search was started with
 	grepErr     string
 	grepCapped  bool // hits were dropped at the match cap
+	grepSkipped int  // matches on lines too long for the parser to buffer
 	grepGen     int
 	grepCh      chan search.Result
 	grepCancel  context.CancelFunc
@@ -413,11 +415,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.addGrepHits(msg.hits)
+		m.grepSkipped += msg.skipped
 		if msg.done {
 			m.grepRunning = false
 			if msg.err != nil {
 				m.grepErr = msg.err.Error()
 			}
+			return m, nil
+		}
+		if m.grepCapped {
+			// Everything we can show, we have. Draining the rest of a
+			// full-tree run to throw it away costs both processes real work,
+			// and leaves "searching…" up next to a counter already saying it
+			// is capped. ctrl+g re-runs the search when more is wanted.
+			m.stopGrep()
 			return m, nil
 		}
 		return m, waitGrep(m.grepCh, msg.gen)
@@ -484,7 +495,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case m.actionKeys["finder-more"]:
 			return m, m.raiseFuzzyLimit()
 		case m.actionKeys["finder-copy-command"]:
-			return m.copyGrepCommand()
+			return m.copyFinderCommand()
 		case m.actionKeys["finder-next-field"]:
 			return m, m.cycleFinderField(1)
 		case m.actionKeys["finder-prev-field"]:

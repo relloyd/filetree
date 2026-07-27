@@ -17,20 +17,26 @@ const rgBinary = "rg"
 // Results should appear while a large search is still running.
 const hitChunk = 64
 
-// maxLine bounds one JSON event. Matches in minified or generated files can be
-// enormous; past this the line is dropped rather than buffered.
+// maxLine bounds one JSON event. A match in a minified bundle or a sourcemap
+// can be enormous — a 2.5 MB line becomes an 11 MB JSON event once escaped —
+// and ripgrep offers no way to cap it: --max-columns is ignored in --json mode.
+// Past this the event is discarded and counted, never buffered.
 const maxLine = 1 << 20
-
-// ErrNotInstalled is returned when ripgrep is not on PATH. Content search is
-// the one feature that needs it; everything else in ft degrades without it.
-var ErrNotInstalled = errors.New("content search needs ripgrep (rg) on PATH")
 
 // Result is one batch of hits, or the terminal message of a search.
 type Result struct {
 	Hits []Hit
-	Done bool
-	Err  error
+	// Skipped counts matches dropped for sitting on a line longer than
+	// maxLine. They are reported rather than swallowed: the search was not
+	// exhaustive and the caller should be able to say so.
+	Skipped int
+	Done    bool
+	Err     error
 }
+
+// ErrNotInstalled is returned when ripgrep is not on PATH. Content search is
+// the one feature that needs it; everything else in ft degrades without it.
+var ErrNotInstalled = errors.New("content search needs ripgrep (rg) on PATH")
 
 // Available reports whether ripgrep can be run at all.
 func Available() bool {
@@ -43,6 +49,12 @@ func Available() bool {
 // reports no error, since abandoning a search is not a failure.
 func Run(ctx context.Context, root string, q Query, out chan<- Result) {
 	defer close(out)
+
+	// A child context killed on the way out, so returning for any reason at
+	// all takes ripgrep with it. Without this, an early return leaves rg
+	// writing into a pipe nobody drains and cmd.Wait never comes back.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	// fail ends the search with an error, except when the search was
 	// cancelled: abandoning one is not a failure, and the caller has already
@@ -74,25 +86,61 @@ func Run(ctx context.Context, root string, q Query, out chan<- Result) {
 	}
 
 	buf := make([]Hit, 0, hitChunk)
-	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 0, 64*1024), maxLine)
-	for sc.Scan() {
-		h, ok := ParseJSONLine(sc.Bytes())
-		if !ok {
-			continue
-		}
-		buf = append(buf, h)
-		if len(buf) >= hitChunk {
-			if !send(ctx, out, Result{Hits: buf}) {
-				break
+	skipped := 0
+	r := bufio.NewReaderSize(stdout, 64*1024)
+	for {
+		line, over, err := readBoundedLine(r, maxLine)
+		if over {
+			// Every event big enough to trip the limit is a match: begin, end
+			// and summary carry only a path and stats and cannot approach a
+			// megabyte. Counting them all beats sniffing ripgrep's key order.
+			skipped++
+		} else if h, ok := ParseJSONLine(line); ok {
+			buf = append(buf, h)
+			if len(buf) >= hitChunk {
+				if !send(ctx, out, Result{Hits: buf, Skipped: skipped}) {
+					return
+				}
+				buf, skipped = make([]Hit, 0, hitChunk), 0
 			}
-			buf = make([]Hit, 0, hitChunk)
+		}
+		if err != nil {
+			break // io.EOF, or ripgrep died mid-stream
 		}
 	}
-	// The only way out of the loop above is a cancelled context, and
-	// CommandContext kills ripgrep on cancel, so Wait cannot block here on a
-	// pipe nobody is draining.
-	send(ctx, out, Result{Hits: buf, Done: true, Err: waitErr(ctx, cmd, &stderr)})
+	// The loop above always reads to EOF, so ripgrep has finished writing and
+	// Wait cannot block on an undrained pipe.
+	send(ctx, out, Result{Hits: buf, Skipped: skipped, Done: true, Err: waitErr(ctx, cmd, &stderr)})
+}
+
+// readBoundedLine returns the next newline-terminated line, or reports that it
+// was discarded for exceeding limit. Either way the reader is left at the start
+// of the next line, so one monstrous line costs a single result rather than the
+// whole search.
+//
+// bufio.Scanner cannot do this: it aborts permanently on an over-long token
+// instead of skipping it, which used to strand ripgrep writing into a pipe that
+// was no longer being read.
+func readBoundedLine(r *bufio.Reader, limit int) (line []byte, over bool, err error) {
+	for {
+		chunk, err := r.ReadSlice('\n')
+		// chunk aliases the reader's buffer, so it has to be copied before the
+		// next read — append does that.
+		switch {
+		case over:
+			// Already past the limit: keep draining to the newline, keep the
+			// head we have for nothing but the record.
+		case len(line)+len(chunk) > limit:
+			over = true
+			line = append(line, chunk[:limit-len(line)]...)
+		default:
+			line = append(line, chunk...)
+		}
+		if err == bufio.ErrBufferFull {
+			continue // no newline in this bufferful; the line goes on
+		}
+		return line, over, err
+	}
 }
 
 // waitErr reduces ripgrep's exit status to an error worth showing. Exit 1

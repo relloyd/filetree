@@ -30,9 +30,30 @@ func DisplayArgs(q Query) []string {
 	return append([]string{"-n"}, matchArgs(q)...)
 }
 
-// matchArgs is every flag that decides the result set: what is searched, what
-// is skipped, and what counts as a match.
+// FileListArgs builds a command that lists the files the type filter selects,
+// without searching inside them — the equivalent of the finder's list when
+// only the Type field is filled in.
+func FileListArgs(q Query) []string {
+	return append([]string{"--files"}, scopeArgs(q)...)
+}
+
+// matchArgs is every flag that decides the result set: which files are
+// searched, and what counts as a match within them.
 func matchArgs(q Query) []string {
+	args := scopeArgs(q)
+	if q.MaxPerFile > 0 {
+		// Enforced by ripgrep itself, per file: it stops reading a file after
+		// this many matching lines. Nothing on the Go side counts per file.
+		args = append(args, "--max-count", strconv.Itoa(q.MaxPerFile))
+	}
+	// -e keeps a pattern starting with "-" from being read as a flag.
+	return append(args, "-e", q.Regex)
+}
+
+// scopeArgs is the set of files in play: the visibility toggles and the type
+// filter. It is shared by searching and listing, so a Type filter means the
+// same thing whether or not a pattern has been typed yet.
+func scopeArgs(q Query) []string {
 	var args []string
 	if q.Hidden {
 		args = append(args, "--hidden")
@@ -40,17 +61,10 @@ func matchArgs(q Query) []string {
 	if q.NoIgnore {
 		args = append(args, "--no-ignore")
 	}
-	if q.MaxPerFile > 0 {
-		// Enforced by ripgrep itself, per file: it stops reading a file after
-		// this many matching lines. Nothing on the Go side counts per file.
-		args = append(args, "--max-count", strconv.Itoa(q.MaxPerFile))
-	}
 	for _, g := range q.Filter.Globs() {
 		args = append(args, "-g", g)
 	}
 	// The tree never shows .git either, and --hidden would otherwise drag the
 	// whole object store into the search.
-	args = append(args, "-g", "!.git/")
-	// -e keeps a pattern starting with "-" from being read as a flag.
-	return append(args, "-e", q.Regex)
+	return append(args, "-g", "!.git/")
 }
