@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/relloyd/filetree/internal/fsops"
 	"github.com/relloyd/filetree/internal/gitx"
 	"github.com/relloyd/filetree/internal/platform"
+	"github.com/relloyd/filetree/internal/search"
 	"github.com/relloyd/filetree/internal/state"
 	"github.com/relloyd/filetree/internal/tree"
 )
@@ -82,7 +84,26 @@ type (
 		err    error
 	}
 	clearStatusMsg struct{ seq int }
-	fuzzyCandsMsg  struct{ cands []string }
+	// fuzzyCandsMsg is one streamed chunk of finder candidates. gen identifies
+	// the walk that produced it so chunks from an abandoned search can be
+	// dropped instead of resetting the current one.
+	fuzzyCandsMsg struct {
+		gen       int
+		cands     []string
+		done      bool
+		truncated bool
+	}
+	// grepDebounceMsg fires once the Grep field has been quiet long enough to
+	// be worth spawning ripgrep for.
+	grepDebounceMsg struct{ gen int }
+	// grepResultMsg is one batch of content matches, generation-guarded the
+	// same way as fuzzyCandsMsg.
+	grepResultMsg struct {
+		gen  int
+		hits []search.Hit
+		done bool
+		err  error
+	}
 )
 
 type opKind int
@@ -142,11 +163,48 @@ type Model struct {
 	marked    map[string]bool // absolute paths, session-only
 	markOrder []string        // oldest first; the tail feeds {marked1}/{marked2}
 
-	fuzzyCands   []string
-	fuzzyMatches []fuzzy.Match
-	fuzzySel     int
-	fuzzyScroll  int             // first visible match row
-	fuzzyVisible map[string]bool // rows on screen when fuzzy started
+	// Finder state. typeInput holds the file-type filter; finderField says
+	// which input line has focus.
+	typeInput   textinput.Model
+	finderField finderField
+
+	fuzzyCands    []string
+	fuzzyAll      []fuzzy.Match // matches before the display cap
+	fuzzyMatches  []fuzzy.Match // what the list shows, capped
+	fuzzyQuery    string        // query the current matches were built from
+	fuzzySel      int
+	fuzzyScroll   int             // first visible match row
+	fuzzyVisible  map[string]bool // rows on screen when fuzzy started
+	fuzzyVisOrder []string        // same rows, in tree order
+
+	fuzzyFilter    search.Filter
+	fuzzyFilterRaw string // filter text the current walk was started with
+	fuzzyFilterErr string
+
+	// fuzzyLimitFactor multiplies the configured match cap. "ctrl+g" raises
+	// it and it lasts the whole ft session, so reopening the finder keeps it.
+	fuzzyLimitFactor int
+	fuzzyCapped      bool // results were dropped at the match cap
+
+	fuzzyGen     int // identifies the current walk; stale chunks are dropped
+	fuzzyWalk    chan fuzzyChunk
+	fuzzyCancel  chan struct{} // closed to stop the walker goroutine
+	fuzzyWalking bool
+	fuzzyTrunc   bool // the walk stopped at the candidate cap
+
+	// Content search: grepInput non-empty switches the result list from file
+	// names to matching lines. grepRows indexes grepHits after the Find query
+	// has narrowed them.
+	grepInput   textinput.Model
+	grepHits    []search.Hit
+	grepRows    []int
+	grepRaw     string // pattern the current search was started with
+	grepErr     string
+	grepCapped  bool // hits were dropped at the match cap
+	grepGen     int
+	grepCh      chan search.Result
+	grepCancel  context.CancelFunc
+	grepRunning bool
 
 	statusMsg string
 	statusErr bool
@@ -183,6 +241,12 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 
 	m.input = textinput.New()
 	m.input.SetVirtualCursor(true)
+	m.typeInput = textinput.New()
+	m.typeInput.SetVirtualCursor(true)
+	m.typeInput.Placeholder = "hcl, *.tf, infra/**/*.yaml"
+	m.grepInput = textinput.New()
+	m.grepInput.SetVirtualCursor(true)
+	m.grepInput.Placeholder = "regexp searched with ripgrep"
 
 	m.buildBindings()
 
@@ -252,6 +316,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.input.SetWidth(min(60, max(10, msg.Width-10)))
+		m.typeInput.SetWidth(min(60, max(10, msg.Width-10)))
+		m.grepInput.SetWidth(min(60, max(10, msg.Width-10)))
 		m.clampScroll()
 		m.ensureVisible()
 		return m, nil
@@ -323,9 +389,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fuzzyCandsMsg:
-		m.fuzzyCands = msg.cands
-		m.refuzzy()
-		return m, nil
+		// A walk abandoned by esc, enter, or a changed filter keeps streaming
+		// until it notices the cancel; its chunks must not land in the search
+		// that replaced it.
+		if msg.gen != m.fuzzyGen || m.mode != modeFuzzy {
+			return m, nil
+		}
+		m.addFuzzyCands(msg.cands)
+		if msg.done {
+			m.fuzzyWalking, m.fuzzyTrunc = false, msg.truncated
+			return m, nil
+		}
+		return m, waitFuzzyWalk(m.fuzzyWalk, msg.gen)
+
+	case grepDebounceMsg:
+		if msg.gen != m.grepGen || m.mode != modeFuzzy || !m.grepping() {
+			return m, nil
+		}
+		return m, m.startGrep(msg.gen)
+
+	case grepResultMsg:
+		if msg.gen != m.grepGen || m.mode != modeFuzzy {
+			return m, nil
+		}
+		m.addGrepHits(msg.hits)
+		if msg.done {
+			m.grepRunning = false
+			if msg.err != nil {
+				m.grepErr = msg.err.Error()
+			}
+			return m, nil
+		}
+		return m, waitGrep(m.grepCh, msg.gen)
 	}
 	return m, nil
 }
@@ -357,6 +452,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case modeFuzzy:
 		switch s {
 		case "esc":
+			m.stopFuzzyWalk()
+			m.stopGrep()
 			m.mode = modeNormal
 			return m, nil
 		case "enter":
@@ -370,14 +467,30 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "ctrl+u", "pgup":
 			m.moveFuzzySel(-m.fuzzyVisibleRows() / 2)
 			return m, nil
-		case "ctrl+d", "pgdown":
+		case "ctrl+d":
+			// textinput binds ctrl+d to delete-forward, and some terminals
+			// send it for fn+backspace. Let it edit when there is something
+			// to the right of the cursor to delete; otherwise — which is
+			// where the cursor sits whenever you are browsing results — keep
+			// it on half-page down.
+			if m.finderCanDeleteForward() {
+				return m.updateFinderInput(msg)
+			}
 			m.moveFuzzySel(m.fuzzyVisibleRows() / 2)
 			return m, nil
+		case "pgdown":
+			m.moveFuzzySel(m.fuzzyVisibleRows() / 2)
+			return m, nil
+		case m.actionKeys["finder-more"]:
+			return m, m.raiseFuzzyLimit()
+		case m.actionKeys["finder-copy-command"]:
+			return m.copyGrepCommand()
+		case m.actionKeys["finder-next-field"]:
+			return m, m.cycleFinderField(1)
+		case m.actionKeys["finder-prev-field"]:
+			return m, m.cycleFinderField(-1)
 		}
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(msg)
-		m.refuzzy()
-		return m, cmd
+		return m.updateFinderInput(msg)
 	}
 
 	if fn, ok := m.bindings[s]; ok {
@@ -395,12 +508,30 @@ func (m *Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	if m.mode != modeFuzzy && m.mode != modePrompt {
 		return m, nil // nothing is accepting text; a stray paste is not a command
 	}
+	if m.mode == modeFuzzy {
+		return m.updateFinderInput(msg)
+	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
-	if m.mode == modeFuzzy {
-		m.refuzzy()
-	}
 	return m, cmd
+}
+
+// updateFinderInput feeds a key or paste to the focused finder field and
+// recomputes whatever that field drives.
+func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch m.finderField {
+	case fieldType:
+		m.typeInput, cmd = m.typeInput.Update(msg)
+		return m, tea.Batch(cmd, m.applyTypeFilter())
+	case fieldGrep:
+		m.grepInput, cmd = m.grepInput.Update(msg)
+		return m, tea.Batch(cmd, m.applyGrep())
+	default:
+		m.input, cmd = m.input.Update(msg)
+		m.refuzzy()
+		return m, cmd
+	}
 }
 
 // buildBindings maps keys to actions: user command keys first, then
@@ -423,23 +554,30 @@ func (m *Model) buildBindings() {
 		"copy-abs":       "y",
 		"copy-rel":       "Y",
 		"fuzzy":          "/",
-		"new-file":       "a",
-		"new-dir":        "A",
-		"rename":         "R",
-		"delete":         "d",
-		"collapse-all":   "H",
-		"edit-config":    "C",
-		"help":           "?",
-		"mark":           "space",
-		"clear-marks":    "esc",
-		"copy-here":      "p",
-		"move-here":      "m",
-		"scratch":        "s",
-		"scratch-new":    "S",
-		"copy-url":       "u",
-		"open-url":       "U",
-		"worktrees":      "w",
-		"worktree-new":   "W",
+		// Finder-local: cycles the "/" input lines. Listed here so [keys] can
+		// remap it, but deliberately absent from the actions map below —
+		// m.bindings is normal-mode only.
+		"finder-next-field":   "tab",
+		"finder-prev-field":   "shift+tab",
+		"finder-more":         "ctrl+g",
+		"finder-copy-command": "ctrl+y",
+		"new-file":            "a",
+		"new-dir":             "A",
+		"rename":              "R",
+		"delete":              "d",
+		"collapse-all":        "H",
+		"edit-config":         "C",
+		"help":                "?",
+		"mark":                "space",
+		"clear-marks":         "esc",
+		"copy-here":           "p",
+		"move-here":           "m",
+		"scratch":             "s",
+		"scratch-new":         "S",
+		"copy-url":            "u",
+		"open-url":            "U",
+		"worktrees":           "w",
+		"worktree-new":        "W",
 	}
 	m.actionKeys = map[string]string{}
 	for action, key := range defaults {

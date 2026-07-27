@@ -23,9 +23,35 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 #                          # in a new tmux session (needs tmux on PATH) so the
 #                          # t/v/n/r split commands below work. "never": run as-is.
 #                          # "ft --no-tmux" turns it off for one run.
-# fuzzy_max_matches = 200  # how many "/" results are ranked and kept; raising
-#                          # it costs sort time on huge trees, not render time
+# fuzzy_max_matches = 1000 # how many "/" results are ranked and kept; raising
+#                          # it costs sort time on huge trees, not render time.
+#                          # "ctrl+g" in the finder doubles, triples, ... this
+#                          # for the rest of the session when you need more
+# fuzzy_max_candidates = 50000
+#                          # how many paths the "/" walk indexes before it
+#                          # stops. Rarely reached with a Type filter set,
+#                          # since the filter is applied while walking.
+# fuzzy_grep_max_per_file = 5
+#                          # matches taken from any one file by the Grep
+#                          # field, so a generated file can't fill the list;
+#                          # 0 means no limit
 watch_debounce_ms = 150
+
+# The "/" finder has three input lines; "tab" cycles them.
+#   Find:  fuzzy subsequence over paths (include "/" to pin path segments)
+#   Type:  comma-separated file-type globs, applied while walking, so a
+#          filtered search reaches the leaves of a tree too big to index whole
+#          hcl              *.hcl, or a file named exactly "hcl"
+#          .hcl             *.hcl
+#          terragrunt.hcl   that basename, anywhere in the tree
+#          *.tf             matched against the basename
+#          infra/**/*.hcl   matched against the whole path ("**" spans dirs)
+#          !vendor/**       a leading "!" excludes
+#   Grep:  a regexp searched inside the files Type selected (needs ripgrep).
+#          Rows become "path:line  matched text"; enter still jumps to the
+#          file. Type + Grep together are the "fd ... | rg ..." combination.
+#          The status bar shows the rg command; "ctrl+y" copies it.
+# With a Type filter and an empty Find, the list is every file of that type.
 
 # Scratch files: "S" creates an empty YYYYMMDDHH.<extension> file here and
 # opens it in the default command; "s" toggles the scratch view; Esc (with
@@ -129,6 +155,10 @@ key = "r"
 # copy-abs = "y"
 # copy-rel = "Y"
 # fuzzy = "/"
+# finder-next-field = "tab"        # move between the "/" finder's input lines
+# finder-prev-field = "shift+tab"
+# finder-more = "ctrl+g"           # raise fuzzy_max_matches for this session
+# finder-copy-command = "ctrl+y"   # copy the rg command behind a Grep search
 # new-file = "a"
 # new-dir = "A"
 # rename = "R"

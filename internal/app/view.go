@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/relloyd/filetree/internal/gitx"
 	"github.com/relloyd/filetree/internal/icons"
+	"github.com/relloyd/filetree/internal/search"
 	"github.com/relloyd/filetree/internal/tree"
 )
 
@@ -24,6 +26,7 @@ var (
 	colChanged = lipgloss.Color("#E2C08D")
 	colTitle   = lipgloss.Color("#569CD6")
 	colMark    = lipgloss.Color("#C586C0") // marks: magenta, distinct from git colours
+	colType    = lipgloss.Color("#D7BA7D") // finder: what the Type filter matched
 
 	styleBase    = lipgloss.NewStyle()
 	styleDim     = lipgloss.NewStyle().Foreground(colDim)
@@ -33,6 +36,7 @@ var (
 	styleChevron = lipgloss.NewStyle().Foreground(colDim)
 	styleChanged = lipgloss.NewStyle().Foreground(colChanged)
 	styleMark    = lipgloss.NewStyle().Foreground(colMark)
+	styleType    = lipgloss.NewStyle().Foreground(colType)
 
 	codeColors = map[gitx.Code]color.Color{
 		gitx.Ignored:   lipgloss.Color("#6D6D6D"),
@@ -205,6 +209,12 @@ func (m *Model) renderStatus() string {
 		left = styleError.Render(" " + m.statusMsg)
 	case m.statusMsg != "":
 		left = styleOK.Render(" " + m.statusMsg)
+	case m.mode == modeFuzzy && m.grepping():
+		// The tree cursor is not what you are looking at in the finder, so the
+		// status bar shows the ripgrep command instead — the one place a long
+		// line fits without adding a row. Truncated from the left so the
+		// pattern, the interesting end, always survives.
+		left = styleDim.Render(" " + truncateLeft(m.grepCommand(), max(1, m.width-2)))
 	default:
 		if sel := m.selected(); sel != nil {
 			left = styleDim.Render(" " + m.gitRelPath(sel))
@@ -271,39 +281,154 @@ func (m *Model) renderConfirm() string {
 		styleTitle.Render(" [o]verwrite (to Trash) · [k]eep both · [n]o")
 }
 
+// renderFinderHeader draws the finder's input lines: the fuzzy query always,
+// and the type filter once it is focused or non-empty. It returns exactly
+// finderHeaderLines() lines so the match list below it lines up.
+func (m *Model) renderFinderHeader() []string {
+	label := func(text string, f finderField) string {
+		if m.finderField == f {
+			return styleTitle.Render(text)
+		}
+		return styleDim.Render(text)
+	}
+	lines := []string{label(" Find ", fieldQuery) + m.input.View() + m.renderFinderCounter()}
+	if m.finderField == fieldType || m.typeInput.Value() != "" {
+		line := label(" Type ", fieldType) + m.typeInput.View()
+		if m.fuzzyFilterErr != "" {
+			line += styleError.Render("  " + m.fuzzyFilterErr)
+		}
+		lines = append(lines, line)
+	}
+	if m.finderField == fieldGrep || m.grepInput.Value() != "" {
+		line := label(" Grep ", fieldGrep) + m.grepInput.View()
+		switch {
+		case m.grepErr != "":
+			line += styleError.Render("  " + m.grepErr)
+		case m.grepRunning:
+			line += styleDim.Render("  searching…")
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// renderFinderCounter is the position indicator: "12/1000", with "…" while the
+// walk is still running, "+" when it stopped at the candidate cap, "max" when
+// results were dropped at the match cap, and "×N" once the session limit has
+// been raised. It brightens at ×2 and above so a raised limit is obvious.
+func (m *Model) renderFinderCounter() string {
+	busy := m.fuzzyWalking
+	if m.grepping() {
+		busy = m.grepRunning
+	}
+	n := m.finderLen()
+	if n == 0 {
+		if busy {
+			return styleDim.Render("  …")
+		}
+		return ""
+	}
+	s := fmt.Sprintf("  %d/%d", m.fuzzySel+1, n)
+	switch {
+	case busy:
+		s += "…"
+	case m.fuzzyTrunc && !m.grepping():
+		s += "+"
+	}
+	if factor := m.fuzzyFactor(); factor > 1 {
+		s += fmt.Sprintf(" ×%d", factor)
+		if m.finderCapped() {
+			// Still capped even after raising: say so in the same bright
+			// style rather than mixing two colours on one counter.
+			s += " max"
+		}
+		return styleOK.Render(s)
+	}
+	if m.finderCapped() {
+		return styleDim.Render(s) + styleChanged.Render(" max")
+	}
+	return styleDim.Render(s)
+}
+
 func (m *Model) renderFuzzy() string {
 	h := m.treeHeight()
 	lines := make([]string, 0, h)
-	counter := ""
-	if len(m.fuzzyMatches) > 0 {
-		counter = styleDim.Render(fmt.Sprintf("  %d/%d", m.fuzzySel+1, len(m.fuzzyMatches)))
+	lines = append(lines, m.renderFinderHeader()...)
+	if m.grepping() {
+		for i := m.fuzzyScroll; i < len(m.grepRows) && len(lines) < h; i++ {
+			lines = append(lines, m.renderGrepRow(m.grepHits[m.grepRows[i]], i == m.fuzzySel))
+		}
+		for len(lines) < h {
+			lines = append(lines, "")
+		}
+		return strings.Join(lines, "\n")
 	}
-	lines = append(lines, styleTitle.Render(" Find: ")+m.input.View()+counter)
 	for i := m.fuzzyScroll; i < len(m.fuzzyMatches) && len(lines) < h; i++ {
 		mt := m.fuzzyMatches[i]
-		matched := make(map[int]bool, len(mt.MatchedIndexes))
-		for _, idx := range mt.MatchedIndexes {
-			matched[idx] = true
-		}
-		var b strings.Builder
-		for bi, r := range mt.Str {
-			if matched[bi] {
-				b.WriteString(styleTitle.Render(string(r)))
-			} else {
-				b.WriteString(string(r))
-			}
-		}
 		prefix := "   "
-		line := b.String()
 		if i == m.fuzzySel {
 			prefix = styleTitle.Render(" > ")
 		}
+		line := m.highlightPath(mt.Str, mt.MatchedIndexes)
 		lines = append(lines, styleBase.MaxWidth(m.width).Render(prefix+line))
 	}
 	for len(lines) < h {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// highlightPath colours a result path: the runes the Find query matched in
+// blue, and the parts the Type filter accounts for in gold. Find wins any
+// overlap — it is what the user is actively typing.
+//
+// Both index sets are byte offsets: sahilm/fuzzy walks its candidate by byte
+// (advancing by rune size), search.Span is documented as a byte range, and
+// "for bi := range s" yields byte offsets too, so multi-byte names line up.
+func (m *Model) highlightPath(s string, matched []int) string {
+	find := make(map[int]bool, len(matched))
+	for _, idx := range matched {
+		find[idx] = true
+	}
+	typed := make(map[int]bool)
+	if !m.fuzzyFilter.Empty() {
+		for _, sp := range m.fuzzyFilter.Highlight(s) {
+			for bi := sp.Start; bi < sp.End; bi++ {
+				typed[bi] = true
+			}
+		}
+	}
+
+	var b strings.Builder
+	for bi, r := range s {
+		switch {
+		case find[bi]:
+			b.WriteString(styleTitle.Render(string(r)))
+		case typed[bi]:
+			b.WriteString(styleType.Render(string(r)))
+		default:
+			b.WriteString(string(r))
+		}
+	}
+	return b.String()
+}
+
+// renderGrepRow draws one content match as "path:line  matched text". The
+// location is what enter acts on, so it is never truncated: the matched line
+// takes whatever width is left over.
+func (m *Model) renderGrepRow(h search.Hit, selected bool) string {
+	prefix := "   "
+	if selected {
+		prefix = styleTitle.Render(" > ")
+	}
+	at := ":" + strconv.Itoa(h.Line)
+	line := prefix + m.highlightPath(h.Path, nil) + styleDim.Render(at)
+	if room := m.width - 3 - lipgloss.Width(h.Path) - len(at) - 2; room > 0 {
+		if text := strings.TrimSpace(h.Text); text != "" {
+			line += "  " + styleDim.Render(truncate(text, room))
+		}
+	}
+	return styleBase.MaxWidth(m.width).Render(line)
 }
 
 func (m *Model) renderHelp() string {
@@ -333,6 +458,9 @@ func (m *Model) renderHelp() string {
 		{reloadKeys, "reload from disk"},
 		{m.actionKeys["reveal"], "reveal in Finder"},
 		{m.actionKeys["fuzzy"], "fuzzy find"},
+		{m.actionKeys["finder-next-field"], "in the finder: cycle Find / Type / Grep"},
+		{m.actionKeys["finder-more"], "in the finder: raise the match limit (2×, 3×, …)"},
+		{m.actionKeys["finder-copy-command"], "in the finder: copy the rg command"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
 		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},

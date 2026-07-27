@@ -74,7 +74,7 @@ one surfaces as an error in the status bar rather than a failure to start.
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees | optional, but most of the git awareness is dark without it |
 | `tmux` | the `t`/`v`/`n`/`r` split and hand-off commands, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
-| `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | `r` grep-here | optional |
+| `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep:` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L` (commented example in the starter) | optional |
 | `delta` | `D` diff the two most recently marked files (commented example in the starter) | optional |
 
@@ -99,6 +99,9 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `F5` | reload from disk |
 | `o` | reveal in Finder |
 | `/` | fuzzy find (esc cancels, enter jumps) |
+| `tab` | in the finder: cycle the `Find:` / `Type:` / `Grep:` fields |
+| `ctrl+g` | in the finder: raise the match limit for the session (2×, 3×, …) |
+| `ctrl+y` | in the finder: copy the `rg` command behind a content search |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -131,16 +134,85 @@ session automatically, so they work out of the box.
 
 ## Fuzzy Find
 
-Fuzzy find (`/`) matches fuzzy subsequences, not regexps; include `/` in
-the query to constrain by path segments. Navigate results with `↑`/`↓`
+Fuzzy find (`/`) has three input lines; `tab` (`shift+tab`) cycles them.
+
+**`Find:`** matches fuzzy subsequences, not regexps; include `/` in the query
+to constrain by path segments. Navigate results with `↑`/`↓`
 (`ctrl+p`/`ctrl+n`), half-page with `ctrl+u`/`ctrl+d`, or the mouse wheel;
-the list scrolls with the selection and shows a `12/200` position counter. Ranking is screen-aware: entries
-currently visible in the tree outrank everything else, then shallow paths
-and basename matches beat equally-fuzzy deep ones. With an empty query the
-list shows exactly the visible tree entries in order, so `/` + cursor keys
-doubles as a quick jump list. Candidates come from a breadth-first walk, so
-top-level entries are always indexed even in huge roots. At most 200 matches
-are kept — raise or lower that with `fuzzy_max_matches` under `[general]`.
+the list scrolls with the selection and shows a `12/1000` position counter
+(`…` while the walk is still running, `+` if it stopped at the candidate cap).
+Ranking is screen-aware: entries currently visible in the tree outrank
+everything else, then shallow paths and basename matches beat equally-fuzzy
+deep ones. With an empty query the list shows exactly the visible tree entries
+in order, so `/` + cursor keys doubles as a quick jump list.
+
+**`Type:`** narrows by file type, as a comma-separated list of globs:
+
+| Typed | Matches |
+|---|---|
+| `hcl` | `*.hcl`, or a file named exactly `hcl` |
+| `.hcl` | `*.hcl` |
+| `terragrunt.hcl` | that basename, anywhere in the tree |
+| `*.tf` | matched against the basename |
+| `infra/**/*.hcl` | matched against the whole path (`**` spans directories) |
+| `!vendor/**` | a leading `!` excludes |
+
+The filter is applied **while walking**, not to the results, which is what
+makes it useful on a large root: `Type: terragrunt.hcl` with an empty `Find:`
+lists every one of them in a monorepo far too big to index whole. Candidates
+come from a breadth-first walk, so top-level entries are always indexed even
+in huge roots, and the walk stops as soon as you leave the finder. At most 1000
+matches are kept (`fuzzy_max_matches` under `[general]`) out of at most 50,000
+indexed paths (`fuzzy_max_candidates`).
+
+When results are being dropped at that cap the counter says so — `12/1000 max`
+in amber — and **`ctrl+g`** multiplies the limit for the rest of the ft session:
+once for 2×, again for 3×, and so on. The counter turns green and gains a `×3`
+once raised, so a session running on a raised limit is never a surprise. In name
+mode this is instant, since the candidates are already walked; in content mode
+it re-runs the ripgrep search. The raise survives closing and reopening the
+finder, and resets when you quit.
+
+The part of each filename that the `Type:` filter accounts for is highlighted in
+gold — the `.hcl` of `*.hcl`, the whole basename of `terragrunt.hcl` — while
+`Find:` matches stay blue. Where they overlap, `Find:` wins.
+
+**Editing the fields.** The finder's inputs take the usual readline keys, with
+two exceptions where list navigation gets there first: `ctrl+u` is half-page up
+rather than delete-to-start, and `ctrl+d` is half-page down *unless the cursor
+has a character to its right*, in which case it deletes forward. That makes
+`ctrl+d` — and the macOS Fn+Backspace that many terminals send as `ctrl+d` —
+work as a delete key while you are editing, and as a scroll key while you are
+browsing results, which is where the cursor sits once a query is typed. Word
+deletion (`ctrl+w`, `alt+backspace`) and delete-to-end (`ctrl+k`) are untouched.
+
+**`Grep:`** searches *inside* the files `Type:` selected, using
+[ripgrep](https://github.com/BurntSushi/ripgrep) — this is the one part of
+`ft` that needs `rg` installed. Together the two fields are the `fd … | rg …`
+combination: `Type: hcl` + `Grep: dependency "` finds every `terragrunt.hcl`
+containing a dependency block. Result rows become `path:line  matched text`,
+and `Find:` narrows them further by path. Enter still jumps to the **file** in
+the tree — the line number is there to help you choose, not to open at. The
+search respects the hidden and gitignored toggles, is debounced so a
+half-typed regexp is never run, and takes at most 5 matches from any one file
+(`fuzzy_grep_max_per_file`, passed straight through as ripgrep's
+`--max-count`, so ripgrep enforces it while reading). ripgrep's own errors — a
+malformed regexp, most often — appear beside the field.
+
+While a content search is up, the **status bar shows the ripgrep command** it
+amounts to, and **`ctrl+y`** copies the whole thing to the clipboard so you can
+run it yourself and check the finder against it. The copied command is
+self-contained — the tree root is the search path, so it works from any
+directory. It differs from what `ft` actually runs in two ways that cannot
+change which lines match: the output flags are human-readable instead of
+`--json`, and paths print absolute rather than root-relative.
+
+Results arrive in whatever order ripgrep finds them — it searches files in
+parallel, and sorting would mean waiting for the whole search to finish. That
+matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
+*which* files made it in is down to timing. `ctrl+g` raises the cap; ripgrep's
+own `--sort path` would make the order stable at the cost of running
+single-threaded.
 
 ## Config
 
