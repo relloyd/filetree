@@ -177,15 +177,6 @@ The part of each filename that the `Type:` filter accounts for is highlighted in
 gold — the `.hcl` of `*.hcl`, the whole basename of `terragrunt.hcl` — while
 `Find:` matches stay blue. Where they overlap, `Find:` wins.
 
-**Editing the fields.** The finder's inputs take the usual readline keys, with
-two exceptions where list navigation gets there first: `ctrl+u` is half-page up
-rather than delete-to-start, and `ctrl+d` is half-page down *unless the cursor
-has a character to its right*, in which case it deletes forward. That makes
-`ctrl+d` — and the macOS Fn+Backspace that many terminals send as `ctrl+d` —
-work as a delete key while you are editing, and as a scroll key while you are
-browsing results, which is where the cursor sits once a query is typed. Word
-deletion (`ctrl+w`, `alt+backspace`) and delete-to-end (`ctrl+k`) are untouched.
-
 **`Grep:`** searches *inside* the files `Type:` selected, using
 [ripgrep](https://github.com/BurntSushi/ripgrep) — this is the one part of
 `ft` that needs `rg` installed. Together the two fields are the `fd … | rg …`
@@ -221,6 +212,15 @@ matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
 *which* files made it in is down to timing. `ctrl+g` raises the cap; ripgrep's
 own `--sort path` would make the order stable at the cost of running
 single-threaded.
+
+**Editing the fields.** The finder's inputs take the usual readline keys, with
+two exceptions where list navigation gets there first: `ctrl+u` is half-page up
+rather than delete-to-start, and `ctrl+d` is half-page down *unless the cursor
+has a character to its right*, in which case it deletes forward. That makes
+`ctrl+d` — and the macOS Fn+Backspace that many terminals send as `ctrl+d` —
+work as a delete key while you are editing, and as a scroll key while you are
+browsing results, which is where the cursor sits once a query is typed. Word
+deletion (`ctrl+w`, `alt+backspace`) and delete-to-end (`ctrl+k`) are untouched.
 
 ### Limits
 
