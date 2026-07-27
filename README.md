@@ -101,6 +101,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `/` | fuzzy find (esc cancels, enter jumps) |
 | `tab` | in the finder: cycle the `Find:` / `Type:` / `Grep:` fields |
 | `ctrl+g` | in the finder: raise the match limit for the session (2×, 3×, …) |
+| `ctrl+y` | in the finder: copy the `rg` command behind a content search |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -194,8 +195,24 @@ and `Find:` narrows them further by path. Enter still jumps to the **file** in
 the tree — the line number is there to help you choose, not to open at. The
 search respects the hidden and gitignored toggles, is debounced so a
 half-typed regexp is never run, and takes at most 5 matches from any one file
-(`fuzzy_grep_max_per_file`). ripgrep's own errors — a malformed regexp, most
-often — appear beside the field.
+(`fuzzy_grep_max_per_file`, passed straight through as ripgrep's
+`--max-count`, so ripgrep enforces it while reading). ripgrep's own errors — a
+malformed regexp, most often — appear beside the field.
+
+While a content search is up, the **status bar shows the ripgrep command** it
+amounts to, and **`ctrl+y`** copies the whole thing to the clipboard so you can
+run it yourself and check the finder against it. The copied command is
+self-contained — the tree root is the search path, so it works from any
+directory. It differs from what `ft` actually runs in two ways that cannot
+change which lines match: the output flags are human-readable instead of
+`--json`, and paths print absolute rather than root-relative.
+
+Results arrive in whatever order ripgrep finds them — it searches files in
+parallel, and sorting would mean waiting for the whole search to finish. That
+matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
+*which* files made it in is down to timing. `ctrl+g` raises the cap; ripgrep's
+own `--sort path` would make the order stable at the cost of running
+single-threaded.
 
 ## Config
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -655,6 +656,66 @@ func TestContentSearchEndToEnd(t *testing.T) {
 	}
 	if m.mode != modeNormal {
 		t.Errorf("jump left the finder open")
+	}
+}
+
+// --- the shown ripgrep command ---
+
+// The command is only meaningful in content mode.
+func TestGrepCommandOnlyInContentMode(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	if got := m.grepCommand(); got != "" {
+		t.Errorf("grepCommand() outside content mode = %q, want empty", got)
+	}
+	m.grepInput.SetValue("dependency")
+	if got := m.grepCommand(); got == "" {
+		t.Error("grepCommand() in content mode is empty")
+	}
+}
+
+// Everything that decides the result set has to appear, and the whole thing
+// has to survive a paste into a shell.
+func TestGrepCommandIsPasteable(t *testing.T) {
+	root := t.TempDir()
+	m := rootedModel(t, root)
+	f, err := search.CompileFilter("hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.fuzzyFilter = f
+	m.showHidden, m.showIgnored = true, true
+	m.cfg.General.FuzzyGrepMaxPerFile = 5
+	m.grepInput.SetValue("dependency \"vpc\"")
+
+	got := m.grepCommand()
+	for _, want := range []string{"rg", "-n", "--hidden", "--no-ignore", "--max-count 5", "'*.hcl'", "!.git/", "-e"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("command %q is missing %q", got, want)
+		}
+	}
+	// A pattern with a space and a quote must come back as one shell word.
+	if !strings.Contains(got, `'dependency "vpc"'`) {
+		t.Errorf("command %q does not quote the pattern safely", got)
+	}
+	// The root is the search path, so the command runs from anywhere.
+	if !strings.HasSuffix(got, config.ShellQuote(root)) {
+		t.Errorf("command %q does not end with the root %q", got, root)
+	}
+}
+
+// A pattern that would be read as a flag, or that contains a quote, must not
+// break the command the user copies.
+func TestGrepCommandQuotesHostilePatterns(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	for _, pattern := range []string{"--force", "it's", "a b", "$(rm -rf /)", "`id`"} {
+		m.grepInput.SetValue(pattern)
+		got := m.grepCommand()
+		if !strings.Contains(got, "-e ") {
+			t.Errorf("pattern %q: no -e in %q", pattern, got)
+		}
+		if strings.Contains(got, " "+pattern+" ") && strings.ContainsAny(pattern, " '$`") {
+			t.Errorf("pattern %q appears unquoted in %q", pattern, got)
+		}
 	}
 }
 

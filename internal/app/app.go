@@ -483,6 +483,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case m.actionKeys["finder-more"]:
 			return m, m.raiseFuzzyLimit()
+		case m.actionKeys["finder-copy-command"]:
+			return m.copyGrepCommand()
 		case m.actionKeys["finder-next-field"]:
 			return m, m.cycleFinderField(1)
 		case m.actionKeys["finder-prev-field"]:
@@ -555,26 +557,27 @@ func (m *Model) buildBindings() {
 		// Finder-local: cycles the "/" input lines. Listed here so [keys] can
 		// remap it, but deliberately absent from the actions map below —
 		// m.bindings is normal-mode only.
-		"finder-next-field": "tab",
-		"finder-prev-field": "shift+tab",
-		"finder-more":       "ctrl+g",
-		"new-file":          "a",
-		"new-dir":           "A",
-		"rename":            "R",
-		"delete":            "d",
-		"collapse-all":      "H",
-		"edit-config":       "C",
-		"help":              "?",
-		"mark":              "space",
-		"clear-marks":       "esc",
-		"copy-here":         "p",
-		"move-here":         "m",
-		"scratch":           "s",
-		"scratch-new":       "S",
-		"copy-url":          "u",
-		"open-url":          "U",
-		"worktrees":         "w",
-		"worktree-new":      "W",
+		"finder-next-field":   "tab",
+		"finder-prev-field":   "shift+tab",
+		"finder-more":         "ctrl+g",
+		"finder-copy-command": "ctrl+y",
+		"new-file":            "a",
+		"new-dir":             "A",
+		"rename":              "R",
+		"delete":              "d",
+		"collapse-all":        "H",
+		"edit-config":         "C",
+		"help":                "?",
+		"mark":                "space",
+		"clear-marks":         "esc",
+		"copy-here":           "p",
+		"move-here":           "m",
+		"scratch":             "s",
+		"scratch-new":         "S",
+		"copy-url":            "u",
+		"open-url":            "U",
+		"worktrees":           "w",
+		"worktree-new":        "W",
 	}
 	m.actionKeys = map[string]string{}
 	for action, key := range defaults {

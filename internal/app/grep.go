@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -62,14 +63,7 @@ func (m *Model) startGrep(gen int) tea.Cmd {
 	m.grepCancel = cancel
 	ch := make(chan search.Result, 4)
 	m.grepCh = ch
-	q := search.Query{
-		Regex:      m.grepInput.Value(),
-		Filter:     m.fuzzyFilter,
-		Hidden:     m.showHidden,
-		NoIgnore:   m.showIgnored,
-		MaxPerFile: m.grepMaxPerFile(),
-	}
-	go search.Run(ctx, m.tr.Root.Path, q, ch)
+	go search.Run(ctx, m.tr.Root.Path, m.grepQuery(), ch)
 	return waitGrep(ch, gen)
 }
 
@@ -108,6 +102,51 @@ func (m *Model) addGrepHits(hits []search.Hit) {
 		m.grepHits = append(m.grepHits, h)
 	}
 	m.rebuildGrepRows()
+}
+
+// grepQuery is the search the Grep field currently describes. Both the run and
+// the displayed command build from this one value, so what the status bar
+// shows is what ripgrep was given.
+func (m *Model) grepQuery() search.Query {
+	return search.Query{
+		Regex:      m.grepInput.Value(),
+		Filter:     m.fuzzyFilter,
+		Hidden:     m.showHidden,
+		NoIgnore:   m.showIgnored,
+		MaxPerFile: m.grepMaxPerFile(),
+	}
+}
+
+// grepCommand renders the current content search as a shell command, for
+// checking the finder's results against ripgrep directly.
+//
+// It differs from what Run executes in two deliberate ways: the output flags
+// are human-readable rather than --json, and the root is passed as an argument
+// instead of being the working directory. Neither changes which lines match,
+// so the command is self-contained — paste it into any shell and it reproduces
+// the result set (printed with absolute paths rather than root-relative ones).
+func (m *Model) grepCommand() string {
+	if !m.grepping() {
+		return ""
+	}
+	parts := []string{"rg"}
+	for _, a := range search.DisplayArgs(m.grepQuery()) {
+		parts = append(parts, config.ShellQuote(a))
+	}
+	return strings.Join(append(parts, config.ShellQuote(m.tr.Root.Path)), " ")
+}
+
+// copyGrepCommand puts the command on the clipboard, since the status bar can
+// only show as much of it as fits.
+func (m *Model) copyGrepCommand() (tea.Model, tea.Cmd) {
+	cmd := m.grepCommand()
+	if cmd == "" {
+		return m, nil
+	}
+	if err := m.plat.CopyToClipboard(cmd); err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	return m, m.note("Copied: "+cmd, false)
 }
 
 // finderCapped reports whether results were left out because of the match cap,

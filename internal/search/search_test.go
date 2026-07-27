@@ -67,6 +67,40 @@ func TestArgsPatternIsNotReadAsAFlag(t *testing.T) {
 	}
 }
 
+// The command shown to the user must select exactly the lines the search ran
+// against; only the output encoding may differ, or "run it yourself to check"
+// would be checking something else.
+func TestDisplayArgsMatchTheExecutedSearch(t *testing.T) {
+	f, err := CompileFilter("hcl,!vendor/**")
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := Query{Regex: "dependency", Filter: f, Hidden: true, NoIgnore: true, MaxPerFile: 5}
+
+	run, shown := Args(q), DisplayArgs(q)
+	outputFlags := map[string]bool{
+		"--json": true, "--no-heading": true, "--color=never": true, "-n": true,
+	}
+	strip := func(args []string) []string {
+		var out []string
+		for _, a := range args {
+			if !outputFlags[a] {
+				out = append(out, a)
+			}
+		}
+		return out
+	}
+	if !slices.Equal(strip(run), strip(shown)) {
+		t.Errorf("matching flags differ:\n run   %v\n shown %v", strip(run), strip(shown))
+	}
+	if slices.Contains(shown, "--json") {
+		t.Error("the displayed command still asks for --json output")
+	}
+	if !slices.Contains(shown, "-n") {
+		t.Error("the displayed command has no line numbers")
+	}
+}
+
 func TestParseJSONLine(t *testing.T) {
 	tests := []struct {
 		name string

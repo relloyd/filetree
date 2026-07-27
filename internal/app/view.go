@@ -209,6 +209,12 @@ func (m *Model) renderStatus() string {
 		left = styleError.Render(" " + m.statusMsg)
 	case m.statusMsg != "":
 		left = styleOK.Render(" " + m.statusMsg)
+	case m.mode == modeFuzzy && m.grepping():
+		// The tree cursor is not what you are looking at in the finder, so the
+		// status bar shows the ripgrep command instead — the one place a long
+		// line fits without adding a row. Truncated from the left so the
+		// pattern, the interesting end, always survives.
+		left = styleDim.Render(" " + truncateLeft(m.grepCommand(), max(1, m.width-2)))
 	default:
 		if sel := m.selected(); sel != nil {
 			left = styleDim.Render(" " + m.gitRelPath(sel))
@@ -454,6 +460,7 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["fuzzy"], "fuzzy find"},
 		{m.actionKeys["finder-next-field"], "in the finder: cycle Find / Type / Grep"},
 		{m.actionKeys["finder-more"], "in the finder: raise the match limit (2×, 3×, …)"},
+		{m.actionKeys["finder-copy-command"], "in the finder: copy the rg command"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
 		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},
