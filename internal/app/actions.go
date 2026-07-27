@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -386,11 +387,15 @@ func (m *Model) copyRel() (tea.Model, tea.Cmd) {
 
 // gitRelPath is the node's path relative to its closest parent git repo,
 // falling back to the absolute path outside any repo.
-func (m *Model) gitRelPath(n *tree.Node) string {
-	if root := m.repoRootFor(filepath.Dir(n.Path)); root != "" {
-		return gitx.RelPath(root, n.Path)
+func (m *Model) gitRelPath(n *tree.Node) string { return m.gitRelPathFor(n.Path) }
+
+// gitRelPathFor is gitRelPath by path, for callers holding one without a tree
+// node — a finder hit need not be in a loaded directory.
+func (m *Model) gitRelPathFor(abs string) string {
+	if root := m.repoRootFor(filepath.Dir(abs)); root != "" {
+		return gitx.RelPath(root, abs)
 	}
-	return n.Path
+	return abs
 }
 
 func (m *Model) reveal() (tea.Model, tea.Cmd) {
@@ -474,6 +479,39 @@ func (m *Model) runCommand(name string) (tea.Model, tea.Cmd) {
 		Dir:     dir,
 		Root:    m.tr.Root.Path,
 		Name:    n.Name,
+		Marked:  append([]string(nil), m.markOrder...),
+	}, false)
+}
+
+// runFinderCommand runs a configured command against the highlighted finder
+// row, without leaving the finder. An interactive command owns the terminal
+// via tea.ExecProcess, which blocks the event loop rather than running beside
+// it, so the finder is simply frozen and repainted intact when the child
+// exits — there is nothing to tear down and nothing to restore.
+func (m *Model) runFinderCommand(name string) (tea.Model, tea.Cmd) {
+	c, ok := m.cfg.Commands[name]
+	if !ok {
+		return m, m.note(fmt.Sprintf("unknown command %q", name), true)
+	}
+	rel := m.finderPath(m.fuzzySel)
+	if rel == "" {
+		return m, nil // an empty result list is not an error
+	}
+	abs := filepath.Join(m.tr.Root.Path, filepath.FromSlash(rel))
+	pick := finderPick{rel: rel}
+	if m.grepping() && m.fuzzySel < len(m.grepRows) {
+		pick.line = m.grepHits[m.grepRows[m.fuzzySel]].Line
+	}
+	// Not needed to come back here — we never left — but it keeps the
+	// finder-resume key honest if the finder is escaped later on.
+	m.lastPick = pick
+	return m.execCommand(name, c, config.Vars{
+		Path:    abs,
+		RelPath: m.gitRelPathFor(abs),
+		Dir:     filepath.Dir(abs),
+		Root:    m.tr.Root.Path,
+		Name:    path.Base(rel),
+		Line:    pick.line,
 		Marked:  append([]string(nil), m.markOrder...),
 	}, false)
 }

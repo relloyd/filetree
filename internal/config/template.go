@@ -2,6 +2,7 @@ package config
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -12,6 +13,7 @@ type Vars struct {
 	Dir     string   // directory of the selection, or itself if a directory
 	Root    string   // tree root
 	Name    string   // base name of the selection
+	Line    int      // matched line of a finder Grep hit; 0 when there is none
 	Marked  []string // marked paths in mark order (oldest first)
 }
 
@@ -24,6 +26,10 @@ type Vars struct {
 // {marked1}/{marked2} are the two most recently marked ({marked2} newest,
 // so `diff {marked1} {marked2}` reads old → new). With fewer than two
 // marks, {marked1}/{marked2} expand to ”.
+//
+// {line} is the matched line of a finder Grep hit. It expands to 1 rather
+// than 0 when there is no such line, so a template written as
+// `hx {path}:{line}` stays valid everywhere else it is used.
 func ExpandCommand(tmpl string, v Vars) string {
 	quoted := make([]string, len(v.Marked))
 	for i, p := range v.Marked {
@@ -33,6 +39,10 @@ func ExpandCommand(tmpl string, v Vars) string {
 	if n := len(v.Marked); n >= 2 {
 		m1, m2 = quoted[n-2], quoted[n-1]
 	}
+	line := v.Line
+	if line < 1 {
+		line = 1
+	}
 	// {marked1}/{marked2} must precede {marked}: strings.Replacer tries
 	// patterns in argument order at each position.
 	repl := strings.NewReplacer(
@@ -41,6 +51,7 @@ func ExpandCommand(tmpl string, v Vars) string {
 		"{dir}", ShellQuote(v.Dir),
 		"{root}", ShellQuote(v.Root),
 		"{name}", ShellQuote(noFlag(v.Name)),
+		"{line}", strconv.Itoa(line),
 		"{marked1}", m1,
 		"{marked2}", m2,
 		"{marked}", strings.Join(quoted, " "),

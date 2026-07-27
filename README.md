@@ -21,7 +21,9 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   interactive commands suspend the TUI (editors); background commands fire
   and forget (tmux hand-off, `open`). Marked paths are available as
   `{marked}` (all, in mark order) and `{marked1}`/`{marked2}` (the two most
-  recent — ready-made for a diff command).
+  recent — ready-made for a diff command). A command can also declare a
+  `finder_key` to run from inside the fuzzy finder, against the highlighted
+  result and its `{line}`.
 - Mark files/dirs with `space` (yazi-style `▍` bar + tinted name, live
   count in the status bar), then `p`/`m` copies or moves them to the
   selection, and `d` trashes them. Overwrites go via the Trash; name
@@ -103,6 +105,8 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `ctrl+g` | in the fuzzy finder: raise the match limit for the session (2×, 3×, …) |
 | `ctrl+y` | in the fuzzy finder: copy the `rg` command behind the `Type`/`Grep` fields |
 | `ctrl+l` | in the fuzzy finder: empty all three fields |
+| `ctrl+e` | in the fuzzy finder: open the highlighted result in helix, at the matched line — quitting returns you to the results |
+| `ctrl+t` | in the fuzzy finder: hand the highlighted result to the other tmux pane, without closing the finder |
 | `f` | reopen the fuzzy finder with the last `Find`/`Type`/`Grep` still in place |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
@@ -125,14 +129,20 @@ Commands may bind their own keys; the starter config binds the following set.
 Most need `tmux` (see [Dependencies](#dependencies)); `ft` puts itself in a
 session automatically, so they work out of the box.
 
-| Key | Command |
-|---|---|
-| `e` | open the selection in helix — works on directories too (helix shows its file picker) |
-| `t` | smart hand-off to the previously-active tmux pane: opens the file in the helix already running there (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
-| `v` | open the selection in helix in a new full-height split at the right edge — repeatable, one pane per press |
-| `n` | open a shell in a new full-height split at the right edge, in the selection's directory |
-| `r` | prime an `rg` in the other tmux pane at the selection's directory |
-| `L` | open lazygit for the repo containing the selection (commented example in the starter) |
+| Key | Finder key | Command |
+|---|---|---|
+| `e` | `ctrl+e` | open the selection in helix — works on directories too (helix shows its file picker) |
+| `t` | `ctrl+t` | smart hand-off to the previously-active tmux pane: opens the file in the helix already running there (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
+| `v` | | open the selection in helix in a new full-height split at the right edge — repeatable, one pane per press |
+| `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
+| `r` | | prime an `rg` in the other tmux pane at the selection's directory |
+| `L` | | open lazygit for the repo containing the selection (commented example in the starter) |
+
+A command's `key` fires it against the tree selection. Its optional
+`finder_key` fires it from inside the fuzzy finder, against the highlighted
+result — see [Running commands on a result](#running-commands-on-a-result).
+Only chords work there, since a bare key would be typed into the finder's
+input; the keys the finder handles itself are rejected at config load.
 
 ## Fuzzy Find
 
@@ -221,6 +231,30 @@ matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
 own `--sort path` would make the order stable at the cost of running
 single-threaded.
 
+### Running commands on a result
+
+`enter` reveals the highlighted result in the tree and closes the finder.
+To act on it *without* losing the results, a command can declare a
+`finder_key` — the starter binds two:
+
+- **`ctrl+e`** opens the result in helix in this pane. Quit helix and you are
+  back in the finder: same row, same three fields, results not re-run. Nothing
+  is saved and restored to achieve that — an interactive command blocks the
+  whole event loop while it owns the terminal, so the finder is simply frozen
+  and repainted when the child exits.
+- **`ctrl+t`** hands the result to the other tmux pane and *stays* in the
+  finder, so several results can be pushed into panes in one visit.
+
+On a `Grep` row both open at the matched line, via the `{line}` placeholder
+(`hx {path}:{line}`). `{line}` is `1` when there is no match line, so one
+template serves the tree and the finder alike.
+
+Two things worth knowing. The tree cursor does not follow a file opened this
+way — `enter` is still how you move it deliberately. And the result list is a
+snapshot from the finder's walk, so a file *created* while you were in helix
+will not appear until the walk restarts; edits to existing files are picked up
+normally.
+
 ### Picking up where you left off
 
 `/` always opens empty; **`f`** reopens
@@ -272,6 +306,7 @@ The parts that surprise people:
 ## Config
 
 See `~/.filetree/config.toml` (created on first run) for command templates,
-toggle defaults, and keybinding overrides. Template placeholders are
-shell-quoted on substitution; unknown `{tokens}` pass through untouched so
-tmux formats like `"{last}"` work.
+toggle defaults, and keybinding overrides. The placeholders are `{path}`,
+`{relpath}`, `{dir}`, `{root}`, `{name}`, `{line}`, `{marked}`, `{marked1}`
+and `{marked2}`. They are shell-quoted on substitution; unknown `{tokens}`
+pass through untouched so tmux formats like `"{last}"` work.

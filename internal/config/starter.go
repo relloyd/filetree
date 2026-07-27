@@ -9,6 +9,7 @@ const starterTOML = `# filetree configuration
 #   {dir}      directory of the selection (the selection itself if a dir)
 #   {root}     the tree root filetree was started in
 #   {name}     base name of the selection
+#   {line}     matched line of a "/" finder Grep hit (1 when there is none)
 #   {marked}   all marked paths (space-marked), oldest first
 #   {marked1}  second-most-recently marked path ('' if fewer than two)
 #   {marked2}  most recently marked path       ('' if fewer than two)
@@ -75,17 +76,25 @@ default = "edit"           # the command Enter runs
 
 # Open the selection in helix, taking over this pane until you quit.
 # Enter runs this for files; the "e" key runs it for anything, including
-# directories (helix opens its file picker on a directory).
+# directories (helix opens its file picker on a directory). "ctrl+e" runs it
+# from inside the "/" finder against the highlighted row, landing on the
+# matched line of a Grep hit; quitting helix returns you to the finder with
+# the results still up.
 [commands.edit]
-run = "hx {path}"
+run = "hx {path}:{line}"
 mode = "interactive"
 key = "e"
+finder_key = "ctrl+e"
 
 # Smart hand-off to the previously-active tmux pane ("{last}"): if helix is
 # running there, open the file in that session (:open); if a shell is
 # waiting, type the hx command; otherwise (including no last pane) create a
 # split. send-keys types into whatever runs in the pane, so blindly sending
 # "hx ..." a second time would land inside helix as editor keystrokes.
+# "ctrl+t" runs it from inside the "/" finder without closing it, so several
+# results can be pushed into panes in one visit. Only the two branches that
+# invoke the hx binary take ":{line}" — the ":open" branch is a helix command,
+# not a shell one, and does not document the path:line form.
 [commands.handoff]
 run = '''
 target=$(tmux display-message -p -t "{last}" "#{pane_current_command}" 2>/dev/null)
@@ -98,15 +107,16 @@ case "$target" in
     tmux send-keys -t "{last}" ":open {path}" Enter
     ;;
   sh|dash|bash|zsh|fish|ksh|nu)
-    tmux send-keys -t "{last}" C-u "hx {path}" Enter
+    tmux send-keys -t "{last}" C-u "hx {path}:{line}" Enter
     ;;
   *)
-    tmux split-window -fh -c {root} "hx {path}"
+    tmux split-window -fh -c {root} "hx {path}:{line}"
     ;;
 esac
 '''
 mode = "background"
 key = "t"
+finder_key = "ctrl+t"
 
 # Always open the selection in helix in a new full-height split at the
 # right edge of the window ("vertical split"). Repeatable: each press adds

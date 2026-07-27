@@ -223,6 +223,10 @@ type Model struct {
 	bindings   map[string]func() (tea.Model, tea.Cmd)
 	actionKeys map[string]string
 
+	// finderCmds maps a command's finder_key to its name. Separate from
+	// bindings, which is normal-mode only.
+	finderCmds map[string]string
+
 	// Clickable header button x-ranges, recomputed each render.
 	zoneHidden  [2]int
 	zoneIgnored [2]int
@@ -516,6 +520,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case m.actionKeys["finder-prev-field"]:
 			return m, m.cycleFinderField(-1)
 		}
+		// Command chords come last, so a finder key can never be displaced
+		// by a finder_key in the config.
+		if name, ok := m.finderCmds[s]; ok {
+			return m.runFinderCommand(name)
+		}
 		return m.updateFinderInput(msg)
 	}
 
@@ -568,9 +577,13 @@ func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) buildBindings() {
 	b := map[string]func() (tea.Model, tea.Cmd){}
 
+	m.finderCmds = map[string]string{}
 	for name, c := range m.cfg.Commands {
 		if c.Key != "" {
 			b[c.Key] = func() (tea.Model, tea.Cmd) { return m.runCommand(name) }
+		}
+		if c.FinderKey != "" {
+			m.finderCmds[c.FinderKey] = name
 		}
 	}
 

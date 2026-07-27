@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -49,6 +50,20 @@ type Command struct {
 	Run  string `toml:"run"`  // template; see ExpandCommand
 	Mode string `toml:"mode"` // "interactive" or "background" (default)
 	Key  string `toml:"key"`  // optional dedicated keybinding
+
+	// FinderKey runs the command from inside the "/" finder, against the
+	// highlighted result row rather than the tree selection. Chords only:
+	// a bare key would be swallowed by the finder's text inputs.
+	FinderKey string `toml:"finder_key"`
+}
+
+// finderReservedKeys are the keys the finder handles itself, and so cannot be
+// given away to a command's finder_key. The source of truth is the modeFuzzy
+// switch in internal/app/app.go — keep the two in step.
+var finderReservedKeys = []string{
+	"esc", "enter", "up", "down", "pgup", "pgdown",
+	"ctrl+p", "ctrl+n", "ctrl+u", "ctrl+d",
+	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+l",
 }
 
 type General struct {
@@ -209,6 +224,9 @@ func Load(path string) (*Config, error) {
 			}
 			if c.Mode != ModeInteractive && c.Mode != ModeBackground {
 				return nil, fmt.Errorf("%s: commands.%s: mode must be %q or %q", path, name, ModeInteractive, ModeBackground)
+			}
+			if slices.Contains(finderReservedKeys, c.FinderKey) {
+				return nil, fmt.Errorf("%s: commands.%s: finder_key %q is reserved by the finder", path, name, c.FinderKey)
 			}
 			cfg.Commands[name] = c
 		}

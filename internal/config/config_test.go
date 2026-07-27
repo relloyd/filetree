@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/relloyd/filetree/internal/tmux"
@@ -121,6 +123,45 @@ func TestExpandCommand(t *testing.T) {
 	want = `hx '/home/rl/my repo/file'\''s.go'`
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
+// {line} carries a finder Grep hit's line through to the editor. It falls back
+// to 1 rather than 0 so that one template works everywhere: "hx f.go:0" is an
+// error, "hx f.go:1" is just the top of the file.
+func TestExpandCommandLine(t *testing.T) {
+	v := Vars{Path: "/src/main.go", Line: 42}
+	if got, want := ExpandCommand("hx {path}:{line}", v), "hx /src/main.go:42"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	v.Line = 0
+	if got, want := ExpandCommand("hx {path}:{line}", v), "hx /src/main.go:1"; got != want {
+		t.Errorf("no line: got %q, want %q", got, want)
+	}
+}
+
+// A finder_key the finder handles itself would never fire, so it is rejected
+// at load rather than silently ignored.
+func TestFinderKeyReserved(t *testing.T) {
+	const tmpl = `
+[commands]
+default = "edit"
+[commands.edit]
+run = "hx {path}"
+finder_key = %q
+`
+	if _, err := loadTOML(t, fmt.Sprintf(tmpl, "enter")); err == nil {
+		t.Error("finder_key = enter loaded; want an error")
+	} else if !strings.Contains(err.Error(), "reserved") {
+		t.Errorf("error = %v, want it to mention the key is reserved", err)
+	}
+
+	cfg, err := loadTOML(t, fmt.Sprintf(tmpl, "ctrl+e"))
+	if err != nil {
+		t.Fatalf("finder_key = ctrl+e: %v", err)
+	}
+	if got := cfg.Commands["edit"].FinderKey; got != "ctrl+e" {
+		t.Errorf("finder_key = %q, want ctrl+e", got)
 	}
 }
 

@@ -478,13 +478,19 @@ func (m *Model) renderHelp() string {
 	}
 	var names []string
 	for name, c := range m.cfg.Commands {
-		if c.Key != "" {
+		if c.Key != "" || c.FinderKey != "" {
 			names = append(names, name)
 		}
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		rows = append(rows, row{m.cfg.Commands[name].Key, "run command: " + name})
+		c := m.cfg.Commands[name]
+		if c.Key != "" {
+			rows = append(rows, row{c.Key, "run command: " + name})
+		}
+		if c.FinderKey != "" {
+			rows = append(rows, row{c.FinderKey, "in the fuzzy finder: run command: " + name})
+		}
 	}
 
 	h := m.treeHeight()

@@ -1332,3 +1332,146 @@ func strsOf(ms []fuzzy.Match) []string {
 	}
 	return out
 }
+
+// --- running commands from the finder ---
+
+// finderCmdModel is a finder over one file, with a command bound to a chord.
+func finderCmdModel(t *testing.T, run, mode string) *Model {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := rootedModel(t, root)
+	m.cfg.Commands = map[string]config.Command{
+		"open": {Run: run, Mode: mode, FinderKey: "ctrl+e"},
+	}
+	m.finderCmds = map[string]string{"ctrl+e": "open"}
+	m.fuzzyMatches = []fuzzy.Match{{Str: "a.go"}}
+	m.fuzzySel = 0
+	return m
+}
+
+// The whole point of the feature: a command runs against the highlighted row
+// without closing the finder. An interactive child blocks the event loop
+// rather than running beside it, so the finder is frozen and repainted intact;
+// a background one never touches the terminal at all.
+func TestFinderCommandStaysInTheFinder(t *testing.T) {
+	for _, mode := range []string{config.ModeBackground, config.ModeInteractive} {
+		t.Run(mode, func(t *testing.T) {
+			m := finderCmdModel(t, "true", mode)
+
+			m.handleKey(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+
+			if m.mode != modeFuzzy {
+				t.Error("the command closed the finder")
+			}
+			if m.fuzzySel != 0 || len(m.fuzzyMatches) != 1 {
+				t.Errorf("results disturbed: sel=%d matches=%d", m.fuzzySel, len(m.fuzzyMatches))
+			}
+		})
+	}
+}
+
+// The row's absolute path and a Grep hit's line reach the template. Run the
+// returned command for real: expansion is the part worth checking end to end.
+func TestFinderCommandVars(t *testing.T) {
+	m := finderCmdModel(t, "printf '%s' {path}:{line}", config.ModeBackground)
+
+	_, cmd := m.handleKey(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	done, ok := cmd().(cmdDoneMsg)
+	if !ok {
+		t.Fatalf("command returned %T, want cmdDoneMsg", cmd())
+	}
+	// No Grep, so no line: {line} falls back to 1 rather than 0.
+	if want := filepath.Join(m.tr.Root.Path, "a.go") + ":1"; done.out != want {
+		t.Errorf("expanded to %q, want %q", done.out, want)
+	}
+	if m.lastPick.rel != "a.go" || m.lastPick.line != 0 {
+		t.Errorf("lastPick = %+v, want {a.go 0}", m.lastPick)
+	}
+}
+
+// On a content row the matched line goes with the path, so the editor opens
+// where the match is rather than at the top of the file.
+func TestFinderCommandVarsCarryTheGrepLine(t *testing.T) {
+	m := finderCmdModel(t, "printf '%s' {line}", config.ModeBackground)
+	m.grepInput.SetValue("package")
+	m.grepHits = []search.Hit{{Path: "a.go", Line: 42, Text: "package a"}}
+	m.grepRows = []int{0}
+
+	_, cmd := m.handleKey(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	if done := cmd().(cmdDoneMsg); done.out != "42" {
+		t.Errorf("{line} = %q, want 42", done.out)
+	}
+	if m.lastPick != (finderPick{rel: "a.go", line: 42}) {
+		t.Errorf("lastPick = %+v, want {a.go 42}", m.lastPick)
+	}
+}
+
+// Returning from an interactive command re-reads the tree. That must not
+// disturb the finder underneath it: reflatten moves the tree cursor, which is
+// a different thing from the finder's selection.
+func TestCmdDoneLeavesTheFinderIntact(t *testing.T) {
+	m := finderCmdModel(t, "true", config.ModeInteractive)
+	m.fuzzyMatches = []fuzzy.Match{{Str: "a.go"}, {Str: "b.go"}, {Str: "c.go"}}
+	m.fuzzySel, m.fuzzyScroll = 2, 1
+
+	m.handleCmdDone(cmdDoneMsg{name: "open", interactive: true})
+
+	if m.mode != modeFuzzy {
+		t.Error("returning from the command left the finder")
+	}
+	if m.fuzzySel != 2 || m.fuzzyScroll != 1 || len(m.fuzzyMatches) != 3 {
+		t.Errorf("finder disturbed: sel=%d scroll=%d matches=%d",
+			m.fuzzySel, m.fuzzyScroll, len(m.fuzzyMatches))
+	}
+}
+
+// An empty result list is not an error — there is simply nothing to run on.
+func TestFinderCommandOnNoRows(t *testing.T) {
+	m := finderCmdModel(t, "true", config.ModeBackground)
+	m.fuzzyMatches = nil
+
+	_, cmd := m.handleKey(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+
+	if cmd != nil {
+		t.Error("a command ran with no row highlighted")
+	}
+	if m.mode != modeFuzzy {
+		t.Error("the finder closed")
+	}
+}
+
+// A finder_key must not displace a key the finder handles itself, so the
+// command lookup comes last. Reserved keys are also rejected at config load.
+func TestFinderKeyCannotDisplaceAFinderKey(t *testing.T) {
+	m := finderCmdModel(t, "true", config.ModeBackground)
+	m.finderCmds = map[string]string{"ctrl+g": "open"}
+	m.fuzzyLimitFactor = 1
+
+	m.handleKey(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+
+	if m.fuzzyLimitFactor != 2 {
+		t.Errorf("limit factor = %d, want 2 — ctrl+g must stay finder-more",
+			m.fuzzyLimitFactor)
+	}
+}
+
+// ctrl+e is textinput's move-to-line-end. Claiming it for the finder is
+// deliberate, and costs nothing: "end" still gets you there.
+func TestCtrlEIsClaimedButEndStillWorks(t *testing.T) {
+	m := finderCmdModel(t, "true", config.ModeBackground)
+	m.input.SetValue("abc")
+	m.input.SetCursor(0)
+
+	m.handleKey(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	if got := m.input.Position(); got != 0 {
+		t.Errorf("cursor moved to %d — ctrl+e reached the text input", got)
+	}
+
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnd})
+	if got := m.input.Position(); got != 3 {
+		t.Errorf("end put the cursor at %d, want 3", got)
+	}
+}
