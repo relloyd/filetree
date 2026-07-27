@@ -291,16 +291,16 @@ func (m *Model) renderFinderHeader() []string {
 		}
 		return styleDim.Render(text)
 	}
-	lines := []string{label(" Find: ", fieldQuery) + m.input.View() + m.renderFinderCounter()}
+	lines := []string{label(" Find ", fieldQuery) + m.input.View() + m.renderFinderCounter()}
 	if m.finderField == fieldType || m.typeInput.Value() != "" {
-		line := label(" Type: ", fieldType) + m.typeInput.View()
+		line := label(" Type ", fieldType) + m.typeInput.View()
 		if m.fuzzyFilterErr != "" {
 			line += styleError.Render("  " + m.fuzzyFilterErr)
 		}
 		lines = append(lines, line)
 	}
 	if m.finderField == fieldGrep || m.grepInput.Value() != "" {
-		line := label(" Grep: ", fieldGrep) + m.grepInput.View()
+		line := label(" Grep ", fieldGrep) + m.grepInput.View()
 		switch {
 		case m.grepErr != "":
 			line += styleError.Render("  " + m.grepErr)
