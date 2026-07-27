@@ -26,9 +26,11 @@ func TestArgs(t *testing.T) {
 			want: []string{"--json", "--no-heading", "--color=never", "--hidden", "--no-ignore", "-g", "!.git/", "-e", "x"},
 		},
 		{
+			// The scope flags come first because searching and listing share
+			// them; --max-count is search-only and follows.
 			name: "per-file cap",
 			q:    Query{Regex: "x", MaxPerFile: 5},
-			want: []string{"--json", "--no-heading", "--color=never", "--max-count", "5", "-g", "!.git/", "-e", "x"},
+			want: []string{"--json", "--no-heading", "--color=never", "-g", "!.git/", "--max-count", "5", "-e", "x"},
 		},
 		{
 			name: "a zero cap is left off",
@@ -64,6 +66,31 @@ func TestArgsPatternIsNotReadAsAFlag(t *testing.T) {
 	got := Args(Query{Regex: "--force"})
 	if got[len(got)-2] != "-e" || got[len(got)-1] != "--force" {
 		t.Errorf("Args() tail = %v, want [-e --force]", got[len(got)-2:])
+	}
+}
+
+// Listing files and searching them must agree on which files are in scope,
+// which is the whole point of a Type filter that works before a pattern is
+// typed. The listing carries nothing that only makes sense when searching.
+func TestFileListArgs(t *testing.T) {
+	f, err := CompileFilter("hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := Query{Regex: "x", Filter: f, Hidden: true, NoIgnore: true, MaxPerFile: 5}
+
+	got := FileListArgs(q)
+	want := []string{"--files", "--hidden", "--no-ignore", "-g", "*.hcl", "-g", "hcl", "-g", "!.git/"}
+	if !slices.Equal(got, want) {
+		t.Errorf("FileListArgs() = %v\nwant             %v", got, want)
+	}
+
+	// The scope it lists is exactly the scope a search would read.
+	searchScope := Args(q)
+	for i := 0; i+1 < len(want); i++ {
+		if want[i] == "-g" && !containsSeq(searchScope, []string{"-g", want[i+1]}) {
+			t.Errorf("glob %q is in the listing but not in the search", want[i+1])
+		}
 	}
 }
 

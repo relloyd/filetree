@@ -661,15 +661,69 @@ func TestContentSearchEndToEnd(t *testing.T) {
 
 // --- the shown ripgrep command ---
 
-// The command is only meaningful in content mode.
-func TestGrepCommandOnlyInContentMode(t *testing.T) {
-	m := rootedModel(t, t.TempDir())
-	if got := m.grepCommand(); got != "" {
-		t.Errorf("grepCommand() outside content mode = %q, want empty", got)
+// A Type filter alone is enough to have something worth copying: the command
+// that lists the files it selects. With neither field there is nothing to say.
+func TestFinderCommandFollowsWhicheverFieldsAreFilled(t *testing.T) {
+	f, err := search.CompileFilter("hcl")
+	if err != nil {
+		t.Fatal(err)
 	}
-	m.grepInput.SetValue("dependency")
-	if got := m.grepCommand(); got == "" {
-		t.Error("grepCommand() in content mode is empty")
+
+	empty := rootedModel(t, t.TempDir())
+	if got := empty.finderCommand(); got != "" {
+		t.Errorf("no Type and no Grep = %q, want empty", got)
+	}
+
+	typeOnly := rootedModel(t, t.TempDir())
+	typeOnly.fuzzyFilter = f
+	got := typeOnly.finderCommand()
+	if !strings.Contains(got, "--files") {
+		t.Errorf("Type alone = %q, want a --files listing", got)
+	}
+	if strings.Contains(got, "-e") {
+		t.Errorf("Type alone = %q, want no pattern", got)
+	}
+	if !strings.Contains(got, "'*.hcl'") {
+		t.Errorf("Type alone = %q, want the filter globs", got)
+	}
+
+	// Typing a pattern turns it into a content search.
+	both := rootedModel(t, t.TempDir())
+	both.fuzzyFilter = f
+	both.grepInput.SetValue("dependency")
+	got = both.finderCommand()
+	if strings.Contains(got, "--files") {
+		t.Errorf("Type and Grep = %q, should search rather than list", got)
+	}
+	if !strings.Contains(got, "-e") || !strings.Contains(got, "'*.hcl'") {
+		t.Errorf("Type and Grep = %q, want both the pattern and the globs", got)
+	}
+
+	// Grep alone still works, filter or no filter.
+	grepOnly := rootedModel(t, t.TempDir())
+	grepOnly.grepInput.SetValue("dependency")
+	if got := grepOnly.finderCommand(); !strings.Contains(got, "-e") {
+		t.Errorf("Grep alone = %q, want a search", got)
+	}
+}
+
+// The listing form must not carry flags that only make sense when searching.
+func TestFileListCommandOmitsSearchOnlyFlags(t *testing.T) {
+	f, err := search.CompileFilter("hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := rootedModel(t, t.TempDir())
+	m.fuzzyFilter = f
+	m.cfg.General.FuzzyGrepMaxPerFile = 5
+
+	// Compared as whole words: "-n" is a substring of "--no-ignore", which the
+	// listing legitimately carries.
+	fields := strings.Fields(m.finderCommand())
+	for _, unwanted := range []string{"--max-count", "-n", "--json", "-e"} {
+		if slices.Contains(fields, unwanted) {
+			t.Errorf("--files command %v should not carry %q", fields, unwanted)
+		}
 	}
 }
 
@@ -687,7 +741,7 @@ func TestGrepCommandIsPasteable(t *testing.T) {
 	m.cfg.General.FuzzyGrepMaxPerFile = 5
 	m.grepInput.SetValue("dependency \"vpc\"")
 
-	got := m.grepCommand()
+	got := m.finderCommand()
 	for _, want := range []string{"rg", "-n", "--hidden", "--no-ignore", "--max-count 5", "'*.hcl'", "!.git/", "-e"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("command %q is missing %q", got, want)
@@ -709,7 +763,7 @@ func TestGrepCommandQuotesHostilePatterns(t *testing.T) {
 	m := rootedModel(t, t.TempDir())
 	for _, pattern := range []string{"--force", "it's", "a b", "$(rm -rf /)", "`id`"} {
 		m.grepInput.SetValue(pattern)
-		got := m.grepCommand()
+		got := m.finderCommand()
 		if !strings.Contains(got, "-e ") {
 			t.Errorf("pattern %q: no -e in %q", pattern, got)
 		}

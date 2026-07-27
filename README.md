@@ -101,7 +101,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `/` | fuzzy find (esc cancels, enter jumps) |
 | `tab` | in the finder: cycle the `Find:` / `Type:` / `Grep:` fields |
 | `ctrl+g` | in the finder: raise the match limit for the session (2×, 3×, …) |
-| `ctrl+y` | in the finder: copy the `rg` command behind a content search |
+| `ctrl+y` | in the finder: copy the `rg` command behind the `Type:`/`Grep:` fields |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -199,13 +199,21 @@ half-typed regexp is never run, and takes at most 5 matches from any one file
 `--max-count`, so ripgrep enforces it while reading). ripgrep's own errors — a
 malformed regexp, most often — appear beside the field.
 
-While a content search is up, the **status bar shows the ripgrep command** it
-amounts to, and **`ctrl+y`** copies the whole thing to the clipboard so you can
-run it yourself and check the finder against it. The copied command is
-self-contained — the tree root is the search path, so it works from any
-directory. It differs from what `ft` actually runs in two ways that cannot
-change which lines match: the output flags are human-readable instead of
-`--json`, and paths print absolute rather than root-relative.
+Whenever `Type:` or `Grep:` has anything in it, the **status bar shows the
+ripgrep command** the finder amounts to, and **`ctrl+y`** copies the whole thing
+to the clipboard so you can run it yourself and check the finder against it.
+With a pattern typed that is a content search; with only a type filter it is
+`rg --files`, listing the files the filter selects — handy for confirming a
+glob does what you meant before typing a pattern.
+
+The copied command is self-contained — the tree root is the search path, so it
+works from any directory. It differs from what `ft` actually runs in two ways
+that cannot change which files or lines match: the output flags are
+human-readable instead of `--json`, and paths print absolute rather than
+root-relative. One caveat for the `--files` form: the finder's own file list
+comes from its walk, which applies the same globs but takes gitignore state
+from the cached `git status` and stops at `fuzzy_max_candidates`. So it answers
+"does my filter select what I think it does", not "is the walk complete".
 
 Results arrive in whatever order ripgrep finds them — it searches files in
 parallel, and sorting would mean waiting for the whole search to finish. That

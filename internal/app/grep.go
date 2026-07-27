@@ -117,29 +117,45 @@ func (m *Model) grepQuery() search.Query {
 	}
 }
 
-// grepCommand renders the current content search as a shell command, for
-// checking the finder's results against ripgrep directly.
+// finderCommand renders what the finder is doing as a shell command, for
+// checking its results against ripgrep directly. With a pattern typed that is
+// a content search; with only a Type filter it is `rg --files`, listing the
+// files the filter selects. With neither there is nothing to express, and the
+// status bar goes back to showing the selection.
 //
 // It differs from what Run executes in two deliberate ways: the output flags
 // are human-readable rather than --json, and the root is passed as an argument
-// instead of being the working directory. Neither changes which lines match,
-// so the command is self-contained — paste it into any shell and it reproduces
-// the result set (printed with absolute paths rather than root-relative ones).
-func (m *Model) grepCommand() string {
-	if !m.grepping() {
+// instead of being the working directory. Neither changes which files or lines
+// match, so the command is self-contained — paste it into any shell and it
+// reproduces the result set, printed with absolute paths rather than
+// root-relative ones.
+//
+// One caveat for the --files form: the finder's own list comes from the walk
+// in fuzzy.go, which applies the same globs but takes gitignore state from the
+// cached `git status` and stops at the candidate cap. So it answers "does my
+// Type filter select what I think it does", not "is the walk complete".
+func (m *Model) finderCommand() string {
+	q := m.grepQuery()
+	var args []string
+	switch {
+	case m.grepping():
+		args = search.DisplayArgs(q)
+	case !q.Filter.Empty():
+		args = search.FileListArgs(q)
+	default:
 		return ""
 	}
 	parts := []string{"rg"}
-	for _, a := range search.DisplayArgs(m.grepQuery()) {
+	for _, a := range args {
 		parts = append(parts, config.ShellQuote(a))
 	}
 	return strings.Join(append(parts, config.ShellQuote(m.tr.Root.Path)), " ")
 }
 
-// copyGrepCommand puts the command on the clipboard, since the status bar can
-// only show as much of it as fits.
-func (m *Model) copyGrepCommand() (tea.Model, tea.Cmd) {
-	cmd := m.grepCommand()
+// copyFinderCommand puts the command on the clipboard, since the status bar
+// can only show as much of it as fits.
+func (m *Model) copyFinderCommand() (tea.Model, tea.Cmd) {
+	cmd := m.finderCommand()
 	if cmd == "" {
 		return m, nil
 	}

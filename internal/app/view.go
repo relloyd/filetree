@@ -209,12 +209,12 @@ func (m *Model) renderStatus() string {
 		left = styleError.Render(" " + m.statusMsg)
 	case m.statusMsg != "":
 		left = styleOK.Render(" " + m.statusMsg)
-	case m.mode == modeFuzzy && m.grepping():
+	case m.mode == modeFuzzy && m.finderCommand() != "":
 		// The tree cursor is not what you are looking at in the finder, so the
 		// status bar shows the ripgrep command instead — the one place a long
 		// line fits without adding a row. Truncated from the left so the
 		// pattern, the interesting end, always survives.
-		left = styleDim.Render(" " + truncateLeft(m.grepCommand(), max(1, m.width-2)))
+		left = styleDim.Render(" " + truncateLeft(m.finderCommand(), max(1, m.width-2)))
 	default:
 		if sel := m.selected(); sel != nil {
 			left = styleDim.Render(" " + m.gitRelPath(sel))

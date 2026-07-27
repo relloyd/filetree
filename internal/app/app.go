@@ -484,7 +484,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case m.actionKeys["finder-more"]:
 			return m, m.raiseFuzzyLimit()
 		case m.actionKeys["finder-copy-command"]:
-			return m.copyGrepCommand()
+			return m.copyFinderCommand()
 		case m.actionKeys["finder-next-field"]:
 			return m, m.cycleFinderField(1)
 		case m.actionKeys["finder-prev-field"]:
