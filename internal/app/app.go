@@ -169,6 +169,11 @@ type Model struct {
 	typeInput   textinput.Model
 	finderField finderField
 
+	// lastPick is the row the finder was last left on; resumeWant is that row
+	// still waiting to be re-selected as results stream back in.
+	lastPick   finderPick
+	resumeWant finderPick
+
 	fuzzyCands    []string
 	fuzzyAll      []fuzzy.Match // matches before the display cap
 	fuzzyMatches  []fuzzy.Match // what the list shows, capped
@@ -400,6 +405,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addFuzzyCands(msg.cands)
 		if msg.done {
 			m.fuzzyWalking, m.fuzzyTrunc = false, msg.truncated
+			// Give up on restoring the row only if the walk is what feeds the
+			// list. In content mode it runs alongside the search and usually
+			// finishes first, so clearing here would cancel the restore before
+			// ripgrep had produced anything to match against.
+			if !m.grepping() {
+				m.resumeWant = finderPick{}
+			}
 			return m, nil
 		}
 		return m, waitFuzzyWalk(m.fuzzyWalk, msg.gen)
@@ -418,6 +430,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.grepSkipped += msg.skipped
 		if msg.done {
 			m.grepRunning = false
+			m.resumeWant = finderPick{} // it never turned up; stop looking
 			if msg.err != nil {
 				m.grepErr = msg.err.Error()
 			}
@@ -494,6 +507,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case m.actionKeys["finder-more"]:
 			return m, m.raiseFuzzyLimit()
+		case m.actionKeys["finder-clear"]:
+			return m, m.clearFinder()
 		case m.actionKeys["finder-copy-command"]:
 			return m.copyFinderCommand()
 		case m.actionKeys["finder-next-field"]:
@@ -530,6 +545,9 @@ func (m *Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 // updateFinderInput feeds a key or paste to the focused finder field and
 // recomputes whatever that field drives.
 func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Editing any field means the user has moved on from where they left off,
+	// so stop trying to restore that row.
+	m.resumeWant = finderPick{}
 	var cmd tea.Cmd
 	switch m.finderField {
 	case fieldType:
@@ -572,23 +590,27 @@ func (m *Model) buildBindings() {
 		"finder-prev-field":   "shift+tab",
 		"finder-more":         "ctrl+g",
 		"finder-copy-command": "ctrl+y",
-		"new-file":            "a",
-		"new-dir":             "A",
-		"rename":              "R",
-		"delete":              "d",
-		"collapse-all":        "H",
-		"edit-config":         "C",
-		"help":                "?",
-		"mark":                "space",
-		"clear-marks":         "esc",
-		"copy-here":           "p",
-		"move-here":           "m",
-		"scratch":             "s",
-		"scratch-new":         "S",
-		"copy-url":            "u",
-		"open-url":            "U",
-		"worktrees":           "w",
-		"worktree-new":        "W",
+		"finder-clear":        "ctrl+l",
+		// finder-resume is a normal-mode action, so unlike the finder-local
+		// keys above it does belong in the actions map below.
+		"finder-resume": "ctrl+f",
+		"new-file":      "a",
+		"new-dir":       "A",
+		"rename":        "R",
+		"delete":        "d",
+		"collapse-all":  "H",
+		"edit-config":   "C",
+		"help":          "?",
+		"mark":          "space",
+		"clear-marks":   "esc",
+		"copy-here":     "p",
+		"move-here":     "m",
+		"scratch":       "s",
+		"scratch-new":   "S",
+		"copy-url":      "u",
+		"open-url":      "U",
+		"worktrees":     "w",
+		"worktree-new":  "W",
 	}
 	m.actionKeys = map[string]string{}
 	for action, key := range defaults {
@@ -607,6 +629,7 @@ func (m *Model) buildBindings() {
 		"copy-abs":       m.copyAbs,
 		"copy-rel":       m.copyRel,
 		"fuzzy":          m.startFuzzy,
+		"finder-resume":  m.resumeFuzzy,
 		"new-file":       func() (tea.Model, tea.Cmd) { return m.startPrompt(promptNewFile) },
 		"new-dir":        func() (tea.Model, tea.Cmd) { return m.startPrompt(promptNewDir) },
 		"rename":         func() (tea.Model, tea.Cmd) { return m.startPrompt(promptRename) },

@@ -466,6 +466,8 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["finder-next-field"], "in the finder: cycle Find / Type / Grep"},
 		{m.actionKeys["finder-more"], "in the finder: raise the match limit (2×, 3×, …)"},
 		{m.actionKeys["finder-copy-command"], "in the finder: copy the rg command"},
+		{m.actionKeys["finder-clear"], "in the finder: empty all three fields"},
+		{m.actionKeys["finder-resume"], "reopen the finder where you left it"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
 		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},

@@ -200,6 +200,7 @@ func (m *Model) rebuildGrepRows() {
 	}
 	m.fuzzySel = clamp(m.fuzzySel, 0, max(0, len(m.grepRows)-1))
 	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.grepRows)-m.fuzzyVisibleRows()))
+	m.applyResumeTarget()
 }
 
 // finderLen is how many rows the result list has, whichever mode it is in.

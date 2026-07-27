@@ -750,6 +750,243 @@ func TestContentSearchEndToEnd(t *testing.T) {
 	}
 }
 
+// --- resuming and clearing ---
+
+// The fields survive leaving the finder on their own, so resume is a matter of
+// not resetting them. Opening fresh must still clear them.
+func TestResumeKeepsTheFieldsAndStartClearsThem(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.input.SetValue("terragr")
+	m.typeInput.SetValue("hcl")
+	m.grepInput.SetValue("dependency")
+	m.finderField = fieldType
+
+	m.resumeFuzzy()
+	if m.input.Value() != "terragr" || m.typeInput.Value() != "hcl" || m.grepInput.Value() != "dependency" {
+		t.Errorf("resume lost fields: %q / %q / %q",
+			m.input.Value(), m.typeInput.Value(), m.grepInput.Value())
+	}
+	if m.mode != modeFuzzy {
+		t.Error("resume did not open the finder")
+	}
+	if m.finderField != fieldType {
+		t.Errorf("resume moved focus to field %d, want the field it was left on", m.finderField)
+	}
+
+	m.startFuzzy()
+	if m.input.Value() != "" || m.typeInput.Value() != "" || m.grepInput.Value() != "" {
+		t.Errorf("a fresh open kept fields: %q / %q / %q",
+			m.input.Value(), m.typeInput.Value(), m.grepInput.Value())
+	}
+	if m.finderField != fieldQuery {
+		t.Errorf("a fresh open left focus on field %d, want fieldQuery", m.finderField)
+	}
+}
+
+// The Type filter has to be back in force on the resumed walk, not merely
+// redisplayed — applyTypeFilter short-circuits on unchanged text, so enterFuzzy
+// compiles it directly.
+func TestResumeRecompilesTheTypeFilter(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.typeInput.SetValue("hcl")
+	m.fuzzyFilter = search.Filter{} // as if never compiled
+
+	m.resumeFuzzy()
+	if m.fuzzyFilter.Empty() {
+		t.Fatal("resumed with an empty filter; the walk would be unfiltered")
+	}
+	if !m.fuzzyFilter.Match("a/b/main.hcl") || m.fuzzyFilter.Match("a/b/main.tf") {
+		t.Error("the resumed filter does not behave like *.hcl")
+	}
+}
+
+// A resumed content search is re-run: the old hits are stale and their
+// generation was invalidated when the finder was left.
+func TestResumeRerunsAContentSearch(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.grepInput.SetValue("dependency")
+	m.grepHits = hits("stale.go")
+
+	m.resumeFuzzy()
+	if len(m.grepHits) != 0 {
+		t.Errorf("stale hits survived the resume: %v", m.grepHits)
+	}
+	if !m.grepRunning {
+		t.Error("a resumed content search was not re-armed")
+	}
+}
+
+// With no pattern there is nothing to re-run.
+func TestResumeWithoutAPatternRunsNoSearch(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.typeInput.SetValue("hcl")
+
+	m.resumeFuzzy()
+	if m.grepRunning {
+		t.Error("resume started a search with an empty Grep field")
+	}
+}
+
+// The row that was jumped from is re-selected once it shows up again.
+func TestResumeRestoresTheRow(t *testing.T) {
+	m := finderModel()
+	m.lastPick = finderPick{rel: "c/three.go"}
+	m.resumeWant = m.lastPick
+
+	m.addFuzzyCands([]string{"a/one.go", "b/two.go", "c/three.go", "d/four.go"})
+	if got := m.finderPath(m.fuzzySel); got != "c/three.go" {
+		t.Errorf("selection = %q, want the row resumed onto", got)
+	}
+	if !m.resumeWant.isZero() {
+		t.Error("the target was not cleared after being matched")
+	}
+}
+
+// In content mode the same file appears once per matching line, so the line
+// number picks the occurrence.
+func TestResumeRestoresTheContentRowByLine(t *testing.T) {
+	m := finderModel()
+	m.grepInput.SetValue("dependency")
+	m.resumeWant = finderPick{rel: "b.go", line: 2}
+
+	m.addGrepHits([]search.Hit{
+		{Path: "a.go", Line: 1}, {Path: "b.go", Line: 1},
+		{Path: "b.go", Line: 2}, {Path: "c.go", Line: 1},
+	})
+	if got := m.finderPath(m.fuzzySel); got != "b.go" {
+		t.Fatalf("selection = %q, want b.go", got)
+	}
+	if got := m.grepHits[m.grepRows[m.fuzzySel]].Line; got != 2 {
+		t.Errorf("selected line = %d, want 2", got)
+	}
+}
+
+// A file that is gone leaves the selection at the top rather than anywhere
+// arbitrary, and the walk finishing stops the search for it.
+func TestResumeGivesUpWhenTheRowIsGone(t *testing.T) {
+	m := finderModel()
+	m.fuzzyGen = 1
+	m.resumeWant = finderPick{rel: "deleted.go"}
+
+	m.Update(fuzzyCandsMsg{gen: 1, cands: []string{"a/one.go", "b/two.go"}, done: true})
+	if m.fuzzySel != 0 {
+		t.Errorf("selection = %d, want the top of the list", m.fuzzySel)
+	}
+	if !m.resumeWant.isZero() {
+		t.Error("a finished walk left the target pending")
+	}
+}
+
+// In content mode the walk runs alongside ripgrep and usually finishes first.
+// It must not cancel the restore: the rows it completes are not the rows being
+// restored into.
+func TestWalkFinishingDoesNotCancelAContentRestore(t *testing.T) {
+	m := finderModel()
+	m.grepInput.SetValue("dependency")
+	m.fuzzyGen, m.grepGen = 1, 1
+	m.grepCh = make(chan search.Result, 1)
+	m.resumeWant = finderPick{rel: "b.go", line: 2}
+
+	// The walk completes with the target nowhere in its candidates.
+	m.Update(fuzzyCandsMsg{gen: 1, cands: []string{"a.go", "b.go"}, done: true})
+	if m.resumeWant.isZero() {
+		t.Fatal("the walk finishing cancelled a content-mode restore")
+	}
+
+	// ripgrep then produces it, and the row is selected.
+	m.Update(grepResultMsg{gen: 1, hits: []search.Hit{
+		{Path: "a.go", Line: 1}, {Path: "b.go", Line: 2},
+	}, done: true})
+	if got := m.finderPath(m.fuzzySel); got != "b.go" {
+		t.Errorf("selection = %q, want b.go", got)
+	}
+}
+
+// Typing means the user has moved on; a pending restore must not yank the
+// selection out from under them.
+func TestTypingAbandonsTheResumeTarget(t *testing.T) {
+	m := finderModel()
+	m.resumeWant = finderPick{rel: "c/three.go"}
+	m.fuzzyCands = []string{"a/one.go", "b/two.go", "c/three.go"}
+
+	m.handleKey(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	if !m.resumeWant.isZero() {
+		t.Error("the target survived a keystroke")
+	}
+}
+
+// Clearing empties all three fields, drops the filter, and leaves focus put.
+func TestClearFinderEmptiesEverything(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.input.SetValue("terragr")
+	m.typeInput.SetValue("hcl")
+	m.grepInput.SetValue("dependency")
+	m.grepHits = hits("a.go")
+	m.finderField = fieldGrep
+	f, err := search.CompileFilter("hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.fuzzyFilter = f
+
+	m.clearFinder()
+
+	if m.input.Value() != "" || m.typeInput.Value() != "" || m.grepInput.Value() != "" {
+		t.Errorf("fields survived the clear: %q / %q / %q",
+			m.input.Value(), m.typeInput.Value(), m.grepInput.Value())
+	}
+	if !m.fuzzyFilter.Empty() {
+		t.Error("the compiled filter survived the clear")
+	}
+	if len(m.grepHits) != 0 {
+		t.Errorf("content hits survived the clear: %v", m.grepHits)
+	}
+	if m.finderField != fieldGrep {
+		t.Errorf("clearing moved focus to field %d; it should stay put", m.finderField)
+	}
+	if m.mode != modeFuzzy {
+		t.Error("clearing left the finder")
+	}
+}
+
+// ctrl+l is finder-local, like the other finder keys, and never reaches the
+// normal-mode binding table where it would shadow a command key.
+func TestFinderClearIsFinderLocal(t *testing.T) {
+	m := &Model{cfg: config.Default()}
+	m.buildBindings()
+
+	if got := m.actionKeys["finder-clear"]; got != "ctrl+l" {
+		t.Errorf("default finder-clear = %q, want ctrl+l", got)
+	}
+	if _, ok := m.bindings["ctrl+l"]; ok {
+		t.Error("finder-clear leaked into the normal-mode binding table")
+	}
+	// Resume is the opposite: it is a normal-mode action and must be bound.
+	if got := m.actionKeys["finder-resume"]; got != "ctrl+f" {
+		t.Errorf("default finder-resume = %q, want ctrl+f", got)
+	}
+	if _, ok := m.bindings["ctrl+f"]; !ok {
+		t.Error("finder-resume is not bound in normal mode")
+	}
+}
+
+// The mode collision guard: ctrl+f resumes from the tree, but inside the
+// finder it belongs to the text input as move-cursor-right.
+func TestCtrlFMovesTheCursorInsideTheFinder(t *testing.T) {
+	m := finderModel()
+	m.input.SetValue("abc")
+	m.input.SetCursor(0)
+
+	m.handleKey(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+
+	if m.input.Value() != "abc" {
+		t.Errorf("ctrl+f changed the query to %q", m.input.Value())
+	}
+	if got := m.input.Position(); got != 1 {
+		t.Errorf("cursor at %d, want 1 — ctrl+f should move it, not resume", got)
+	}
+}
+
 // --- the shown ripgrep command ---
 
 // A Type filter alone is enough to have something worth copying: the command

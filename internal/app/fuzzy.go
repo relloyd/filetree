@@ -36,6 +36,17 @@ const (
 	finderFieldCount
 )
 
+// finderPick is a row the finder was left on, so reopening can put the
+// selection back. Best effort by nature: the tree, the file, or the search
+// results may all have moved on while it was closed.
+type finderPick struct {
+	rel  string // root-relative path
+	line int    // content mode: the matched line; 0 otherwise
+}
+
+// isZero reports whether there is no row to go back to.
+func (p finderPick) isZero() bool { return p.rel == "" }
+
 // fuzzyChunk is one batch of candidates from the walker goroutine. The final
 // chunk of a walk has done set, and truncated when the candidate cap stopped
 // it early.
@@ -104,21 +115,50 @@ func (m *Model) fuzzyMaxCands() int {
 	return m.cfg.General.FuzzyMaxCandidates
 }
 
+// startFuzzy opens the finder empty.
 func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
-	m.mode = modeFuzzy
 	m.input.Reset()
 	m.typeInput.Reset()
-	m.typeInput.Blur()
 	m.grepInput.Reset()
-	m.grepInput.Blur()
-	m.stopGrep()
-	m.grepHits, m.grepRows, m.grepErr, m.grepRaw = nil, nil, "", ""
+	m.grepRaw = ""
 	m.finderField = fieldQuery
-	m.fuzzyFilter, m.fuzzyFilterErr, m.fuzzyFilterRaw = search.Filter{}, "", ""
+	m.resumeWant = finderPick{}
+	return m.enterFuzzy()
+}
+
+// resumeFuzzy reopens the finder with the fields as they were left, and aims
+// to put the selection back on the row it was left on. The fields survive on
+// their own — neither esc nor a jump clears them, only the next startFuzzy —
+// so resuming is a matter of not resetting rather than of saving.
+func (m *Model) resumeFuzzy() (tea.Model, tea.Cmd) {
+	m.resumeWant = m.lastPick
+	return m.enterFuzzy()
+}
+
+// enterFuzzy is the work both entry points share: take the screen snapshot,
+// compile whatever the Type field holds, focus, walk, and search.
+func (m *Model) enterFuzzy() (tea.Model, tea.Cmd) {
+	m.mode = modeFuzzy
+	m.stopGrep()
+	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
+	m.grepCapped, m.grepSkipped = false, 0
 	m.fuzzyQuery = ""
+
+	// Compile straight into the model rather than through applyTypeFilter,
+	// which short-circuits when the text has not changed — on resume it has
+	// not, and the walk still needs the filter.
+	m.fuzzyFilterRaw = m.typeInput.Value()
+	if f, err := search.CompileFilter(m.fuzzyFilterRaw); err != nil {
+		m.fuzzyFilter, m.fuzzyFilterErr = search.Filter{}, err.Error()
+	} else {
+		m.fuzzyFilter, m.fuzzyFilterErr = f, ""
+	}
+
 	// Snapshot what is on screen: visible entries seed the candidate list
 	// (in tree order, so an empty query browses exactly what you see) and
 	// get a ranking bonus — if you can see it, typing its name finds it.
+	// Resuming re-takes it, because jumping to a file expanded ancestors and
+	// the old snapshot no longer describes the screen.
 	m.fuzzyVisible = map[string]bool{}
 	m.fuzzyVisOrder = nil
 	for _, r := range m.rows {
@@ -131,7 +171,39 @@ func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
 			m.fuzzyVisOrder = append(m.fuzzyVisOrder, rel)
 		}
 	}
-	return m, tea.Batch(m.input.Focus(), m.restartFuzzyWalk())
+
+	cmds := []tea.Cmd{m.focusFinderField(), m.restartFuzzyWalk()}
+	// Hits from before the trip away are stale, and stopGrep invalidated their
+	// generation, so a resumed content search is re-run rather than restored.
+	if m.grepping() {
+		cmds = append(cmds, m.scheduleGrep())
+	}
+	return m, tea.Batch(cmds...)
+}
+
+// focusFinderField puts the cursor in the field finderField names and takes it
+// out of the other two.
+func (m *Model) focusFinderField() tea.Cmd {
+	m.input.Blur()
+	m.typeInput.Blur()
+	m.grepInput.Blur()
+	return m.finderInput().Focus()
+}
+
+// clearFinder empties all three fields without leaving the finder. Focus stays
+// where it is: clearing is not moving, and the header keeps showing a focused
+// field even when it is empty, so nothing shifts under the cursor.
+func (m *Model) clearFinder() tea.Cmd {
+	m.input.Reset()
+	m.typeInput.Reset()
+	m.grepInput.Reset()
+	m.grepRaw, m.fuzzyQuery = "", ""
+	m.resumeWant = finderPick{}
+	m.stopGrep()
+	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
+	m.grepCapped, m.grepSkipped = false, 0
+	m.fuzzyFilter, m.fuzzyFilterErr, m.fuzzyFilterRaw = search.Filter{}, "", ""
+	return m.restartFuzzyWalk()
 }
 
 // walkParams is everything the walker goroutine needs, captured by value so it
@@ -379,6 +451,7 @@ func (m *Model) applyFuzzyLimit() {
 		(m.input.Value() == "" && len(m.fuzzyCands) > limit)
 	m.fuzzySel = clamp(m.fuzzySel, 0, max(0, len(m.fuzzyMatches)-1))
 	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.fuzzyMatches)-m.fuzzyVisibleRows()))
+	m.applyResumeTarget()
 }
 
 // applyTypeFilter recompiles the type filter and restarts the walk, since the
@@ -409,10 +482,7 @@ func (m *Model) applyTypeFilter() tea.Cmd {
 func (m *Model) cycleFinderField(delta int) tea.Cmd {
 	n := int(finderFieldCount)
 	m.finderField = finderField((int(m.finderField) + delta + n) % n)
-	m.input.Blur()
-	m.typeInput.Blur()
-	m.grepInput.Blur()
-	return m.finderInput().Focus()
+	return m.focusFinderField()
 }
 
 // finderCanDeleteForward reports whether the focused input has a character to
@@ -457,8 +527,12 @@ func (m *Model) finderHeaderLines() int {
 // moveFuzzySel moves the fuzzy selection by delta, scrolling the list so
 // the selection stays on screen.
 func (m *Model) moveFuzzySel(delta int) {
-	n := m.finderLen()
-	m.fuzzySel = clamp(m.fuzzySel+delta, 0, max(0, n-1))
+	m.fuzzySel = clamp(m.fuzzySel+delta, 0, max(0, m.finderLen()-1))
+	m.ensureFuzzyVisible()
+}
+
+// ensureFuzzyVisible scrolls the result list so the selection is on screen.
+func (m *Model) ensureFuzzyVisible() {
 	h := m.fuzzyVisibleRows()
 	if m.fuzzySel < m.fuzzyScroll {
 		m.fuzzyScroll = m.fuzzySel
@@ -466,7 +540,34 @@ func (m *Model) moveFuzzySel(delta int) {
 	if m.fuzzySel >= m.fuzzyScroll+h {
 		m.fuzzyScroll = m.fuzzySel - h + 1
 	}
-	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, n-h))
+	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, m.finderLen()-h))
+}
+
+// applyResumeTarget re-selects the row the finder was left on, once it shows
+// up in the results. Results stream in, so this runs each time the list
+// changes rather than once. It is best effort by nature — the file may be
+// gone, or the search may no longer match it — and gives up quietly: on the
+// first match, on the first keystroke (updateFinderInput), and when a walk or
+// search finishes without turning it up.
+func (m *Model) applyResumeTarget() {
+	if m.resumeWant.rel == "" {
+		return
+	}
+	for i := range m.finderLen() {
+		if m.finderPath(i) != m.resumeWant.rel {
+			continue
+		}
+		// In content mode the same file appears once per matching line, so
+		// the line number picks the occurrence.
+		if m.grepping() && m.resumeWant.line > 0 &&
+			m.grepHits[m.grepRows[i]].Line != m.resumeWant.line {
+			continue
+		}
+		m.fuzzySel = i
+		m.ensureFuzzyVisible()
+		m.resumeWant = finderPick{}
+		return
+	}
 }
 
 // rerankMatches orders fuzzy matches in two tiers: entries visible in the
@@ -531,6 +632,11 @@ func (m *Model) fuzzyJump() (tea.Model, tea.Cmd) {
 	rel := m.finderPath(m.fuzzySel)
 	if rel == "" {
 		return m, nil
+	}
+	// Remember where we left, so the finder can be resumed on this row.
+	m.lastPick = finderPick{rel: rel}
+	if m.grepping() && m.fuzzySel < len(m.grepRows) {
+		m.lastPick.line = m.grepHits[m.grepRows[m.fuzzySel]].Line
 	}
 	m.tr.ExpandRel(path.Dir(rel))
 	m.reflatten()

@@ -102,6 +102,8 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `tab` | in the finder: cycle the `Find:` / `Type:` / `Grep:` fields |
 | `ctrl+g` | in the finder: raise the match limit for the session (2×, 3×, …) |
 | `ctrl+y` | in the finder: copy the `rg` command behind the `Type:`/`Grep:` fields |
+| `ctrl+f` | reopen the finder with the last `Find:`/`Type:`/`Grep:` still in place |
+| `ctrl+l` | in the finder: empty all three fields |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -212,6 +214,15 @@ matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
 *which* files made it in is down to timing. `ctrl+g` raises the cap; ripgrep's
 own `--sort path` would make the order stable at the cost of running
 single-threaded.
+
+**Picking up where you left off.** `/` always opens empty; **`ctrl+f`** reopens
+the finder with all three fields exactly as you left them, and puts the
+selection back on the row you jumped from — so the search → open a file →
+look at it → back to the same results loop costs one keystroke instead of
+retyping a glob and a regexp. A content search is re-run rather than restored,
+since its results went stale while you were away. Restoring the row is best
+effort: if the file is gone, or no longer matches, the selection simply starts
+at the top. **`ctrl+l`** empties all three fields without leaving the finder.
 
 **Editing the fields.** The finder's inputs take the usual readline keys, with
 two exceptions where list navigation gets there first: `ctrl+u` is half-page up
