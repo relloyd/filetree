@@ -69,12 +69,12 @@ Nothing here is mandatory: `ft` browses, marks, copies, moves, and trashes with
 none of it installed. Each tool switches on a specific feature, and a missing
 one surfaces as an error in the status bar rather than a failure to start.
 
-| Tool | Enables | |
+| Tool | Enables | Optional? |
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees | optional, but most of the git awareness is dark without it |
 | `tmux` | the `t`/`v`/`n`/`r` split and hand-off commands, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
-| `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep:` content search, and `r` grep-here | optional; without it the finder still searches file names |
+| `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L` (commented example in the starter) | optional |
 | `delta` | `D` diff the two most recently marked files (commented example in the starter) | optional |
 
@@ -99,11 +99,11 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `F5` | reload from disk |
 | `o` | reveal in Finder |
 | `/` | fuzzy finder (esc cancels, enter jumps) |
-| `tab` | in the fuzzy finder: cycle the `Find:` / `Type:` / `Grep:` fields |
+| `tab` | in the fuzzy finder: cycle the `Find` / `Type` / `Grep` fields |
 | `ctrl+g` | in the fuzzy finder: raise the match limit for the session (2×, 3×, …) |
-| `ctrl+y` | in the fuzzy finder: copy the `rg` command behind the `Type:`/`Grep:` fields |
-| `f` | reopen the fuzzy finder with the last `Find:`/`Type:`/`Grep:` still in place |
+| `ctrl+y` | in the fuzzy finder: copy the `rg` command behind the `Type`/`Grep` fields |
 | `ctrl+l` | in the fuzzy finder: empty all three fields |
+| `f` | reopen the fuzzy finder with the last `Find`/`Type`/`Grep` still in place |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -138,7 +138,9 @@ session automatically, so they work out of the box.
 
 Fuzzy find (`/`) has three input lines; `tab` (`shift+tab`) cycles them.
 
-**`Find:`** matches fuzzy subsequences, not regexps; include `/` in the query
+### Find
+
+**`Find`** matches fuzzy subsequences, not regexps; include `/` in the query
 to constrain by path segments. Navigate results with `↑`/`↓`
 (`ctrl+p`/`ctrl+n`), half-page with `ctrl+u`/`ctrl+d`, or the mouse wheel;
 the list scrolls with the selection and shows a `12/1000` position counter
@@ -148,7 +150,9 @@ everything else, then shallow paths and basename matches beat equally-fuzzy
 deep ones. With an empty query the list shows exactly the visible tree entries
 in order, so `/` + cursor keys doubles as a quick jump list.
 
-**`Type:`** narrows by file type, as a comma-separated list of globs:
+### Type
+
+**`Type`** narrows by file type, as a comma-separated list of globs:
 
 | Typed | Matches |
 |---|---|
@@ -160,7 +164,7 @@ in order, so `/` + cursor keys doubles as a quick jump list.
 | `!vendor/**` | a leading `!` excludes |
 
 The filter is applied **while walking**, not to the results, which is what
-makes it useful on a large root: `Type: terragrunt.hcl` with an empty `Find:`
+makes it useful on a large root: `Type: terragrunt.hcl` with an empty `Find`
 lists every one of them in a monorepo far too big to index whole. Candidates
 come from a breadth-first walk, so top-level entries are always indexed even
 in huge roots, and the walk stops as soon as you leave the finder. At most 1000
@@ -175,16 +179,18 @@ mode this is instant, since the candidates are already walked; in content mode
 it re-runs the ripgrep search. The raise survives closing and reopening the
 finder, and resets when you quit.
 
-The part of each filename that the `Type:` filter accounts for is highlighted in
+The part of each filename that the `Type` filter accounts for is highlighted in
 gold — the `.hcl` of `*.hcl`, the whole basename of `terragrunt.hcl` — while
-`Find:` matches stay blue. Where they overlap, `Find:` wins.
+`Find` matches stay blue. Where they overlap, `Find` wins.
 
-**`Grep:`** searches *inside* the files `Type:` selected, using
+### Grep
+
+**`Grep`** searches *inside* the files `Type` selected, using
 [ripgrep](https://github.com/BurntSushi/ripgrep) — this is the one part of
 `ft` that needs `rg` installed. Together the two fields are the `fd … | rg …`
 combination: `Type: hcl` + `Grep: dependency "` finds every `terragrunt.hcl`
 containing a dependency block. Result rows become `path:line  matched text`,
-and `Find:` narrows them further by path. Enter still jumps to the **file** in
+and `Find` narrows them further by path. Enter still jumps to the **file** in
 the tree — the line number is there to help you choose, not to open at. The
 search respects the hidden and gitignored toggles, is debounced so a
 half-typed regexp is never run, and takes at most 5 matches from any one file
@@ -192,7 +198,7 @@ half-typed regexp is never run, and takes at most 5 matches from any one file
 `--max-count`, so ripgrep enforces it while reading). ripgrep's own errors — a
 malformed regexp, most often — appear beside the field.
 
-Whenever `Type:` or `Grep:` has anything in it, the **status bar shows the
+Whenever `Type` or `Grep` has anything in it, the **status bar shows the
 ripgrep command** the finder amounts to, and **`ctrl+y`** copies the whole thing
 to the clipboard so you can run it yourself and check the finder against it.
 With a pattern typed that is a content search; with only a type filter it is
@@ -215,7 +221,9 @@ matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
 own `--sort path` would make the order stable at the cost of running
 single-threaded.
 
-**Picking up where you left off.** `/` always opens empty; **`f`** reopens
+### Picking up where you left off
+
+`/` always opens empty; **`f`** reopens
 the finder with all three fields exactly as you left them, and puts the
 selection back on the row you jumped from — so the search → open a file →
 look at it → back to the same results loop costs one keystroke instead of
@@ -224,7 +232,9 @@ since its results went stale while you were away. Restoring the row is best
 effort: if the file is gone, or no longer matches, the selection simply starts
 at the top. **`ctrl+l`** empties all three fields without leaving the finder.
 
-**Editing the fields.** The finder's inputs take the usual readline keys, with
+### Editing the fields
+
+The finder's inputs take the usual readline keys, with
 two exceptions where list navigation gets there first: `ctrl+u` is half-page up
 rather than delete-to-start, and `ctrl+d` is half-page down *unless the cursor
 has a character to its right*, in which case it deletes forward. That makes
@@ -249,7 +259,7 @@ both modes:
 The parts that surprise people:
 
 - **The candidate cap does not constrain a content search.** ripgrep does its
-  own traversal, so `Grep:` reaches files the name list had truncated away —
+  own traversal, so `Grep` reaches files the name list had truncated away —
   the two modes genuinely see different sets.
 - **5 per file × 1000 total means at most 200 distinct files** in a content
   search before the cap bites.
