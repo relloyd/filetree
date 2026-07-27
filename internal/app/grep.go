@@ -120,7 +120,7 @@ func (m *Model) grepQuery() search.Query {
 		Hidden:     m.showHidden,
 		NoIgnore:   m.showIgnored,
 		MaxPerFile: m.grepMaxPerFile(),
-		Path:       m.scopeRel(),
+		Path:       m.scopeDir,
 	}
 }
 

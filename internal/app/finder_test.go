@@ -664,21 +664,20 @@ func TestClearingTheGrepFieldEndsContentMode(t *testing.T) {
 	}
 }
 
-// Each field in use costs a line of the result list. Dir and Find are always
-// drawn, so two is the floor.
+// Each field in use costs a line of the result list.
 func TestFinderHeaderGrowsWithEachField(t *testing.T) {
 	m := finderModel()
 	base := m.finderHeaderLines()
-	if base != 2 {
-		t.Fatalf("header with only Dir and Find = %d lines, want 2", base)
+	if base != 1 {
+		t.Fatalf("header with only Find = %d lines, want 1", base)
 	}
 	m.typeInput.SetValue("hcl")
-	if got := m.finderHeaderLines(); got != 3 {
-		t.Errorf("header with Type = %d lines, want 3", got)
+	if got := m.finderHeaderLines(); got != 2 {
+		t.Errorf("header with Type = %d lines, want 2", got)
 	}
 	m.grepInput.SetValue("dependency")
-	if got := m.finderHeaderLines(); got != 4 {
-		t.Errorf("header with Type and Grep = %d lines, want 4", got)
+	if got := m.finderHeaderLines(); got != 3 {
+		t.Errorf("header with Type and Grep = %d lines, want 3", got)
 	}
 }
 
@@ -1091,7 +1090,7 @@ func TestGrepCommandIsPasteable(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m.scoped, m.scopeDir = true, "infra/prod"
+	m.scopeDir = "infra/prod"
 	if got := m.finderCommand(); !strings.HasSuffix(got, config.ShellQuote(sub)) {
 		t.Errorf("scoped command %q does not end with %q", got, sub)
 	}
@@ -1527,18 +1526,17 @@ func TestScopedWalkDropsVisibleRowsOutsideIt(t *testing.T) {
 	}
 }
 
-// scopeRel is what reaches the walk and ripgrep, so it has to be empty
-// whenever the toggle is off, whatever directory was captured earlier.
-func TestScopeRelFollowsTheToggle(t *testing.T) {
-	m := finderModel()
-	m.scopeDir = "internal/app"
+// scopeAbs is what the walk starts from and what the copied rg command points
+// at, so it has to fall back to the whole tree when there is no scope.
+func TestScopeAbs(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
 
-	if got := m.scopeRel(); got != "" {
-		t.Errorf("unscoped scopeRel = %q, want empty", got)
+	if got := m.scopeAbs(); got != m.tr.Root.Path {
+		t.Errorf("unscoped scopeAbs = %q, want the root %q", got, m.tr.Root.Path)
 	}
-	m.scoped = true
-	if got := m.scopeRel(); got != "internal/app" {
-		t.Errorf("scoped scopeRel = %q, want internal/app", got)
+	m.scopeDir = "internal/app"
+	if want := filepath.Join(m.tr.Root.Path, "internal", "app"); m.scopeAbs() != want {
+		t.Errorf("scoped scopeAbs = %q, want %q", m.scopeAbs(), want)
 	}
 }
 
@@ -1575,9 +1573,9 @@ func TestSelectionDir(t *testing.T) {
 	}
 }
 
-// The capture rule: "/" reads the scope from the cursor, resume deliberately
-// does not, and switching the toggle on means "scope to here, now".
-func TestScopeCaptureRule(t *testing.T) {
+// The scope belongs to a finder session and is decided at entry: "F" reads it
+// from the cursor, "/" drops it, and resume keeps whatever was in force.
+func TestScopeIsDecidedAtEntry(t *testing.T) {
 	root := t.TempDir()
 	for _, rel := range []string{"a/one.go", "b/two.go"} {
 		p := filepath.Join(root, filepath.FromSlash(rel))
@@ -1589,68 +1587,92 @@ func TestScopeCaptureRule(t *testing.T) {
 		}
 	}
 	m := rootedModel(t, root)
-	m.scoped = true
 	m.selectPath(filepath.Join(root, "a"))
 
-	m.startFuzzy()
+	m.startFuzzyHere()
 	if got := m.scopeDir; got != "a" {
-		t.Fatalf("after /, scopeDir = %q, want a", got)
+		t.Fatalf("after F, scopeDir = %q, want a", got)
 	}
 
-	// Resuming keeps the scope even though the cursor has moved on — that is
-	// what makes f return to the results it left.
+	// Resuming keeps it even though the cursor has moved on — that is what
+	// makes f return to the results it left.
 	m.mode = modeNormal
 	m.selectPath(filepath.Join(root, "b"))
 	m.resumeFuzzy()
 	if got := m.scopeDir; got != "a" {
-		t.Errorf("after f, scopeDir = %q, want a — resume must not re-capture", got)
+		t.Errorf("after f, scopeDir = %q, want a — resume must not re-read it", got)
 	}
 
-	// Off then on re-reads it, so ctrl+r always means "here".
-	m.toggleScope()
-	m.toggleScope()
-	if got := m.scopeDir; got != "b" {
-		t.Errorf("after ctrl+r ctrl+r, scopeDir = %q, want b", got)
+	// "/" is the way back to the whole tree.
+	m.mode = modeNormal
+	m.startFuzzy()
+	if got := m.scopeDir; got != "" {
+		t.Errorf("after /, scopeDir = %q, want it cleared", got)
+	}
+
+	// On the root there is nothing to confine to, so F is just "/".
+	m.mode = modeNormal
+	m.cursor = 0
+	m.startFuzzyHere()
+	if got := m.scopeDir; got != "" {
+		t.Errorf("F on the root gave scopeDir = %q, want empty", got)
 	}
 }
 
-// ctrl+l empties the three fields. The scope is a different axis — and one
-// that is persisted and drawn in the tree header — so it must survive.
+// ctrl+l empties the three fields. The scope is not one of them: it belongs to
+// the session, so clearing the query must not silently widen the search.
 func TestClearFinderKeepsTheScope(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "internal", "app"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	m := rootedModel(t, root)
-	m.scoped, m.scopeDir = true, "internal/app"
+	m.scopeDir = "internal/app"
 	m.input.SetValue("handle")
 	m.typeInput.SetValue("go")
 	m.grepInput.SetValue("KeyPress")
 
 	m.clearFinder()
 
-	if !m.scoped || m.scopeDir != "internal/app" {
-		t.Errorf("clear changed the scope: scoped=%v dir=%q", m.scoped, m.scopeDir)
+	if m.scopeDir != "internal/app" {
+		t.Errorf("clear changed the scope to %q", m.scopeDir)
 	}
 	if m.input.Value() != "" || m.typeInput.Value() != "" || m.grepInput.Value() != "" {
 		t.Error("clear left a field populated")
 	}
 }
 
-// Toggling restarts the walk, which resets the selection. Narrowing to the
-// directory you were already looking at should keep your place.
-func TestToggleScopeKeepsTheHighlightedRow(t *testing.T) {
-	m := rootedModel(t, t.TempDir())
-	m.fuzzyMatches = []fuzzy.Match{{Str: "a/one.go"}, {Str: "a/two.go"}}
-	m.fuzzySel = 1
+// The Dir line is drawn only when there is a scope to report, so it never
+// states a possibility — an always-present line that changes as the cursor
+// moves reads as part of the query rather than a fact about the search.
+func TestDirLineOnlyAppearsWhenScoped(t *testing.T) {
+	m := finderModel()
+	m.width = 80
 
-	m.toggleScope()
-
-	if !m.scoped {
-		t.Fatal("toggle did not switch the scope on")
+	base := m.finderHeaderLines()
+	for _, l := range m.renderFinderHeader() {
+		if strings.Contains(plainText(l), "Dir") {
+			t.Fatalf("unscoped header has a Dir line: %q", plainText(l))
+		}
 	}
-	if m.resumeWant.rel != "a/two.go" {
-		t.Errorf("resumeWant = %+v, want a/two.go so the row can be found again", m.resumeWant)
+
+	m.scopeDir = "internal/app"
+	if got := m.finderHeaderLines(); got != base+1 {
+		t.Errorf("scoped header = %d lines, want %d", got, base+1)
+	}
+	var found bool
+	for _, l := range m.renderFinderHeader() {
+		if strings.Contains(plainText(l), "internal/app") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("scoped header does not name the directory")
+	}
+	// It must return exactly finderHeaderLines() lines or the list below it
+	// stops lining up.
+	if got := len(m.renderFinderHeader()); got != m.finderHeaderLines() {
+		t.Errorf("rendered %d lines, finderHeaderLines says %d", got, m.finderHeaderLines())
 	}
 }
 
@@ -1658,7 +1680,7 @@ func TestToggleScopeKeepsTheHighlightedRow(t *testing.T) {
 // result list: ReadDir failure inside the walk is silent, so it is caught first.
 func TestMissingScopeFallsBackToTheRoot(t *testing.T) {
 	m := rootedModel(t, t.TempDir())
-	m.scoped, m.scopeDir = true, "gone"
+	m.scopeDir = "gone"
 
 	m.restartFuzzyWalk()
 

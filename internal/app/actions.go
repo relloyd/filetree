@@ -360,38 +360,6 @@ func (m *Model) toggleIgnored() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// toggleScope confines the finder to the selected directory, or releases it.
-// Unlike the other two toggles it does not reflatten or resync watches: the
-// scope changes nothing about which tree rows are visible, only where the
-// finder looks. It is bound in the finder as well as in the tree, so it has to
-// re-run whatever the scope feeds when the finder is already open.
-func (m *Model) toggleScope() (tea.Model, tea.Cmd) {
-	m.scoped = !m.scoped
-	if m.scoped {
-		// Switching it on means "scope to here, now" — the stored directory
-		// from an earlier finder session is not what was asked for.
-		m.scopeDir = m.selectionDir()
-	}
-	m.saveState()
-	if m.mode != modeFuzzy {
-		return m, nil
-	}
-	// restartFuzzyWalk resets the selection, so aim to land back on the same
-	// row: narrowing to the directory you were already looking at should keep
-	// your place rather than jump to the top.
-	if rel := m.finderPath(m.fuzzySel); rel != "" {
-		m.resumeWant = finderPick{rel: rel}
-		if m.grepping() && m.fuzzySel < len(m.grepRows) {
-			m.resumeWant.line = m.grepHits[m.grepRows[m.fuzzySel]].Line
-		}
-	}
-	cmds := []tea.Cmd{m.restartFuzzyWalk()}
-	if m.grepping() {
-		cmds = append(cmds, m.scheduleGrep())
-	}
-	return m, tea.Batch(cmds...)
-}
-
 // selectionDir is the root-relative directory the finder would scope to: the
 // selection itself when it is a directory, otherwise its parent. "" is the
 // root, for which scoping is a no-op.
@@ -410,20 +378,10 @@ func (m *Model) selectionDir() string {
 	return ""
 }
 
-// scopeRel is the root-relative directory the finder is confined to, or "" for
-// the whole tree. Every caller of this is a place the scope has to reach:
-// the walk, ripgrep, and the command shown in the status bar.
-func (m *Model) scopeRel() string {
-	if !m.scoped {
-		return ""
-	}
-	return m.scopeDir
-}
-
-// scopeAbs is scopeRel as an absolute path — the tree root when unscoped.
+// scopeAbs is scopeDir as an absolute path — the tree root when unscoped.
 func (m *Model) scopeAbs() string {
-	if rel := m.scopeRel(); rel != "" {
-		return filepath.Join(m.tr.Root.Path, filepath.FromSlash(rel))
+	if m.scopeDir != "" {
+		return filepath.Join(m.tr.Root.Path, filepath.FromSlash(m.scopeDir))
 	}
 	return m.tr.Root.Path
 }

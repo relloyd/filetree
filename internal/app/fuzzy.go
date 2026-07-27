@@ -115,19 +115,29 @@ func (m *Model) fuzzyMaxCands() int {
 	return m.cfg.General.FuzzyMaxCandidates
 }
 
-// startFuzzy opens the finder empty.
+// startFuzzy opens the finder empty, over the whole tree.
 func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
+	return m.startFuzzyIn("")
+}
+
+// startFuzzyHere opens the finder empty and confined to the selected directory
+// — the selection itself when it is one, otherwise its parent. On the root
+// there is nothing to confine to and it is the same as "/".
+func (m *Model) startFuzzyHere() (tea.Model, tea.Cmd) {
+	return m.startFuzzyIn(m.selectionDir())
+}
+
+// startFuzzyIn is the shared reset. The scope belongs to a finder session, so
+// it is decided here, at the point of entry, and nowhere else: resuming keeps
+// whatever was in force and clearing the fields does not touch it.
+func (m *Model) startFuzzyIn(dir string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.typeInput.Reset()
 	m.grepInput.Reset()
 	m.grepRaw = ""
 	m.finderField = fieldQuery
 	m.resumeWant = finderPick{}
-	// Opening fresh re-reads the scope from wherever the cursor is; resuming
-	// deliberately does not, so "f" returns to the results it left.
-	if m.scoped {
-		m.scopeDir = m.selectionDir()
-	}
+	m.scopeDir = dir
 	return m.enterFuzzy()
 }
 
@@ -249,7 +259,7 @@ func (m *Model) restartFuzzyWalk() tea.Cmd {
 	// A scope directory can vanish while the finder is away (an editor session,
 	// a delete elsewhere). ReadDir failure inside the walk is a bare continue,
 	// which would show an empty finder and no reason for it, so catch it here.
-	start, startRel := m.scopeAbs(), m.scopeRel()
+	start, startRel := m.scopeAbs(), m.scopeDir
 	var note tea.Cmd
 	if startRel != "" {
 		if fi, err := os.Stat(start); err != nil || !fi.IsDir() {
@@ -559,7 +569,10 @@ func (m *Model) fuzzyVisibleRows() int {
 // grep fields each get a line of their own, shown once focused or non-empty,
 // so an unused field costs no screen space.
 func (m *Model) finderHeaderLines() int {
-	n := 2 // the Dir line is always drawn, then Find
+	n := 1
+	if m.scopeDir != "" {
+		n++ // the Dir line, shown only when there is a scope to report
+	}
 	if m.finderField == fieldType || m.typeInput.Value() != "" {
 		n++
 	}

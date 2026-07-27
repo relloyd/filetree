@@ -75,7 +75,6 @@ func (m *Model) renderHeader() string {
 	}{
 		{"hidden", m.showHidden, &m.zoneHidden},
 		{"ignored", m.showIgnored, &m.zoneIgnored},
-		{"scoped", m.scoped, &m.zoneScoped},
 	}
 	const btnGap = 2
 
@@ -320,7 +319,10 @@ func (m *Model) renderFinderHeader() []string {
 		}
 		return styleDim.Render(text)
 	}
-	lines := []string{m.renderFinderScope()}
+	var lines []string
+	if m.scopeDir != "" {
+		lines = append(lines, m.renderFinderScope())
+	}
 	lines = append(lines, label(" Find ", fieldQuery)+m.input.View()+m.renderFinderCounter())
 	if m.finderField == fieldType || m.typeInput.Value() != "" {
 		line := label(" Type ", fieldType) + m.typeInput.View()
@@ -347,24 +349,11 @@ func (m *Model) renderFinderHeader() []string {
 	return lines
 }
 
-// renderFinderScope is the "Dir" line: where the finder is searching. It is
-// always drawn, so the toggle's state is never in doubt. Scoped, it shows the
-// directory in force; unscoped it is dimmed and shows the directory that
-// turning the scope on would pick — a preview of the key rather than a stale
-// record of the last one.
+// renderFinderScope is the "Dir" line: the directory "F" confined the search
+// to. It is drawn only when there is one, so the line always states a fact
+// about the current search rather than a possibility.
 func (m *Model) renderFinderScope() string {
-	dir := m.scopeDir
-	if !m.scoped {
-		dir = m.selectionDir()
-	}
-	if dir == "" {
-		dir = abbrevHome(m.tr.Root.Path)
-	}
-	style := styleDim
-	if m.scoped {
-		style = styleOK
-	}
-	return styleDim.Render(" Dir  ") + style.Render(truncateLeft(dir, max(1, m.width-6)))
+	return styleDim.Render(" Dir  ") + styleOK.Render(truncateLeft(m.scopeDir, max(1, m.width-6)))
 }
 
 // renderFinderCounter is the position indicator: "12/1000", with "…" while the
@@ -510,10 +499,10 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["copy-url"] + " / " + m.actionKeys["open-url"], "copy web URL / open in browser (+copy)"},
 		{m.actionKeys["toggle-hidden"], "toggle hidden files"},
 		{m.actionKeys["toggle-ignored"], "toggle gitignored files"},
-		{m.actionKeys["toggle-scope"], "confine the fuzzy finder to the selected dir (works inside it too)"},
 		{reloadKeys, "reload from disk"},
 		{m.actionKeys["reveal"], "reveal in Finder"},
 		{m.actionKeys["fuzzy"], "fuzzy finder"},
+		{m.actionKeys["fuzzy-here"], "fuzzy finder, confined to the selected dir"},
 		{m.actionKeys["finder-next-field"], "in the fuzzy finder: cycle Find / Type / Grep"},
 		{m.actionKeys["finder-more"], "in the fuzzy finder: raise the match limit (2×, 3×, …)"},
 		{m.actionKeys["finder-copy-command"], "in the fuzzy finder: copy the rg command"},

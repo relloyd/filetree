@@ -20,7 +20,7 @@ func plainText(s string) string { return ansiCodes.ReplaceAllString(s, "") }
 // short and a click on "hidden" landing on the path.
 func TestHeaderZonesMatchTheRenderedButtons(t *testing.T) {
 	m := rootedModel(t, t.TempDir())
-	m.showHidden, m.showIgnored, m.scoped = false, true, true
+	m.showHidden, m.showIgnored = false, true
 
 	for _, w := range []int{120, 80, 60, 40, 20} {
 		m.width = w
@@ -34,7 +34,6 @@ func TestHeaderZonesMatchTheRenderedButtons(t *testing.T) {
 		}{
 			{"hidden", m.zoneHidden, "[ ] hidden"},
 			{"ignored", m.zoneIgnored, "[x] ignored"},
-			{"scoped", m.zoneScoped, "[x] scoped"},
 		} {
 			if z.zone[0] < 0 || z.zone[1] > len(line) {
 				t.Errorf("w=%d: %s zone %v falls outside the %d-column line %q",
@@ -49,25 +48,22 @@ func TestHeaderZonesMatchTheRenderedButtons(t *testing.T) {
 	}
 }
 
-// The Dir line always names a directory: the scope when one is in force, and
-// otherwise the one ctrl+r would pick, so the key previews itself.
+// The Dir line names the directory F confined the search to, and a deep path
+// is truncated from the left so the part that identifies it survives.
 func TestFinderScopeLine(t *testing.T) {
 	m := rootedModel(t, t.TempDir())
-	m.width = 80
+	m.width = 30
+	m.scopeDir = "internal/app/very/deeply/nested"
 
-	off := plainText(m.renderFinderScope())
-	m.scoped, m.scopeDir = true, "internal/app"
-	on := plainText(m.renderFinderScope())
+	got := plainText(m.renderFinderScope())
 
-	if !strings.Contains(on, "internal/app") {
-		t.Errorf("scoped Dir line = %q, want it to name internal/app", on)
+	if !strings.Contains(got, "Dir") {
+		t.Errorf("Dir line = %q, want it labelled", got)
 	}
-	// Unscoped at the root there is no subdirectory to preview, so it falls
-	// back to naming the root itself rather than going blank.
-	if strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(off), "Dir")) == "" {
-		t.Errorf("unscoped Dir line = %q, want it to still name a directory", off)
+	if !strings.Contains(got, "nested") {
+		t.Errorf("Dir line = %q, want the tail of the path to survive truncation", got)
 	}
-	if m.renderFinderScope() == "" {
-		t.Error("the Dir line is never empty; it is how the toggle state is read")
+	if w := len([]rune(got)); w > m.width {
+		t.Errorf("Dir line is %d columns wide, want at most %d: %q", w, m.width, got)
 	}
 }

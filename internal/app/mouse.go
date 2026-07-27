@@ -45,8 +45,6 @@ func (m *Model) handleClick(mo tea.Mouse) (tea.Model, tea.Cmd) {
 			return m.toggleHidden()
 		case mo.X >= m.zoneIgnored[0] && mo.X < m.zoneIgnored[1]:
 			return m.toggleIgnored()
-		case mo.X >= m.zoneScoped[0] && mo.X < m.zoneScoped[1]:
-			return m.toggleScope()
 		}
 		return m, nil
 	}
