@@ -43,6 +43,11 @@ func TestLoadStarter(t *testing.T) {
 	if s := cfg.Commands["shell-here"]; s.Key != "n" || s.Mode != ModeBackground {
 		t.Errorf("shell-here = %+v, want key n, background", s)
 	}
+	// "tab" is only free in the main view because finder-next-field is kept out
+	// of buildBindings' actions map; see TestACommandCanOwnTab in internal/app.
+	if f := cfg.Commands["focus-right"]; f.Key != "tab" || f.Mode != ModeBackground {
+		t.Errorf("focus-right = %+v, want key tab, background", f)
+	}
 	if cfg.General.ShowHidden || !cfg.General.ShowIgnored {
 		t.Errorf("general toggles = %+v", cfg.General)
 	}

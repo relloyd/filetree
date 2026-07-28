@@ -74,7 +74,7 @@ one surfaces as an error in the status bar rather than a failure to start.
 | Tool | Enables | Optional? |
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees | optional, but most of the git awareness is dark without it |
-| `tmux` | the `t`/`v`/`n`/`r` split and hand-off commands, and the auto-relaunch above | optional |
+| `tmux` | the `t`/`v`/`n`/`r` split and hand-off commands, `tab` to focus the pane to the right, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L` (commented example in the starter) | optional |
@@ -102,7 +102,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `o` | reveal in Finder |
 | `/` | fuzzy finder (esc cancels, enter jumps) |
 | `F` | fuzzy finder, confined to the selected directory (its parent for a file) |
-| `tab` | in the fuzzy finder: cycle the `Find` / `Type` / `Grep` fields |
+| `tab` | focus the tmux pane to the right; in the fuzzy finder: cycle the `Find` / `Type` / `Grep` fields |
 | `ctrl+g` | in the fuzzy finder: raise the match limit for the session (2×, 3×, …) |
 | `ctrl+y` | in the fuzzy finder: copy the `rg` command behind the `Type`/`Grep` fields |
 | `ctrl+l` | in the fuzzy finder: empty all three fields |
@@ -137,6 +137,7 @@ session automatically, so they work out of the box.
 | `v` | | open the selection in helix in a new full-height split at the right edge — repeatable, one pane per press |
 | `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
 | `r` | | prime an `rg` in the other tmux pane at the selection's directory |
+| `tab` | | focus the tmux pane to the right of `ft` — the keyboard equivalent of `ctrl+b` `→`; silent when there is no pane to the right, or when `ft` is not in tmux |
 | `L` | | open lazygit for the repo containing the selection (commented example in the starter) |
 
 A command's `key` fires it against the tree selection. Its optional

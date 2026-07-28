@@ -141,6 +141,17 @@ run = 'tmux send-keys -t "{last}" "rg -n {dir} -e " 2>/dev/null || tmux split-wi
 mode = "background"
 key = "r"
 
+# Focus the tmux pane to the right of ft, so "tab" replaces tmux's own
+# "ctrl+b →" for getting back to a split opened above. Silent when there is
+# no pane to the right: select-pane -R simply exits 0 in a single-pane
+# window. The $TMUX guard matters — outside a pane, tmux resolves the command
+# against the most recently used session and would move the focus in an
+# unrelated window.
+[commands.focus-right]
+run = '[ -z "$TMUX" ] || tmux select-pane -R'
+mode = "background"
+key = "tab"
+
 # More examples — uncomment what you use:
 #
 # Open lazygit for the repo containing the selection (finds the repo by
