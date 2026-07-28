@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -231,6 +232,12 @@ func (m *Model) renderStatus() string {
 		return m.renderConfirm()
 	}
 
+	// The right-hand side is built first, because what it costs decides how
+	// much of the path is left. Everything here is measured with
+	// lipgloss.Width: "⎇" and "…" are multi-byte, and len() would under-budget
+	// the path by exactly the amount that makes the line wrap.
+	right, rw := m.renderStatusRight()
+
 	var left string
 	switch {
 	case m.statusMsg != "" && m.statusErr:
@@ -245,21 +252,58 @@ func (m *Model) renderStatus() string {
 		left = styleDim.Render(" " + truncateLeft(m.finderCommand(), max(1, m.width-2)))
 	default:
 		if sel := m.selected(); sel != nil {
-			left = styleDim.Render(" " + m.gitRelPath(sel))
+			// Clipped from the left: the file name is the end that identifies
+			// it, so the directories it sits in are what should go first. Two
+			// columns are spoken for — the leading space and the gap that keeps
+			// the path off the right-hand side.
+			left = styleDim.Render(" " + truncateLeft(m.gitRelPath(sel), max(1, m.width-rw-2)))
 		}
 	}
-	right := styleDim.Render(fmt.Sprintf("%d/%d ", m.cursor+1, len(m.rows)))
-	if n := len(m.marked); n > 0 {
-		right = styleMark.Render(fmt.Sprintf("● %d marked  ", n)) + right
-	}
-	if b := m.selectedBranch(); b != "" {
-		right = styleTitle.Render("⎇ "+truncate(b, 24)+"  ") + right
-	}
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
+	gap := m.width - lipgloss.Width(left) - rw
 	if gap < 1 {
+		// A status message or the finder's rg command is allowed the whole bar;
+		// only those two branches can reach this now that the path is budgeted.
 		return styleBase.MaxWidth(m.width).Render(left)
 	}
 	return left + strings.Repeat(" ", gap) + right
+}
+
+// Status-bar geometry. The path is served before the branch, so the branch gets
+// only what is left over once the path has minPathWidth columns, and drops out
+// of the bar entirely rather than shrink past the point of being readable at a
+// glance. statusBranchChrome is the "⎇ " prefix plus the two trailing spaces.
+const (
+	minPathWidth       = 24
+	minBranchWidth     = 10
+	statusBranchChrome = 4
+)
+
+// renderStatusRight builds the right-hand end of the status bar and reports how
+// many columns it occupies. Segments are added in priority order — the row
+// counter always, then the mark count, then whatever the branch can be given —
+// so a narrow pane sheds them from the left rather than losing the lot.
+func (m *Model) renderStatusRight() (string, int) {
+	counter := fmt.Sprintf("%d/%d ", m.cursor+1, len(m.rows))
+	right, rw := styleDim.Render(counter), lipgloss.Width(counter)
+
+	if n := len(m.marked); n > 0 {
+		marks := fmt.Sprintf("● %d marked  ", n)
+		right = styleMark.Render(marks) + right
+		rw += lipgloss.Width(marks)
+	}
+
+	b := m.selectedBranch()
+	if b == "" {
+		return right, rw
+	}
+	// Two columns are not the branch's to spend: the space the path opens with
+	// and the gap between the two halves.
+	spare := m.width - rw - minPathWidth - statusBranchChrome - 2
+	if spare < minBranchWidth {
+		return right, rw
+	}
+	name := truncate(b, spare)
+	return styleTitle.Render("⎇ "+name+"  ") + right, rw + statusBranchChrome + lipgloss.Width(name)
 }
 
 func (m *Model) renderConfirm() string {
@@ -318,6 +362,12 @@ func (m *Model) renderFinderHeader() []string {
 			return styleTitle.Render(text)
 		}
 		return styleDim.Render(text)
+	}
+	// The history is labelled for what it is searching, since "Find" over a
+	// hundred remembered paths and "Find" over the whole tree look identical
+	// once you have typed something into either.
+	if m.finderSrc == srcRecent {
+		return []string{label(" Recent ", fieldQuery) + m.input.View() + m.renderFinderCounter()}
 	}
 	var lines []string
 	if m.scopeDir != "" {
@@ -413,8 +463,16 @@ func (m *Model) renderFuzzy() string {
 		if i == m.fuzzySel {
 			prefix = styleTitle.Render(" > ")
 		}
-		line := m.highlightPath(mt.Str, mt.MatchedIndexes)
-		lines = append(lines, styleBase.MaxWidth(m.width).Render(prefix+line))
+		line := prefix + m.highlightPath(mt.Str, mt.MatchedIndexes)
+		if m.finderSrc == srcRecent {
+			// How long ago, right where the eye already is after reading the
+			// name: the list is ordered by it, so the ages explain the order.
+			age := relativeAge(m.recentAt(mt.Str), time.Now())
+			if pad := m.width - 3 - lipgloss.Width(mt.Str) - len(age) - 2; pad > 0 {
+				line += strings.Repeat(" ", pad) + styleDim.Render(age)
+			}
+		}
+		lines = append(lines, styleBase.MaxWidth(m.width).Render(line))
 	}
 	for len(lines) < h {
 		lines = append(lines, "")
@@ -508,6 +566,7 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["finder-copy-command"], "in the fuzzy finder: copy the rg command"},
 		{m.actionKeys["finder-clear"], "in the fuzzy finder: empty all three fields"},
 		{m.actionKeys["finder-resume"], "reopen the fuzzy finder where you left it"},
+		{m.actionKeys["recent"], "recently opened files, newest first — enter reveals and opens"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
 		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},
@@ -546,6 +605,28 @@ func (m *Model) renderHelp() string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// relativeAge renders how long ago t was, in the coarsest unit that still says
+// something: minutes for the last hour, then hours, then days. A history is
+// read as "the one I had open just now" versus "the one from last week", so
+// precision past the leading number is noise. The zero time reads as blank
+// rather than as some enormous age.
+func relativeAge(t, now time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := now.Sub(t)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return strconv.Itoa(int(d.Minutes())) + "m"
+	case d < 24*time.Hour:
+		return strconv.Itoa(int(d.Hours())) + "h"
+	default:
+		return strconv.Itoa(int(d.Hours()/24)) + "d"
+	}
 }
 
 func abbrevHome(p string) string {

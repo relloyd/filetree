@@ -36,6 +36,17 @@ const (
 	finderFieldCount
 )
 
+// finderSource says where the finder's candidates come from. Both sources
+// produce root-relative slash-separated paths, which is what lets the ranking,
+// the result list, enter, and the finder_key commands be shared: only the
+// supply of candidates and the fields on offer differ.
+type finderSource int
+
+const (
+	srcTree   finderSource = iota // the walk, plus the Type and Grep fields
+	srcRecent                     // this root's history of opened files
+)
+
 // finderPick is a row the finder was left on, so reopening can put the
 // selection back. Best effort by nature: the tree, the file, or the search
 // results may all have moved on while it was closed.
@@ -117,6 +128,7 @@ func (m *Model) fuzzyMaxCands() int {
 
 // startFuzzy opens the finder empty, over the whole tree.
 func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
+	m.finderSrc = srcTree
 	return m.startFuzzyIn("")
 }
 
@@ -124,7 +136,16 @@ func (m *Model) startFuzzy() (tea.Model, tea.Cmd) {
 // — the selection itself when it is one, otherwise its parent. On the root
 // there is nothing to confine to and it is the same as "/".
 func (m *Model) startFuzzyHere() (tea.Model, tea.Cmd) {
+	m.finderSrc = srcTree
 	return m.startFuzzyIn(m.selectionDir())
+}
+
+// startRecent opens the finder over this root's history of opened files,
+// newest first. It is the same finder — same query field, ranking, keys and
+// commands — over a different supply of candidates.
+func (m *Model) startRecent() (tea.Model, tea.Cmd) {
+	m.finderSrc = srcRecent
+	return m.startFuzzyIn("")
 }
 
 // startFuzzyIn is the shared reset. The scope belongs to a finder session, so
@@ -144,7 +165,9 @@ func (m *Model) startFuzzyIn(dir string) (tea.Model, tea.Cmd) {
 // resumeFuzzy reopens the finder with the fields as they were left, and aims
 // to put the selection back on the row it was left on. The fields survive on
 // their own — neither esc nor a jump clears them, only the next startFuzzy —
-// so resuming is a matter of not resetting rather than of saving.
+// so resuming is a matter of not resetting rather than of saving. The source is
+// left alone for the same reason: leaving the history and coming back to the
+// tree instead is not resuming.
 func (m *Model) resumeFuzzy() (tea.Model, tea.Cmd) {
 	m.resumeWant = m.lastPick
 	return m.enterFuzzy()
@@ -174,16 +197,23 @@ func (m *Model) enterFuzzy() (tea.Model, tea.Cmd) {
 	// get a ranking bonus — if you can see it, typing its name finds it.
 	// Resuming re-takes it, because jumping to a file expanded ancestors and
 	// the old snapshot no longer describes the screen.
+	//
+	// The history takes no snapshot. Its order is recency, and a visibility
+	// tier would promote whatever happens to be expanded in the tree over the
+	// file opened a minute ago — with an empty map every candidate lands in one
+	// tier and recency survives as rerankMatches' stable-sort tiebreak.
 	m.fuzzyVisible = map[string]bool{}
 	m.fuzzyVisOrder = nil
-	for _, r := range m.rows {
-		if r.Node == m.tr.Root {
-			continue
-		}
-		rel := m.tr.Rel(r.Node.Path)
-		if !m.fuzzyVisible[rel] {
-			m.fuzzyVisible[rel] = true
-			m.fuzzyVisOrder = append(m.fuzzyVisOrder, rel)
+	if m.finderSrc == srcTree {
+		for _, r := range m.rows {
+			if r.Node == m.tr.Root {
+				continue
+			}
+			rel := m.tr.Rel(r.Node.Path)
+			if !m.fuzzyVisible[rel] {
+				m.fuzzyVisible[rel] = true
+				m.fuzzyVisOrder = append(m.fuzzyVisOrder, rel)
+			}
 		}
 	}
 
@@ -252,6 +282,15 @@ func (m *Model) restartFuzzyWalk() tea.Cmd {
 	m.fuzzyTrunc = false
 	m.fuzzyWalking = true
 
+	if m.finderSrc == srcRecent {
+		// A hundred paths already in memory: no goroutine, no streaming, and
+		// nothing to cancel. The list arrives complete, so the walk is over
+		// before it started.
+		m.fuzzyWalking = false
+		m.addFuzzyCands(m.recentCands())
+		return nil
+	}
+
 	statuses := make(map[string]*gitx.RepoStatus, len(m.statuses))
 	for k, v := range m.statuses {
 		statuses[k] = v
@@ -287,6 +326,42 @@ func (m *Model) restartFuzzyWalk() tea.Cmd {
 		return tea.Batch(note, waitFuzzyWalk(ch, m.fuzzyGen))
 	}
 	return waitFuzzyWalk(ch, m.fuzzyGen)
+}
+
+// recentCands is the history as finder candidates, newest first — which is
+// also the order an empty query browses, since that is the candidate order
+// itself.
+//
+// Entries whose file has since gone are dropped rather than shown and then
+// failing to open. They are left in the history: a file can come back (a branch
+// switch, a stashed change), and forgetting it the first time it is missing
+// would make the list quietly shorter every time you look at it.
+func (m *Model) recentCands() []string {
+	if m.recent == nil {
+		return nil
+	}
+	out := make([]string, 0, len(m.recent.Files))
+	for _, f := range m.recent.Files {
+		abs := filepath.Join(m.tr.Root.Path, filepath.FromSlash(f.Path))
+		if fi, err := os.Stat(abs); err == nil && fi.Mode().IsRegular() {
+			out = append(out, f.Path)
+		}
+	}
+	return out
+}
+
+// recentAt is when the history says row rel was last opened, or the zero time
+// if it is not in the history at all.
+func (m *Model) recentAt(rel string) time.Time {
+	if m.recent == nil {
+		return time.Time{}
+	}
+	for _, f := range m.recent.Files {
+		if f.Path == rel {
+			return f.At
+		}
+	}
+	return time.Time{}
 }
 
 // underScope keeps the root-relative paths that live under dir. The walk seeds
@@ -533,8 +608,14 @@ func (m *Model) applyTypeFilter() tea.Cmd {
 	return m.restartFuzzyWalk()
 }
 
-// cycleFinderField moves focus between the finder's input lines.
+// cycleFinderField moves focus between the finder's input lines. The history
+// has only the one: a Type filter would be a second way to narrow a list of a
+// hundred paths, and there is nothing for ripgrep to search across files
+// scattered over the tree.
 func (m *Model) cycleFinderField(delta int) tea.Cmd {
+	if m.finderSrc == srcRecent {
+		return nil
+	}
 	n := int(finderFieldCount)
 	m.finderField = finderField((int(m.finderField) + delta + n) % n)
 	return m.focusFinderField()
@@ -570,6 +651,9 @@ func (m *Model) fuzzyVisibleRows() int {
 // so an unused field costs no screen space.
 func (m *Model) finderHeaderLines() int {
 	n := 1
+	if m.finderSrc == srcRecent {
+		return n // one query line; the history offers no other field
+	}
 	if m.scopeDir != "" {
 		n++ // the Dir line, shown only when there is a scope to report
 	}

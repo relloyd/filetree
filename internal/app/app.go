@@ -149,6 +149,10 @@ type Model struct {
 	// selection, "/" clears it, and resuming leaves it alone.
 	scopeDir string
 
+	// recent is this root's history of opened files, reloaded by loadRoot
+	// alongside st.
+	recent *state.Recent
+
 	// prevRoot remembers where to return from the scratch or worktrees view
 	// (session-only).
 	prevRoot string
@@ -170,9 +174,10 @@ type Model struct {
 	markOrder []string        // oldest first; the tail feeds {marked1}/{marked2}
 
 	// Finder state. typeInput holds the file-type filter; finderField says
-	// which input line has focus.
+	// which input line has focus, and finderSrc where the candidates come from.
 	typeInput   textinput.Model
 	finderField finderField
+	finderSrc   finderSource
 
 	// lastPick is the row the finder was last left on; resumeWant is that row
 	// still waiting to be re-selected as results stream back in.
@@ -288,6 +293,9 @@ func (m *Model) loadRoot(root string) error {
 		return err
 	}
 	m.st, m.tr = st, tr
+	// The history is root-relative like the finder's paths, so it belongs to
+	// this root and is reloaded with it.
+	m.recent = state.LoadRecent(m.stateDir, root)
 
 	m.showHidden = m.cfg.General.ShowHidden
 	if st.ShowHidden != nil {
@@ -495,6 +503,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeNormal
 			return m, nil
 		case "enter":
+			if m.finderSrc == srcRecent {
+				return m.recentJumpAndOpen()
+			}
 			return m.fuzzyJump()
 		case "up", "ctrl+p":
 			m.moveFuzzySel(-1)
@@ -618,6 +629,7 @@ func (m *Model) buildBindings() {
 		// finder-resume is a normal-mode action, so unlike the finder-local
 		// keys above it does belong in the actions map below.
 		"finder-resume": "f",
+		"recent":        "b", // the finder over this root's opened-file history
 		"new-file":      "a",
 		"new-dir":       "A",
 		"rename":        "R",
@@ -655,6 +667,7 @@ func (m *Model) buildBindings() {
 		"fuzzy":          m.startFuzzy,
 		"fuzzy-here":     m.startFuzzyHere,
 		"finder-resume":  m.resumeFuzzy,
+		"recent":         m.startRecent,
 		"new-file":       func() (tea.Model, tea.Cmd) { return m.startPrompt(promptNewFile) },
 		"new-dir":        func() (tea.Model, tea.Cmd) { return m.startPrompt(promptNewDir) },
 		"rename":         func() (tea.Model, tea.Cmd) { return m.startPrompt(promptRename) },

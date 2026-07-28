@@ -200,6 +200,7 @@ func rootedModel(t *testing.T, root string) *Model {
 	m := finderModel()
 	m.stateDir = t.TempDir()
 	m.st = state.Load(m.stateDir, root)
+	m.recent = state.LoadRecent(m.stateDir, root)
 	w, err := fsops.NewWatcher(10 * time.Millisecond)
 	if err != nil {
 		t.Fatal(err)

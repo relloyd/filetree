@@ -1,6 +1,9 @@
 package app
 
 import (
+	"os"
+	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -45,6 +48,80 @@ func TestHeaderZonesMatchTheRenderedButtons(t *testing.T) {
 					w, z.name, got, z.want, string(line))
 			}
 		}
+	}
+}
+
+// The status bar has to divide a fixed width between the selection path and the
+// branch. The branch takes only what is left once the path has its floor, so it
+// runs full-length on a wide terminal, shortens through the middle of the range,
+// and drops out at the narrow end — where the old code instead lost the branch,
+// the mark count and the row counter all at once, because an untruncated path
+// pushed the gap below one column.
+func TestStatusBarSharesWidthBetweenPathAndBranch(t *testing.T) {
+	const (
+		rel    = "internal/app/rendering/statusbar/view.go" // 40 columns
+		branch = "feat/add-finder-constraints-toggle"       // 34 columns
+	)
+	root := t.TempDir()
+	abs := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := rootedModel(t, root)
+	m.mode = modeNormal
+	m.tr.ExpandRel(path.Dir(rel))
+	m.reflatten()
+	m.selectPath(abs)
+	// Seeding the repo cache stands in for a real .git, so the path and branch
+	// under test are fixed strings rather than whatever the temp dir is called.
+	m.repoRoots[filepath.Dir(abs)] = root
+	m.branches[root] = branch
+
+	if got := m.gitRelPath(m.selected()); got != rel {
+		t.Fatalf("selection path = %q, want %q", got, rel)
+	}
+
+	sawFull, sawCut, sawNone := false, false, false
+	for _, w := range []int{120, 100, 80, 64, 48, 40, 30} {
+		m.width = w
+		line := plainText(m.renderStatus())
+
+		if got := len([]rune(line)); got > w {
+			t.Errorf("w=%d: status bar is %d columns wide: %q", w, got, line)
+		}
+		// The counter is the last thing that may be dropped, and nothing here
+		// is narrow enough to reach that point.
+		if !strings.Contains(line, "/6 ") {
+			t.Errorf("w=%d: row counter missing: %q", w, line)
+		}
+
+		switch {
+		case strings.Contains(line, branch):
+			sawFull = true
+		case strings.Contains(line, "⎇ "):
+			sawCut = true
+			if !strings.HasPrefix(strings.TrimPrefix(line[strings.Index(line, "⎇ "):], "⎇ "), branch[:minBranchWidth]) {
+				t.Errorf("w=%d: truncated branch lost its head: %q", w, line)
+			}
+		default:
+			sawNone = true
+			continue
+		}
+		// Whenever the branch is on screen the path must still have its floor,
+		// which is the whole point of the branch yielding first.
+		shown := strings.TrimSpace(strings.SplitN(strings.TrimPrefix(line, " "), "  ", 2)[0])
+		if len([]rune(shown)) < minPathWidth {
+			t.Errorf("w=%d: path squeezed to %d columns (%q), want at least %d: %q",
+				w, len([]rune(shown)), shown, minPathWidth, line)
+		}
+	}
+	if !sawFull || !sawCut || !sawNone {
+		t.Errorf("swept widths never produced all three branch states: full=%v truncated=%v absent=%v",
+			sawFull, sawCut, sawNone)
 	}
 }
 

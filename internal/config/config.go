@@ -40,6 +40,11 @@ const DefaultFuzzyMaxMatches = 1000
 // the walk, so "*.hcl" indexes a tree far larger than this many entries.
 const DefaultFuzzyMaxCandidates = 50000
 
+// DefaultRecentMax caps how many opened files the per-root history keeps. The
+// list is read whole and matched in memory, so the cost of raising it is the
+// state file's size rather than anything the user would feel.
+const DefaultRecentMax = 100
+
 // DefaultFuzzyGrepMaxPerFile caps how many content matches the finder takes
 // from any one file, so a generated or minified file cannot fill the list.
 // A configured 0 means no limit.
@@ -75,6 +80,7 @@ type General struct {
 	FuzzyMaxMatches     int    `toml:"fuzzy_max_matches"`
 	FuzzyMaxCandidates  int    `toml:"fuzzy_max_candidates"`
 	FuzzyGrepMaxPerFile int    `toml:"fuzzy_grep_max_per_file"`
+	RecentMax           int    `toml:"recent_max"`
 	WatchDebounceMs     int    `toml:"watch_debounce_ms"`
 }
 
@@ -110,6 +116,7 @@ func Default() *Config {
 			FuzzyMaxMatches:     DefaultFuzzyMaxMatches,
 			FuzzyMaxCandidates:  DefaultFuzzyMaxCandidates,
 			FuzzyGrepMaxPerFile: DefaultFuzzyGrepMaxPerFile,
+			RecentMax:           DefaultRecentMax,
 			WatchDebounceMs:     150,
 		},
 		Scratch: Scratch{
@@ -192,6 +199,11 @@ func Load(path string) (*Config, error) {
 	// negative value is a mistake.
 	if cfg.General.FuzzyGrepMaxPerFile < 0 {
 		return nil, fmt.Errorf("%s: general.fuzzy_grep_max_per_file must not be negative", path)
+	}
+	// Unlike the grep cap, zero is not a useful setting here: it would keep a
+	// history that can never hold anything.
+	if cfg.General.RecentMax < 1 {
+		return nil, fmt.Errorf("%s: general.recent_max must be at least 1", path)
 	}
 	cfg.Scratch.Extension = strings.TrimPrefix(cfg.Scratch.Extension, ".")
 	if cfg.Scratch.Dir == "" {

@@ -109,6 +109,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `ctrl+e` | in the fuzzy finder: open the highlighted result in helix, at the matched line — quitting returns you to the results |
 | `ctrl+t` | in the fuzzy finder: hand the highlighted result to the other tmux pane, without closing the finder |
 | `f` | reopen the fuzzy finder with the last `Find`/`Type`/`Grep` still in place |
+| `b` | recently opened files, newest first — fuzzy-filtered the same way; enter reveals and opens |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -279,6 +280,32 @@ way — `enter` is still how you move it deliberately. And the result list is a
 snapshot from the finder's walk, so a file *created* while you were in helix
 will not appear until the walk restarts; edits to existing files are picked up
 normally.
+
+### Recently opened files
+
+**`b`** opens the same finder over the files you have opened from this tree,
+newest first, with how long ago beside each. Type to narrow it exactly as in
+`/`; `enter` reveals the file in the tree *and* opens it in the default
+command; a command's `finder_key` works here too, so `ctrl+t` hands a
+remembered file straight to a pane.
+
+The history is per tree, kept in `<root>.recent.json` beside that root's state
+file, and holds the last `recent_max` files (100 by default, set under
+`[general]`). It survives restarts, and two `ft` sessions on one tree merge
+rather than overwrite each other's.
+
+What gets recorded is decided by the command, not the key: a command counts as
+opening a file when its template names it with `{path}` or `{relpath}`. So
+`enter`, `e`, `t` and `v` are remembered, while `n` (a shell in `{dir}`), `r`
+(an `rg` primed at `{dir}`), `tab` and `D` (a diff of marked paths) are not.
+Directories are never recorded, and neither is `C` — its file lives outside the
+tree. Files deleted since are dropped from the list rather than offered and
+then failing to open, but they stay in the history, since a branch switch can
+bring them back.
+
+This view has only the one input line. There is no `Type` filter — a hundred
+paths do not need a second way to narrow — and no `Grep`, since the files are
+scattered across the tree and there is no single directory to point `rg` at.
 
 ### Picking up where you left off
 

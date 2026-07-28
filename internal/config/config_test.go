@@ -60,6 +60,9 @@ func TestLoadStarter(t *testing.T) {
 	if cfg.General.FuzzyMaxMatches != DefaultFuzzyMaxMatches {
 		t.Errorf("general.fuzzy_max_matches = %d, want %d", cfg.General.FuzzyMaxMatches, DefaultFuzzyMaxMatches)
 	}
+	if cfg.General.RecentMax != DefaultRecentMax {
+		t.Errorf("general.recent_max = %d, want %d", cfg.General.RecentMax, DefaultRecentMax)
+	}
 }
 
 func TestLoadValidation(t *testing.T) {
@@ -86,6 +89,16 @@ func TestLoadValidation(t *testing.T) {
 		t.Errorf("fuzzy_max_matches = 500 should load: %v", err)
 	} else if cfg.General.FuzzyMaxMatches != 500 {
 		t.Errorf("fuzzy_max_matches = %d, want 500", cfg.General.FuzzyMaxMatches)
+	}
+	// Unlike fuzzy_grep_max_per_file, zero is not "no limit" here — it is a
+	// history that can never hold anything.
+	if _, err := loadTOML(t, "[general]\nrecent_max = 0\n"); err == nil {
+		t.Error("zero recent_max should fail")
+	}
+	if cfg, err := loadTOML(t, "[general]\nrecent_max = 25\n"); err != nil {
+		t.Errorf("recent_max = 25 should load: %v", err)
+	} else if cfg.General.RecentMax != 25 {
+		t.Errorf("recent_max = %d, want 25", cfg.General.RecentMax)
 	}
 	if cfg, err := loadTOML(t, "[general]\ntmux = \"never\"\n"); err != nil {
 		t.Errorf("tmux = never should load: %v", err)

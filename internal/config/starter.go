@@ -36,6 +36,9 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 #                          # matches taken from any one file by the Grep
 #                          # field, so a generated file can't fill the list;
 #                          # 0 means no limit
+# recent_max = 100         # how many opened files "b" remembers per tree.
+#                          # Kept in <root>.recent.json beside the tree's
+#                          # state file, so each tree has its own history.
 watch_debounce_ms = 150
 
 # The "/" finder has three input lines; "tab" cycles them.
@@ -55,6 +58,12 @@ watch_debounce_ms = 150
 #          the finder amounts to ("rg --files ..." when only Type is set);
 #          "ctrl+y" copies it so you can run it yourself.
 # With a Type filter and an empty Find, the list is every file of that type.
+
+# "b" opens the same finder over the files you have opened from this tree,
+# newest first, with how long ago beside each one. It has the one Find line —
+# there is no directory for ripgrep to search across scattered files — and
+# enter reveals the file in the tree and opens it. A command's finder_key
+# works here too, so "ctrl+t" hands a remembered file straight to a pane.
 
 # Scratch files: "S" creates an empty YYYYMMDDHH.<extension> file here and
 # opens it in the default command; "s" toggles the scratch view; Esc (with
@@ -185,6 +194,7 @@ key = "tab"
 # finder-copy-command = "ctrl+y"   # copy the rg command behind Type/Grep
 # finder-clear = "ctrl+l"          # empty all three finder fields
 # finder-resume = "f"              # reopen the finder where you left it
+# recent = "b"                     # the finder over recently opened files
 # new-file = "a"
 # new-dir = "A"
 # rename = "R"

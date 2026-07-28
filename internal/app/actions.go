@@ -559,6 +559,7 @@ func (m *Model) editConfig() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) execCommand(name string, c config.Command, v config.Vars, reloadCfg bool) (tea.Model, tea.Cmd) {
+	m.recordRecent(c.Run, v.Path)
 	line := config.ExpandCommand(c.Run, v)
 	// The template is the user's own config (shell syntax is the point, e.g.
 	// tmux invocations); substituted values are shell-quoted by ExpandCommand.
@@ -574,6 +575,82 @@ func (m *Model) execCommand(name string, c config.Command, v config.Vars, reload
 		out, err := ec.CombinedOutput()
 		return cmdDoneMsg{name: name, out: string(out), reloadConfig: reloadCfg, err: err}
 	}
+}
+
+// recentJumpAndOpen is enter in the history view: reveal the file in the tree,
+// then open it in the default command.
+//
+// The open names the path outright rather than going through runCommand, which
+// acts on m.selected(). fuzzyJump moves the cursor only when the file has a row
+// to move to, and a hidden or gitignored file is filtered out of m.rows — so
+// runCommand would quietly open whatever the cursor was already on. Revealing
+// is best effort; opening the row you chose is not.
+func (m *Model) recentJumpAndOpen() (tea.Model, tea.Cmd) {
+	rel := m.finderPath(m.fuzzySel)
+	if rel == "" {
+		return m, nil // an empty history is not an error
+	}
+	abs := filepath.Join(m.tr.Root.Path, filepath.FromSlash(rel))
+	model, jump := m.fuzzyJump()
+	c, ok := m.cfg.Commands[m.cfg.DefaultCommand]
+	if !ok {
+		return model, tea.Batch(jump, m.note("no default command configured", true))
+	}
+	_, open := m.execCommand(m.cfg.DefaultCommand, c, config.Vars{
+		Path:    abs,
+		RelPath: m.gitRelPathFor(abs),
+		Dir:     filepath.Dir(abs),
+		Root:    m.tr.Root.Path,
+		Name:    path.Base(rel),
+		Marked:  append([]string(nil), m.markOrder...),
+	}, false)
+	return model, tea.Batch(jump, open)
+}
+
+// recordRecent adds abs to this root's history, if running tmpl amounts to
+// opening that file. It sits in execCommand rather than at each call site so
+// every path into a command is covered, including scratchNew's direct one, and
+// so a command added to the config later needs no wiring.
+//
+// Three things have to hold, and each excludes a real case:
+//
+//   - the template names the selection. A command that never substitutes the
+//     file did not open it: this is what keeps "n" (a shell in {dir}), "r" (an
+//     rg primed at {dir}), "tab" (focus the pane to the right, no placeholders
+//     at all) and "D" (a diff of {marked1}/{marked2}) out of the history;
+//   - the path is inside the tree. History is per root and stored
+//     root-relative, so there is nowhere to put anything else — this is what
+//     excludes "C", whose file lives under ~/.filetree;
+//   - it is a regular file. "e" on a directory opens helix's file picker, which
+//     is not a file you can come back to.
+//
+// Best effort, like saveState: a history that failed to write is not worth
+// interrupting anyone over.
+func (m *Model) recordRecent(tmpl, abs string) {
+	if m.recent == nil || abs == "" {
+		return
+	}
+	if !strings.Contains(tmpl, "{path}") && !strings.Contains(tmpl, "{relpath}") {
+		return
+	}
+	rel := m.tr.Rel(abs)
+	if rel == "." || rel == "" || strings.HasPrefix(rel, "../") || filepath.IsAbs(rel) {
+		return
+	}
+	if fi, err := os.Stat(abs); err != nil || !fi.Mode().IsRegular() {
+		return
+	}
+	m.recent.Add(rel, time.Now(), m.recentMax())
+	_ = m.recent.Save(m.stateDir, m.recentMax())
+}
+
+// recentMax is the configured history cap, falling back to the default for
+// models built without a config (tests).
+func (m *Model) recentMax() int {
+	if m.cfg == nil || m.cfg.General.RecentMax < 1 {
+		return config.DefaultRecentMax
+	}
+	return m.cfg.General.RecentMax
 }
 
 func (m *Model) handleCmdDone(msg cmdDoneMsg) (tea.Model, tea.Cmd) {
