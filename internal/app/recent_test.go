@@ -101,7 +101,7 @@ func TestOnlyCommandsThatNameTheFileAreRecorded(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m.recent.Files = nil
-			m.recordRecent(tc.tmpl, tc.path)
+			m.recordRecent(tc.tmpl, config.Vars{Path: tc.path})
 
 			var got string
 			if len(m.recent.Files) > 0 {

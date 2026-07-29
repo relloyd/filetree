@@ -19,11 +19,12 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   untracked selections are flagged in the status bar.
 - Configurable commands with `{path}`/`{relpath}`/`{dir}`/… templates:
   interactive commands suspend the TUI (editors); background commands fire
-  and forget (tmux hand-off, `open`). Marked paths are available as
-  `{marked}` (all, in mark order) and `{marked1}`/`{marked2}` (the two most
-  recent — ready-made for a diff command). A command can also declare a
-  `finder_key` to run from inside the fuzzy finder, against the highlighted
-  result and its `{line}`.
+  and forget (tmux hand-off, `open`). `{paths}` is every space-marked path, or
+  the selection when nothing is marked — so `e` opens one file or five in a
+  single helix. Marked paths are also available as `{marked}` (all, in mark
+  order) and `{marked1}`/`{marked2}` (the two most recent — ready-made for a
+  diff command). A command can also declare a `finder_key` to run from inside
+  the fuzzy finder, against the highlighted result and its `{line}`.
 - Mark files/dirs with `space` (yazi-style `▍` bar + tinted name, live
   count in the status bar), then `p`/`m` copies or moves them to the
   selection, and `d` trashes them. Overwrites go via the Trash; name
@@ -91,7 +92,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `←`/`h` | collapse, or jump to parent |
 | `→`/`l` | expand, or step into first child |
 | `enter` | file: run default command · dir: toggle |
-| `space` | mark/unmark the selection (and move down) |
+| `space` | mark/unmark the selection (and move down) — `e`, `t`, `v` and `enter` then act on the whole set |
 | `esc` | clear all marks; with none, return from the scratch or worktrees view |
 | `p` / `m` | copy / move marked items into the selected dir (or the selected file's parent); conflicts prompt overwrite-to-Trash vs keep-both |
 | `y` / `Y` | copy absolute / git-relative path |
@@ -133,9 +134,9 @@ session automatically, so they work out of the box.
 
 | Key | Finder key | Command |
 |---|---|---|
-| `e` | `ctrl+e` | open the selection in helix — works on directories too (helix shows its file picker) |
-| `t` | `ctrl+t` | smart hand-off to the previously-active tmux pane: opens the file in the helix already running there (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
-| `v` | | open the selection in helix in a new full-height split at the right edge — repeatable, one pane per press |
+| `e` | `ctrl+e` | open the selection — or everything marked — in helix; works on directories too (helix shows its file picker) |
+| `t` | `ctrl+t` | smart hand-off to the previously-active tmux pane: opens the files in the helix already running there (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
+| `v` | | open the selection, or everything marked, in helix in a new full-height split at the right edge — repeatable, one pane per press |
 | `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
 | `r` | | prime an `rg` in the other tmux pane at the selection's directory |
 | `tab` | | focus the tmux pane to the right of `ft` — the keyboard equivalent of `ctrl+b` `→`; silent when there is no pane to the right, or when `ft` is not in tmux |
@@ -146,6 +147,46 @@ A command's `key` fires it against the tree selection. Its optional
 result — see [Running commands on a result](#running-commands-on-a-result).
 Only chords work there, since a bare key would be typed into the finder's
 input; the keys the finder handles itself are rejected at config load.
+
+### Acting on marked files
+
+`space` marks files; `{paths}` is how a command acts on them. It expands to
+**every marked path, oldest first, or the selection when nothing is marked** —
+the same rule `d` uses to decide what to delete. Mark three files, press `e`,
+and one helix opens with three buffers in mark order.
+
+```toml
+run = "hx {paths}"
+
+# 3 marked  →  hx '/a/one.go' '/a/two.go' '/a/three.go'
+# no marks  →  hx '/a/one.go'
+# Grep hit  →  hx '/a/one.go:42'
+```
+
+`{paths}` carries the position itself, because a list cannot take one `:42`
+between them: a lone target gets the line it was found on, a list is plain.
+That is the opposite of `{line}`, which expands to `1` rather than nothing when
+there is no match — a fallback that exists so `{path}:{line}` stays valid, and
+which would be noise here. So `hx {paths}` is right in the tree, on a marked
+set, and on a `Grep` row alike.
+
+Worth knowing:
+
+- **`enter` follows the same rule**, since it runs the default command — with
+  marks set it opens all of them. Consistent with `d`, which deletes the marks
+  rather than the cursor, but it reads as "this one", so it is worth saying.
+- **The finder ignores tree marks.** `ctrl+e` and `ctrl+t` act on the row under
+  the finder's own cursor; marks belong to the tree.
+- **Marks survive the command** by default, so `e` to open them and then `t` to
+  push them to a pane both work on the same set. `esc` clears them. Set
+  `clear_marks_after_command = true` under `[general]` to have them consumed
+  instead, matching `d`/`p`/`m` — that only fires for a command that named the
+  marks *and* took them as its target, so `n` or a fresh scratch file leaves
+  them alone.
+- **A mark whose file has gone is dropped** and unmarked rather than opened as
+  an empty buffer; if none survive, the command does not run.
+- **Marked directories are passed through** — you marked them deliberately, and
+  helix opens its file picker for one, the same as `e` on a directory does.
 
 ## Fuzzy Find
 
@@ -271,9 +312,10 @@ To act on it *without* losing the results, a command can declare a
 - **`ctrl+t`** hands the result to the other tmux pane and *stays* in the
   finder, so several results can be pushed into panes in one visit.
 
-On a `Grep` row both open at the matched line, via the `{line}` placeholder
-(`hx {path}:{line}`). `{line}` is `1` when there is no match line, so one
-template serves the tree and the finder alike.
+On a `Grep` row both open at the matched line: `{paths}` appends it to a lone
+target, so `hx {paths}` serves the tree, a marked set and the finder alike (see
+[Acting on marked files](#acting-on-marked-files)). `{line}` is still there for
+a template that wants the number on its own, and is `1` when there is none.
 
 Two things worth knowing. The tree cursor does not follow a file opened this
 way — `enter` is still how you move it deliberately. And the result list is a
@@ -295,7 +337,8 @@ file, and holds the last `recent_max` files (100 by default, set under
 rather than overwrite each other's.
 
 What gets recorded is decided by the command, not the key: a command counts as
-opening a file when its template names it with `{path}` or `{relpath}`. So
+opening a file when its template names it with `{paths}`, `{path}` or
+`{relpath}` — a marked set records every file in it. So
 `enter`, `e`, `t` and `v` are remembered, while `n` (a shell in `{dir}`), `r`
 (an `rg` primed at `{dir}`), `tab` and `D` (a diff of marked paths) are not.
 Directories are never recorded, and neither is `C` — its file lives outside the
@@ -359,6 +402,9 @@ The parts that surprise people:
 
 See `~/.filetree/config.toml` (created on first run) for command templates,
 toggle defaults, and keybinding overrides. The placeholders are `{path}`,
-`{relpath}`, `{dir}`, `{root}`, `{name}`, `{line}`, `{marked}`, `{marked1}`
-and `{marked2}`. They are shell-quoted on substitution; unknown `{tokens}`
-pass through untouched so tmux formats like `"{last}"` work.
+`{paths}`, `{relpath}`, `{dir}`, `{root}`, `{name}`, `{line}`, `{marked}`,
+`{marked1}` and `{marked2}`. They are shell-quoted on substitution; unknown
+`{tokens}` pass through untouched so tmux formats like `"{last}"` work.
+
+`{paths}` is the multi-file counterpart of `{path}` — see
+[Acting on marked files](#acting-on-marked-files).

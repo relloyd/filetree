@@ -264,6 +264,72 @@ func TestExpandMarked(t *testing.T) {
 	}
 }
 
+// {paths} is what a command acts on, and it carries the position itself
+// because a list cannot take one ":42" suffix between them.
+func TestExpandPaths(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		v    Vars
+		want string
+	}{{
+		name: "a list is plain, in the order given",
+		v:    Vars{Paths: []string{"/a/one.go", "/b/has space.go", "/c/three.go"}},
+		want: `hx /a/one.go '/b/has space.go' /c/three.go`,
+	}, {
+		name: "a single target carries the line it was found on",
+		v:    Vars{Paths: []string{"/a/one.go"}, Line: 42},
+		want: "hx /a/one.go:42",
+	}, {
+		name: "no line means no suffix, unlike {line}'s own 0 to 1 fallback",
+		v:    Vars{Paths: []string{"/a/one.go"}},
+		want: "hx /a/one.go",
+	}, {
+		// A list with a line would otherwise hang ":42" off the last path
+		// alone, which reads as though it applied to all of them.
+		name: "a line is dropped for a list",
+		v:    Vars{Paths: []string{"/a/one.go", "/b/two.go"}, Line: 42},
+		want: "hx /a/one.go /b/two.go",
+	}, {
+		name: "empty Paths falls back to the single Path",
+		v:    Vars{Path: "/a/one.go", Line: 7},
+		want: "hx /a/one.go:7",
+	}, {
+		name: "nothing at all expands to nothing",
+		v:    Vars{},
+		want: "hx ",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ExpandCommand("hx {paths}", tc.v); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// {paths} is listed before {path} in the Replacer; the other order would
+	// substitute {path} inside it and leave a stray "s}".
+	got := ExpandCommand("{path} then {paths}", Vars{Path: "/a/one.go", Paths: []string{"/b/two.go"}})
+	if got != "/a/one.go then /b/two.go" {
+		t.Errorf("got %q", got)
+	}
+}
+
+// UsesMarks decides whether running a command consumes the marked set, so it
+// has to agree with what ExpandCommand actually substitutes.
+func TestUsesMarks(t *testing.T) {
+	for tmpl, want := range map[string]bool{
+		"hx {paths}":                            true,
+		"delta {marked1} {marked2}":             true,
+		"open {marked}":                         true,
+		"hx {path}:{line}":                      false,
+		"tmux split-window -c {dir}":            false,
+		`[ -z "$TMUX" ] || tmux select-pane -R`: false,
+	} {
+		if got := UsesMarks(tmpl); got != want {
+			t.Errorf("UsesMarks(%q) = %v, want %v", tmpl, got, want)
+		}
+	}
+}
+
 func TestShellQuote(t *testing.T) {
 	for in, want := range map[string]string{
 		"":               "''",

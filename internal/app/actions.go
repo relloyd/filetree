@@ -499,14 +499,43 @@ func (m *Model) runCommand(name string) (tea.Model, tea.Cmd) {
 	if !n.IsDir {
 		dir = filepath.Dir(n.Path)
 	}
+	// {path} and friends stay on the cursor whatever is marked; {paths} is
+	// where the marks come in, so a command opts into acting on a set.
+	paths := m.commandTargets(n)
+	if len(paths) == 0 {
+		return m, m.note("Marked items no longer exist", true)
+	}
 	return m.execCommand(name, c, config.Vars{
 		Path:    n.Path,
 		RelPath: m.gitRelPath(n),
 		Dir:     dir,
 		Root:    m.tr.Root.Path,
 		Name:    n.Name,
+		Paths:   paths,
 		Marked:  append([]string(nil), m.markOrder...),
 	}, false)
+}
+
+// commandTargets is what a command should act on: the marked paths in mark
+// order, or the selection when nothing is marked.
+//
+// Marks whose file has vanished are dropped and unmarked, the same courtesy
+// confirmDelete and stageTransfer extend, so a stale mark cannot be handed to
+// an editor as an empty buffer. Nothing needs redrawing after one goes: the
+// mark tint is read from m.marked at render time.
+func (m *Model) commandTargets(sel *tree.Node) []string {
+	if len(m.markOrder) == 0 {
+		return []string{sel.Path}
+	}
+	var paths []string
+	for _, p := range append([]string(nil), m.markOrder...) {
+		if _, err := os.Lstat(p); err != nil {
+			m.unmark(p)
+			continue
+		}
+		paths = append(paths, p)
+	}
+	return paths
 }
 
 // runFinderCommand runs a configured command against the highlighted finder
@@ -531,6 +560,9 @@ func (m *Model) runFinderCommand(name string) (tea.Model, tea.Cmd) {
 	// Not needed to come back here — we never left — but it keeps the
 	// finder-resume key honest if the finder is escaped later on.
 	m.lastPick = pick
+	// Paths is the row alone. Marks belong to the tree, and the finder acts on
+	// what is under its own cursor: letting them in would make ctrl+e open
+	// something other than the row you are looking at.
 	return m.execCommand(name, c, config.Vars{
 		Path:    abs,
 		RelPath: m.gitRelPathFor(abs),
@@ -538,6 +570,7 @@ func (m *Model) runFinderCommand(name string) (tea.Model, tea.Cmd) {
 		Root:    m.tr.Root.Path,
 		Name:    path.Base(rel),
 		Line:    pick.line,
+		Paths:   []string{abs},
 		Marked:  append([]string(nil), m.markOrder...),
 	}, false)
 }
@@ -559,7 +592,10 @@ func (m *Model) editConfig() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) execCommand(name string, c config.Command, v config.Vars, reloadCfg bool) (tea.Model, tea.Cmd) {
-	m.recordRecent(c.Run, v.Path)
+	m.recordRecent(c.Run, v)
+	if m.clearMarksAfter(c.Run, v) {
+		m.clearAllMarks()
+	}
 	line := config.ExpandCommand(c.Run, v)
 	// The template is the user's own config (shell syntax is the point, e.g.
 	// tmux invocations); substituted values are shell-quoted by ExpandCommand.
@@ -607,41 +643,76 @@ func (m *Model) recentJumpAndOpen() (tea.Model, tea.Cmd) {
 	return model, tea.Batch(jump, open)
 }
 
-// recordRecent adds abs to this root's history, if running tmpl amounts to
-// opening that file. It sits in execCommand rather than at each call site so
-// every path into a command is covered, including scratchNew's direct one, and
-// so a command added to the config later needs no wiring.
+// clearMarksAfter reports whether running this command should consume the
+// marked set, under clear_marks_after_command.
+//
+// Two tests, because naming the marks is not the same as acting on them. The
+// template has to reference them — otherwise "n" (a shell in {dir}) or "tab"
+// (no placeholders at all) would drop a set they never looked at — and the
+// command's first target has to *be* a mark. That second test is what keeps
+// "S", which opens a brand new scratch file through the default command's
+// {paths}, from clearing marks it had nothing to do with.
+func (m *Model) clearMarksAfter(tmpl string, v config.Vars) bool {
+	if m.cfg == nil || !m.cfg.General.ClearMarksAfterCommand {
+		return false
+	}
+	return config.UsesMarks(tmpl) && len(v.Paths) > 0 && m.marked[v.Paths[0]]
+}
+
+// recordRecent adds the files a command opened to this root's history. It sits
+// in execCommand rather than at each call site so every path into a command is
+// covered, including scratchNew's direct one, and so a command added to the
+// config later needs no wiring.
 //
 // Three things have to hold, and each excludes a real case:
 //
-//   - the template names the selection. A command that never substitutes the
-//     file did not open it: this is what keeps "n" (a shell in {dir}), "r" (an
-//     rg primed at {dir}), "tab" (focus the pane to the right, no placeholders
-//     at all) and "D" (a diff of {marked1}/{marked2}) out of the history;
+//   - the template names the file. A command that never substitutes it did not
+//     open it: this is what keeps "n" (a shell in {dir}), "r" (an rg primed at
+//     {dir}), "tab" (focus the pane to the right, no placeholders at all) and
+//     "D" (a diff of {marked1}/{marked2}) out of the history;
 //   - the path is inside the tree. History is per root and stored
 //     root-relative, so there is nowhere to put anything else — this is what
 //     excludes "C", whose file lives under ~/.filetree;
 //   - it is a regular file. "e" on a directory opens helix's file picker, which
 //     is not a file you can come back to.
 //
-// Best effort, like saveState: a history that failed to write is not worth
-// interrupting anyone over.
-func (m *Model) recordRecent(tmpl, abs string) {
-	if m.recent == nil || abs == "" {
+// Opening a set through {paths} records the lot, oldest mark first so the
+// newest ends up newest here too. Best effort, like saveState: a history that
+// failed to write is not worth interrupting anyone over.
+func (m *Model) recordRecent(tmpl string, v config.Vars) {
+	if m.recent == nil {
 		return
 	}
-	if !strings.Contains(tmpl, "{path}") && !strings.Contains(tmpl, "{relpath}") {
+	named := strings.Contains(tmpl, "{path}") || strings.Contains(tmpl, "{relpath}")
+	opened := v.Paths
+	if strings.Contains(tmpl, "{paths}") {
+		if len(opened) == 0 && v.Path != "" {
+			opened = []string{v.Path} // the same fallback ExpandCommand applies
+		}
+	} else if named {
+		opened = []string{v.Path}
+	} else {
 		return
 	}
-	rel := m.tr.Rel(abs)
-	if rel == "." || rel == "" || strings.HasPrefix(rel, "../") || filepath.IsAbs(rel) {
-		return
+
+	var added bool
+	for _, abs := range opened {
+		if abs == "" {
+			continue
+		}
+		rel := m.tr.Rel(abs)
+		if rel == "." || rel == "" || strings.HasPrefix(rel, "../") || filepath.IsAbs(rel) {
+			continue
+		}
+		if fi, err := os.Stat(abs); err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		m.recent.Add(rel, time.Now(), m.recentMax())
+		added = true
 	}
-	if fi, err := os.Stat(abs); err != nil || !fi.Mode().IsRegular() {
-		return
+	if added {
+		_ = m.recent.Save(m.stateDir, m.recentMax())
 	}
-	m.recent.Add(rel, time.Now(), m.recentMax())
-	_ = m.recent.Save(m.stateDir, m.recentMax())
 }
 
 // recentMax is the configured history cap, falling back to the default for

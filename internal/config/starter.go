@@ -5,6 +5,10 @@ const starterTOML = `# filetree configuration
 #
 # Command templates may use these placeholders (values are shell-quoted):
 #   {path}     absolute path of the selection
+#   {paths}    what to act on: every space-marked path, oldest first, or the
+#              selection when nothing is marked. Carries the position itself —
+#              a lone target becomes "path:42" on a Grep hit, a list is plain —
+#              so "hx {paths}" is right whether one file or five are in play
 #   {relpath}  path relative to the closest parent git repo
 #   {dir}      directory of the selection (the selection itself if a dir)
 #   {root}     the tree root filetree was started in
@@ -39,6 +43,13 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 # recent_max = 100         # how many opened files "b" remembers per tree.
 #                          # Kept in <root>.recent.json beside the tree's
 #                          # state file, so each tree has its own history.
+# clear_marks_after_command = false
+#                          # drop the marked set once a command has acted on
+#                          # it. Off by default — opening files is not
+#                          # destructive, so the marks are there for the next
+#                          # command ("e" to open them, then "t" to push them
+#                          # to a pane). Turn it on to match d/p/m, which do
+#                          # clear. Either way "esc" clears them.
 watch_debounce_ms = 150
 
 # The "/" finder has three input lines; "tab" cycles them.
@@ -89,8 +100,10 @@ default = "edit"           # the command Enter runs
 # from inside the "/" finder against the highlighted row, landing on the
 # matched line of a Grep hit; quitting helix returns you to the finder with
 # the results still up.
+# {paths} is what makes marks work here: space-mark several files and one
+# press of "e" opens them all as buffers in a single helix, in mark order.
 [commands.edit]
-run = "hx {path}:{line}"
+run = "hx {paths}"
 mode = "interactive"
 key = "e"
 finder_key = "ctrl+e"
@@ -101,9 +114,10 @@ finder_key = "ctrl+e"
 # split. send-keys types into whatever runs in the pane, so blindly sending
 # "hx ..." a second time would land inside helix as editor keystrokes.
 # "ctrl+t" runs it from inside the "/" finder without closing it, so several
-# results can be pushed into panes in one visit. Only the two branches that
-# invoke the hx binary take ":{line}" — the ":open" branch is a helix command,
-# not a shell one, and does not document the path:line form.
+# results can be pushed into panes in one visit. All three branches take
+# {paths}, so marking several files sends the lot: helix's ":open" accepts a
+# list, and both it and the hx binary accept a "path:line" argument, so the
+# same expansion works whichever branch runs.
 [commands.handoff]
 run = '''
 target=$(tmux display-message -p -t "{last}" "#{pane_current_command}" 2>/dev/null)
@@ -113,13 +127,13 @@ case "$target" in
     # Alt+: and the command text gets typed into the buffer instead.
     tmux send-keys -t "{last}" Escape
     sleep 0.15
-    tmux send-keys -t "{last}" ":open {path}" Enter
+    tmux send-keys -t "{last}" ":open {paths}" Enter
     ;;
   sh|dash|bash|zsh|fish|ksh|nu)
-    tmux send-keys -t "{last}" C-u "hx {path}:{line}" Enter
+    tmux send-keys -t "{last}" C-u "hx {paths}" Enter
     ;;
   *)
-    tmux split-window -fh -c {root} "hx {path}:{line}"
+    tmux split-window -fh -c {root} "hx {paths}"
     ;;
 esac
 '''
@@ -127,11 +141,12 @@ mode = "background"
 key = "t"
 finder_key = "ctrl+t"
 
-# Always open the selection in helix in a new full-height split at the
-# right edge of the window ("vertical split"). Repeatable: each press adds
-# another pane; quitting helix (:q) closes its pane again.
+# Always open the selection — or everything marked — in helix in a new
+# full-height split at the right edge of the window ("vertical split").
+# Repeatable: each press adds another pane; quitting helix (:q) closes its
+# pane again.
 [commands.vsplit]
-run = 'tmux split-window -fh -c {root} "hx {path}"'
+run = 'tmux split-window -fh -c {root} "hx {paths}"'
 mode = "background"
 key = "v"
 

@@ -82,6 +82,12 @@ type General struct {
 	FuzzyGrepMaxPerFile int    `toml:"fuzzy_grep_max_per_file"`
 	RecentMax           int    `toml:"recent_max"`
 	WatchDebounceMs     int    `toml:"watch_debounce_ms"`
+
+	// ClearMarksAfterCommand drops the marked set once a command has acted on
+	// it. Off by default: opening files is not destructive, so the marks are
+	// worth keeping for the next command. Turn it on to match d/p/m, which do
+	// clear.
+	ClearMarksAfterCommand bool `toml:"clear_marks_after_command"`
 }
 
 // Scratch configures the scratch-file directory ("n" / "S" keys).
