@@ -1052,6 +1052,37 @@ func (m *Model) switchRoot(root string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.ensureStatusesForExpanded()...)
 }
 
+// enterView switches to one of the view directories, remembering the project
+// root to come back to.
+//
+// It is remembered *once*, and a second view does not overwrite it. Scratch and
+// worktrees are siblings — detours from your tree rather than a hierarchy — so
+// there is no stack to unwind, and Esc from either goes back to the project.
+// Overwriting instead used to lose the project root entirely on "s" then "w",
+// leaving the two views bouncing off each other with no way home.
+func (m *Model) enterView(dir string) (tea.Model, tea.Cmd) {
+	prev := m.homeRoot
+	if prev == "" {
+		m.homeRoot = m.tr.Root.Path
+	}
+	_, cmd := m.switchRoot(dir)
+	if m.tr.Root.Path != dir {
+		// The load failed and we are still where we were; keep switchRoot's
+		// error note. Restoring the old value matters because otherwise
+		// homeRoot names the root we are standing in, and the next Esc becomes
+		// a switch to nowhere.
+		m.homeRoot = prev
+	}
+	return m, cmd
+}
+
+// leaveView returns to the project root a view was entered from.
+func (m *Model) leaveView() (tea.Model, tea.Cmd) {
+	home := m.homeRoot
+	m.homeRoot = ""
+	return m.switchRoot(home)
+}
+
 // toggleScratch switches to the scratch tree, or back to where you were.
 func (m *Model) toggleScratch() (tea.Model, tea.Cmd) {
 	sdir, err := m.scratchDir()
@@ -1059,15 +1090,12 @@ func (m *Model) toggleScratch() (tea.Model, tea.Cmd) {
 		return m, m.note(err.Error(), true)
 	}
 	if m.tr.Root.Path == sdir {
-		if m.prevRoot == "" {
+		if m.homeRoot == "" {
 			return m, m.note("Already in the scratch directory", false)
 		}
-		prev := m.prevRoot
-		m.prevRoot = ""
-		return m.switchRoot(prev)
+		return m.leaveView()
 	}
-	m.prevRoot = m.tr.Root.Path
-	return m.switchRoot(sdir)
+	return m.enterView(sdir)
 }
 
 // escKey layers Esc: clear marks first; otherwise leave the scratch or
@@ -1076,12 +1104,13 @@ func (m *Model) escKey() (tea.Model, tea.Cmd) {
 	if len(m.marked) > 0 {
 		return m.clearMarks()
 	}
-	if m.prevRoot != "" {
-		prev := m.prevRoot
-		m.prevRoot = ""
-		return m.switchRoot(prev)
+	if m.homeRoot == "" {
+		// Not an error — Esc with nothing to leave is not a mistake. But saying
+		// so distinguishes "nothing to do" from "the key is broken", which is
+		// exactly the confusion a silent no-op here used to cause.
+		return m, m.note("Already at the project root", false)
 	}
-	return m, nil
+	return m.leaveView()
 }
 
 // scratchNew touches an empty timestamped file in the scratch dir, reveals
@@ -1106,8 +1135,7 @@ func (m *Model) scratchNew() (tea.Model, tea.Cmd) {
 
 	var cmds []tea.Cmd
 	if m.tr.Root.Path != sdir {
-		m.prevRoot = m.tr.Root.Path
-		_, cmd := m.switchRoot(sdir)
+		_, cmd := m.enterView(sdir)
 		cmds = append(cmds, cmd)
 	} else {
 		_ = m.tr.Refresh(m.tr.Root)
@@ -1171,15 +1199,12 @@ func (m *Model) toggleWorktrees() (tea.Model, tea.Cmd) {
 		return m, m.note(err.Error(), true)
 	}
 	if m.tr.Root.Path == wdir {
-		if m.prevRoot == "" {
+		if m.homeRoot == "" {
 			return m, m.note("Already in the worktrees directory", false)
 		}
-		prev := m.prevRoot
-		m.prevRoot = ""
-		return m.switchRoot(prev)
+		return m.leaveView()
 	}
-	m.prevRoot = m.tr.Root.Path
-	return m.switchRoot(wdir)
+	return m.enterView(wdir)
 }
 
 // worktreeNew asks for a branch name or PR number; commitPrompt creates the
@@ -1296,14 +1321,9 @@ func (m *Model) switchToWorktree(dest, text string) (tea.Model, tea.Cmd) {
 	}
 	var cmds []tea.Cmd
 	if m.tr.Root.Path != wdir {
-		prev := m.prevRoot
-		if prev == "" {
-			m.prevRoot = m.tr.Root.Path
-		}
-		_, cmd := m.switchRoot(wdir)
+		_, cmd := m.enterView(wdir)
 		if m.tr.Root.Path != wdir {
-			m.prevRoot = prev // the load failed; keep switchRoot's error note
-			return m, cmd
+			return m, cmd // the load failed; enterView kept the error note
 		}
 		cmds = append(cmds, cmd)
 	} else {

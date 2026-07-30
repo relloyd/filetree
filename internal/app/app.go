@@ -153,9 +153,11 @@ type Model struct {
 	// alongside st.
 	recent *state.Recent
 
-	// prevRoot remembers where to return from the scratch or worktrees view
-	// (session-only).
-	prevRoot string
+	// homeRoot is the project root to return to from the scratch or worktrees
+	// view (session-only). Remembered once, on entering the first of them, and
+	// not overwritten by the second: the two views are siblings, so there is no
+	// stack of them to unwind — Esc goes home from either.
+	homeRoot string
 
 	repoRoots     map[string]string           // dir -> repo root ("" = none)
 	statuses      map[string]*gitx.RepoStatus // repo root -> parsed status
