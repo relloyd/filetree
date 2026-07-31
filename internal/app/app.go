@@ -367,9 +367,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.input.SetWidth(min(60, max(10, msg.Width-10)))
-		m.typeInput.SetWidth(min(60, max(10, msg.Width-10)))
-		m.grepInput.SetWidth(min(60, max(10, msg.Width-10)))
+		// Every finder input, not just the tree's three: at width 0 textinput
+		// collapses a placeholder to its first rune and stops scrolling a long
+		// value, so a field left out of this list quietly misbehaves.
+		w := min(60, max(10, msg.Width-10))
+		m.input.SetWidth(w)
+		m.typeInput.SetWidth(w)
+		m.grepInput.SetWidth(w)
+		m.bmInput.SetWidth(w)
 		m.clampScroll()
 		m.ensureVisible()
 		return m, nil

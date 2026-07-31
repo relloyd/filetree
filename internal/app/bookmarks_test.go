@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/relloyd/filetree/internal/bookmark"
 	"github.com/relloyd/filetree/internal/config"
+	"github.com/relloyd/filetree/internal/platform"
 )
 
 const bmSample = "package main\n\nfunc alpha() {\n\tif x {\n\t\treturn nil\n\t}\n}\n"
@@ -390,6 +392,67 @@ func TestBookmarkRowsHighlightWhatTheQueryMatched(t *testing.T) {
 				t.Error("highlighting altered the row's text, not just its styling")
 			}
 		})
+	}
+}
+
+// Every finder input must be given a width when the window is sized.
+//
+// textinput does nothing useful at width 0: placeholderView sizes its buffer as
+// make([]rune, Width()+1) and returns early, so a placeholder renders as its
+// first character alone under the cursor — a stray letter rather than a hint —
+// and the viewport logic that scrolls a long value is guarded on width > 0 too.
+//
+// This is asserted over the whole set rather than for one field on purpose. The
+// bug it catches was adding a fourth input and missing the one place that
+// listed the other three; naming them individually would let a fifth slip
+// through the same gap.
+func TestEveryFinderInputIsSized(t *testing.T) {
+	root, cfgDir := t.TempDir(), t.TempDir()
+	m, err := New(config.Default(), cfgDir, root, platform.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.watcher.Close() })
+
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	for _, in := range []struct {
+		name  string
+		input *textinput.Model
+	}{
+		{"Find", &m.input},
+		{"Type", &m.typeInput},
+		{"Grep", &m.grepInput},
+		{"Marks", &m.bmInput},
+	} {
+		if got := in.input.Width(); got < 1 {
+			t.Errorf("%s input has width %d after a resize; at 0 its placeholder "+
+				"collapses to one rune and long values do not scroll", in.name, got)
+		}
+	}
+}
+
+// ...and the symptom that led here: a sized field shows its whole placeholder,
+// not just the "p" of "path or line contents".
+func TestBookmarkPlaceholderRendersInFull(t *testing.T) {
+	root, cfgDir := t.TempDir(), t.TempDir()
+	m, err := New(config.Default(), cfgDir, root, platform.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.watcher.Close() })
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	m.startBookmarks()
+	header := plainText(strings.Join(m.renderFinderHeader(), "\n"))
+
+	hint := m.bmInput.Placeholder
+	if hint == "" {
+		t.Skip("no placeholder configured")
+	}
+	if !strings.Contains(header, hint) {
+		t.Errorf("header shows %q; want the whole placeholder %q, not its first rune",
+			header, hint)
 	}
 }
 
