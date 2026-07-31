@@ -75,11 +75,11 @@ one surfaces as an error in the status bar rather than a failure to start.
 | Tool | Enables | Optional? |
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees | optional, but most of the git awareness is dark without it |
-| `tmux` | the `t`/`v`/`n`/`r` split and hand-off commands, `tab` to focus the pane to the right, and the auto-relaunch above | optional |
+| `tmux` | the `t`/`v`/`N`/`r` split and hand-off commands, the `n`/`L` popups, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
-| `lazygit` | `L` (commented example in the starter) | optional |
-| `delta` | `D` diff the two most recently marked files (commented example in the starter) | optional |
+| `lazygit` | `L`, in a popup over the window | optional |
+| `delta` | `D` diff the two most recently marked files | optional |
 
 Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 `osascript` — all macOS built-ins, nothing to install.
@@ -103,7 +103,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `o` | reveal in Finder |
 | `/` | fuzzy finder (esc cancels, enter jumps) |
 | `F` | fuzzy finder, confined to the selected directory (its parent for a file) |
-| `tab` | focus the tmux pane to the right; in the fuzzy finder: cycle the `Find` / `Type` / `Grep` fields |
+| `tab` | in the fuzzy finder: cycle the `Find` / `Type` / `Grep` fields |
 | `ctrl+g` | in the fuzzy finder: raise the match limit for the session (2×, 3×, …) |
 | `ctrl+y` | in the fuzzy finder: copy the `rg` command behind the `Type`/`Grep` fields |
 | `ctrl+o` | in the fuzzy finder: empty all three fields |
@@ -138,16 +138,31 @@ session automatically, so they work out of the box.
 | `e` | `ctrl+e` | open the selection — or everything marked — in helix; works on directories too (helix shows its file picker) |
 | `t` | `ctrl+t` | smart hand-off to the previously-active tmux pane: opens the files in the helix already running there (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
 | `v` | | open the selection, or everything marked, in helix in a new full-height split at the right edge — repeatable, one pane per press |
-| `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
+| `N` | | open a shell in a new full-height split at the right edge, in the selection's directory |
+| `n` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree |
 | `r` | | prime an `rg` in the other tmux pane at the selection's directory |
-| `tab` | | focus the tmux pane to the right of `ft` — the keyboard equivalent of `ctrl+b` `→`; silent when there is no pane to the right, or when `ft` is not in tmux |
-| `L` | | open lazygit for the repo containing the selection (commented example in the starter) |
+| `L` | | open lazygit for the repo containing the selection, in a popup |
+| `D` | | diff the two most recently marked files in a split, with `delta` |
+| `ctrl+l` | `ctrl+l` | focus the tmux pane to the right of `ft` — the keyboard equivalent of `ctrl+b` `→`; silent when there is no pane to the right, or when `ft` is not in tmux |
+| `ctrl+j` | `ctrl+j` | narrow `ft`'s pane to 30% of the window |
+| `ctrl+k` | `ctrl+k` | widen `ft`'s pane to 80% of the window |
+
+The last three take the same chord in the tree and in the finder, so a search
+can be left up while you go and look at something in the pane beside it. Both
+popups run their own nested tmux session, which is what gives them their own
+panes and scrollback; closing that session (`exit`, `ctrl+d`) closes the popup.
 
 A command's `key` fires it against the tree selection. Its optional
 `finder_key` fires it from inside the fuzzy finder, against the highlighted
 result — see [Running commands on a result](#running-commands-on-a-result).
 Only chords work there, since a bare key would be typed into the finder's
 input; the keys the finder handles itself are rejected at config load.
+
+`ctrl+l`, `ctrl+j` and `ctrl+k` each begin with a `[ -z "$TMUX" ] ||` guard.
+Outside a pane, `tmux` resolves a command against the most recently used
+session, so an unguarded `select-pane` or `resize-pane` would move the focus or
+change the size in a window you are not even looking at — and being silent by
+design, these are exactly the commands where you would never notice.
 
 ### Acting on marked files
 
@@ -303,7 +318,7 @@ the whole tree.
 
 `enter` reveals the highlighted result in the tree and closes the finder.
 To act on it *without* losing the results, a command can declare a
-`finder_key` — the starter binds two:
+`finder_key` — the starter binds two that act on the highlighted row:
 
 - **`ctrl+e`** opens the result in helix in this pane. Quit helix and you are
   back in the finder: same row, same three fields, results not re-run. Nothing
@@ -312,6 +327,11 @@ To act on it *without* losing the results, a command can declare a
   and repainted when the child exits.
 - **`ctrl+t`** hands the result to the other tmux pane and *stays* in the
   finder, so several results can be pushed into panes in one visit.
+
+and three more that ignore the row entirely and drive the tmux panes, so that
+moving between them or resizing this one does not mean leaving a search first:
+**`ctrl+l`** focuses the pane to the right, **`ctrl+j`** and **`ctrl+k`** narrow
+and widen `ft`'s own.
 
 On a `Grep` row both open at the matched line: `{paths}` appends it to a lone
 target, so `hx {paths}` serves the tree, a marked set and the finder alike (see
@@ -340,8 +360,9 @@ rather than overwrite each other's.
 What gets recorded is decided by the command, not the key: a command counts as
 opening a file when its template names it with `{paths}`, `{path}` or
 `{relpath}` — a marked set records every file in it. So
-`enter`, `e`, `t` and `v` are remembered, while `n` (a shell in `{dir}`), `r`
-(an `rg` primed at `{dir}`), `tab` and `D` (a diff of marked paths) are not.
+`enter`, `e`, `t` and `v` are remembered, while `n`/`N` (a shell in `{dir}`),
+`r` (an `rg` primed at `{dir}`), `L` (lazygit in `{dir}`), `D` (a diff of
+marked paths) and the `ctrl+l`/`ctrl+j`/`ctrl+k` pane commands are not.
 Directories are never recorded, and neither is `C` — its file lives outside the
 tree. Files deleted since are dropped from the list rather than offered and
 then failing to open, but they stay in the history, since a branch switch can
@@ -446,7 +467,14 @@ has a character to its right*, in which case it deletes forward. That makes
 `ctrl+d` — and the macOS Fn+Backspace that many terminals send as `ctrl+d` —
 work as a delete key while you are editing, and as a scroll key while you are
 browsing results, which is where the cursor sits once a query is typed. Word
-deletion (`ctrl+w`, `alt+backspace`) and delete-to-end (`ctrl+k`) are untouched.
+deletion (`ctrl+w`, `alt+backspace`) is untouched.
+
+Two readline keys are gone, taken by commands rather than by the finder:
+`ctrl+e` is not end-of-line but "open this result", and `ctrl+k` is not
+delete-to-end but "widen the pane". Both are `finder_key` bindings, and a
+`finder_key` is matched before the field gets the keypress, so rebinding those
+two commands in `[commands]` gives the readline keys back. For clearing rather
+than editing, `ctrl+o` empties the fields outright.
 
 ### Limits
 

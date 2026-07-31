@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,21 +33,32 @@ func TestLoadStarter(t *testing.T) {
 	if !ok || edit.Mode != ModeInteractive {
 		t.Errorf("edit command = %+v ok=%v, want interactive", edit, ok)
 	}
-	if h := cfg.Commands["handoff"]; h.Key != "t" || h.Mode != ModeBackground {
-		t.Errorf("handoff = %+v, want key t, background", h)
+	if h := cfg.Commands["tmux-handoff"]; h.Key != "t" || h.Mode != ModeBackground {
+		t.Errorf("tmux-handoff = %+v, want key t, background", h)
 	}
 	// Command keys must not collide with an action default: actions win, so a
-	// clash would silently shadow the command.
+	// clash would silently shadow the command. "n"/"N" and "L"/"D" are the ones
+	// worth spelling out, since they sit closest to the bound letters.
 	if g := cfg.Commands["grep-here"]; g.Key != "r" {
 		t.Errorf("grep-here key = %q, want r", g.Key)
 	}
-	if s := cfg.Commands["shell-here"]; s.Key != "n" || s.Mode != ModeBackground {
-		t.Errorf("shell-here = %+v, want key n, background", s)
+	if s := cfg.Commands["shell-popup"]; s.Key != "n" || s.Mode != ModeBackground {
+		t.Errorf("shell-popup = %+v, want key n, background", s)
 	}
-	// "tab" is only free in the main view because finder-next-field is kept out
-	// of buildBindings' actions map; see TestACommandCanOwnTab in internal/app.
-	if f := cfg.Commands["focus-right"]; f.Key != "tab" || f.Mode != ModeBackground {
-		t.Errorf("focus-right = %+v, want key tab, background", f)
+	if s := cfg.Commands["shell-vsplit"]; s.Key != "N" || s.Mode != ModeBackground {
+		t.Errorf("shell-vsplit = %+v, want key N, background", s)
+	}
+	// The pane commands take chords rather than letters, in the tree and in the
+	// finder alike. ctrl+l only became free when finder-clear moved to ctrl+o.
+	for _, tc := range []struct{ name, key string }{
+		{"focus-right", "ctrl+l"},
+		{"resize-pane-30", "ctrl+j"},
+		{"resize-pane-80", "ctrl+k"},
+	} {
+		c := cfg.Commands[tc.name]
+		if c.Key != tc.key || c.FinderKey != tc.key || c.Mode != ModeBackground {
+			t.Errorf("%s = %+v, want key and finder_key %q, background", tc.name, c, tc.key)
+		}
 	}
 	if cfg.General.ShowHidden || !cfg.General.ShowIgnored {
 		t.Errorf("general toggles = %+v", cfg.General)
@@ -62,6 +74,53 @@ func TestLoadStarter(t *testing.T) {
 	}
 	if cfg.General.RecentMax != DefaultRecentMax {
 		t.Errorf("general.recent_max = %d, want %d", cfg.General.RecentMax, DefaultRecentMax)
+	}
+}
+
+// Every finder_key the starter binds has to survive the finder's own reserved
+// list. Load already rejects a clash, so this is really a guard on the starter
+// as finderReservedKeys grows: add a chord to that list without noticing the
+// starter uses it and ft fails to start at all, with the shipped config.
+func TestStarterFinderKeysAreNotReserved(t *testing.T) {
+	cfg, err := loadTOML(t, starterTOML)
+	if err != nil {
+		t.Fatalf("starter config failed to load: %v", err)
+	}
+	bound := 0
+	for name, c := range cfg.Commands {
+		if c.FinderKey == "" {
+			continue
+		}
+		bound++
+		if slices.Contains(finderReservedKeys, c.FinderKey) {
+			t.Errorf("commands.%s: finder_key %q is reserved by the finder", name, c.FinderKey)
+		}
+	}
+	// Without this the loop above passes an empty starter just as happily.
+	if bound == 0 {
+		t.Error("the starter binds no finder_key at all")
+	}
+}
+
+// The pane commands are silent by design: no output, no visible window. Run one
+// outside a pane and tmux resolves it against the most recently used session,
+// so ft would move the focus — or resize a pane — in a window the user is not
+// even looking at. The guard is the only thing standing between those commands
+// and that, which makes it exactly the sort of line that gets tidied away.
+func TestStarterPaneCommandsAreGuarded(t *testing.T) {
+	cfg, err := loadTOML(t, starterTOML)
+	if err != nil {
+		t.Fatalf("starter config failed to load: %v", err)
+	}
+	for _, name := range []string{"focus-right", "resize-pane-30", "resize-pane-80"} {
+		c, ok := cfg.Commands[name]
+		if !ok {
+			t.Errorf("commands.%s is missing from the starter", name)
+			continue
+		}
+		if !strings.HasPrefix(c.Run, `[ -z "$TMUX" ] ||`) {
+			t.Errorf("commands.%s: run = %q, want the $TMUX guard in front", name, c.Run)
+		}
 	}
 }
 

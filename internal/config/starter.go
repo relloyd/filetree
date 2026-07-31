@@ -26,7 +26,8 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 # link_ref = "commit"      # ref for u/U web links: "commit" (permanent) or "branch"
 # tmux = "auto"            # "auto": when started outside tmux, ft relaunches itself
 #                          # in a new tmux session (needs tmux on PATH) so the
-#                          # t/v/n/r split commands below work. "never": run as-is.
+#                          # split, popup, focus and resize commands below work.
+#                          # "never": run as-is.
 #                          # "ft --no-tmux" turns it off for one run.
 # fuzzy_max_matches = 1000 # how many "/" results are ranked and kept; raising
 #                          # it costs sort time on huge trees, not render time.
@@ -139,7 +140,7 @@ finder_key = "ctrl+e"
 # {paths}, so marking several files sends the lot: helix's ":open" accepts a
 # list, and both it and the hx binary accept a "path:line" argument, so the
 # same expansion works whichever branch runs.
-[commands.handoff]
+[commands.tmux-handoff]
 run = '''
 target=$(tmux display-message -p -t "{last}" "#{pane_current_command}" 2>/dev/null)
 case "$target" in
@@ -166,15 +167,24 @@ finder_key = "ctrl+t"
 # full-height split at the right edge of the window ("vertical split").
 # Repeatable: each press adds another pane; quitting helix (:q) closes its
 # pane again.
-[commands.vsplit]
+[commands.helix-vsplit]
 run = 'tmux split-window -fh -c {root} "hx {paths}"'
 mode = "background"
 key = "v"
 
 # Open a shell in a new full-height split at the right edge, in the
 # selection's directory ({dir} = the selection itself if it's a dir).
-[commands.shell-here]
+[commands.shell-vsplit]
 run = 'tmux split-window -fh -c {dir}'
+mode = "background"
+key = "N"
+
+# The same shell, in a popup over the whole window instead of a split — for
+# a command you want to run and dismiss rather than keep beside the tree.
+# The popup runs its own tmux session, so it has its own panes and its own
+# scrollback, and closing that session (exit / ctrl+d) closes the popup.
+[commands.shell-popup]
+run = 'tmux display-popup -E -w 92% -h 92% "tmux new-session -c {dir}"'
 mode = "background"
 key = "n"
 
@@ -186,32 +196,50 @@ run = 'tmux send-keys -t "{last}" "rg -n {dir} -e " 2>/dev/null || tmux split-wi
 mode = "background"
 key = "r"
 
-# Focus the tmux pane to the right of ft, so "tab" replaces tmux's own
+# Focus the tmux pane to the right of ft, so "ctrl+l" replaces tmux's own
 # "ctrl+b →" for getting back to a split opened above. Silent when there is
 # no pane to the right: select-pane -R simply exits 0 in a single-pane
 # window. The $TMUX guard matters — outside a pane, tmux resolves the command
 # against the most recently used session and would move the focus in an
 # unrelated window.
+# It takes the same chord in the finder, so a search can be left running in
+# one pane while you go and look at something in another.
 [commands.focus-right]
 run = '[ -z "$TMUX" ] || tmux select-pane -R'
 mode = "background"
-key = "tab"
+key = "ctrl+l"
+finder_key = "ctrl+l"
 
-# More examples — uncomment what you use:
-#
-# Open lazygit for the repo containing the selection (finds the repo by
-# walking up from {dir}, so it works with a file selected too).
-# [commands.lazygit]
-# run = "cd {dir} && lazygit"
-# mode = "interactive"
-# key = "L"
-#
+# Narrow ft to a sidebar, or widen it to read by. Both resize the *active*
+# pane, which is ft's whenever you are pressing its keys, and both take the
+# same $TMUX guard as focus-right above: a size change in an unrelated
+# window is just as silent as a focus change, and just as unwelcome.
+[commands.resize-pane-30]
+run = '[ -z "$TMUX" ] || tmux resize-pane -x 30%'
+mode = "background"
+key = "ctrl+j"
+finder_key = "ctrl+j"
+
+[commands.resize-pane-80]
+run = '[ -z "$TMUX" ] || tmux resize-pane -x 80%'
+mode = "background"
+key = "ctrl+k"
+finder_key = "ctrl+k"
+
+# Open lazygit for the repo containing the selection, in a popup. lazygit
+# finds the repo by walking up from its working directory, so cd to the
+# selection's directory ({dir} = the selection itself if it's a dir).
+[commands.lazygit-popup]
+run = "cd {dir} && tmux display-popup -E -w 92% -h 92% 'tmux new-session lazygit'"
+mode = "background"
+key = "L"
+
 # Diff the two most recently space-marked files in a split (older on the
 # left); the trailing read keeps the pane open until you press Enter.
-# [commands.diff]
-# run = 'tmux split-window -fh "delta {marked1} {marked2}; read x"'
-# mode = "background"
-# key = "D"
+[commands.diff]
+run = 'tmux split-window -fh "delta {marked1} {marked2}; read x"'
+mode = "background"
+key = "D"
 
 # Keybinding overrides. Defaults shown; uncomment to change.
 # [keys]

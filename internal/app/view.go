@@ -652,8 +652,103 @@ func (m *Model) renderGrepRow(h search.Hit, selected bool) string {
 	return styleBase.MaxWidth(m.width).Render(line)
 }
 
+type helpRow struct{ key, desc string }
+
 func (m *Model) renderHelp() string {
-	type row struct{ key, desc string }
+	return m.layoutHelp(m.helpRows(), m.treeHeight(), m.width)
+}
+
+// layoutHelp arranges the rows into as few columns as will fit the height,
+// falling back to fewer when the width cannot take them. Rows run down each
+// column and then across, so reading order matches helpRows either way.
+//
+// The list outgrew a single column once the tmux pane commands arrived: every
+// command contributes a row per key, and the old renderer simply stopped at the
+// height, silently dropping whatever came last — which, since commands sort
+// after the fixed keys, was always the commands. Columns buy back the room on a
+// wide pane. On a narrow one they cannot, and the tail is still cut; that at
+// least says so now instead of pretending the list ended.
+func (m *Model) layoutHelp(rows []helpRow, height, width int) string {
+	lines := []string{styleTitle.Render(" Keys"), ""}
+	avail := max(1, height-len(lines))
+
+	const gap = 3
+	cols := 1
+	for n := 2; n <= 3; n++ {
+		if len(rows) <= avail*(n-1) {
+			break // the previous count already had room to spare
+		}
+		if _, _, _, w := helpMetrics(rows, n, avail, gap); w > width {
+			break
+		}
+		cols = n
+	}
+	per, keyW, descW, _ := helpMetrics(rows, cols, avail, gap)
+
+	for r := 0; r < per; r++ {
+		var b strings.Builder
+		for c := 0; c < cols; c++ {
+			i := c*per + r
+			if i >= len(rows) {
+				break
+			}
+			if c > 0 {
+				b.WriteString(strings.Repeat(" ", gap))
+			}
+			// Pad before styling: lipgloss counts the escape bytes otherwise.
+			b.WriteString("  ")
+			b.WriteString(styleOK.Render(fmt.Sprintf("%-*s", keyW, rows[i].key)))
+			// Clip the description to what is left of the line. A single column
+			// is never narrowed to fit, so in a sidebar-width pane a long
+			// description would wrap and push the status bar off the screen.
+			desc := truncate(rows[i].desc, max(1, width-lipgloss.Width(b.String())))
+			b.WriteString(styleDim.Render(fmt.Sprintf("%-*s", descW, desc)))
+		}
+		lines = append(lines, strings.TrimRight(b.String(), " "))
+	}
+	if dropped := len(rows) - min(len(rows), cols*per); dropped > 0 {
+		lines = append(lines, styleDim.Render(fmt.Sprintf("  … %d more", dropped)))
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// helpMetrics measures the layout n columns would actually produce: rows per
+// column, the two column widths, and the total width of the widest line.
+//
+// It measures the rows that would really be shown rather than the whole set,
+// which is what makes two columns viable at ordinary terminal widths. A couple
+// of descriptions here are half again as long as the rest; sizing every column
+// to the longest of them overstates the layout by ~25 columns and gives up on
+// two columns at widths where they fit comfortably.
+func helpMetrics(rows []helpRow, cols, avail, gap int) (per, keyW, descW, width int) {
+	per = (len(rows) + cols - 1) / cols // column-major: each column filled down
+	if per > avail {
+		// Give up a line for the "… more" marker, so the count it reports is
+		// the truth rather than one short of it.
+		per = max(1, avail-1)
+	}
+	shown := min(len(rows), cols*per)
+	// descW pads every column but the last, which has nothing to its right to
+	// align. lastW is that column's natural width, still part of the line.
+	var lastW int
+	for i, r := range rows[:shown] {
+		keyW = max(keyW, len(r.key))
+		if i < (cols-1)*per {
+			descW = max(descW, lipgloss.Width(r.desc))
+		} else {
+			lastW = max(lastW, lipgloss.Width(r.desc))
+		}
+	}
+	keyW++ // one space between the key and its description
+	width = (cols-1)*(2+keyW+descW+gap) + 2 + keyW + lastW
+	return per, keyW, descW, width
+}
+
+func (m *Model) helpRows() []helpRow {
+	type row = helpRow
 	reloadKeys := "F5" // reload has no letter key unless [keys] gives it one
 	if k := m.actionKeys["reload"]; k != "" {
 		reloadKeys = k + " / F5"
@@ -686,7 +781,7 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["finder-clear"], "in the fuzzy finder: empty all three fields"},
 		{m.actionKeys["finder-resume"], "reopen the fuzzy finder where you left it"},
 		{m.actionKeys["recent"], "recently opened files, newest first — enter reveals and opens"},
-		{m.actionKeys["bookmarks"], "line bookmarks (see \"ft bookmark\"); tab sorts, ctrl+s widens, ctrl+x forgets"},
+		{m.actionKeys["bookmarks"], "line bookmarks; tab sorts, ctrl+s widens, ctrl+x forgets"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
 		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},
@@ -711,20 +806,7 @@ func (m *Model) renderHelp() string {
 			rows = append(rows, row{c.FinderKey, "in the fuzzy finder: run command: " + name})
 		}
 	}
-
-	h := m.treeHeight()
-	lines := make([]string, 0, h)
-	lines = append(lines, styleTitle.Render(" Keys"), "")
-	for _, r := range rows {
-		if len(lines) >= h {
-			break
-		}
-		lines = append(lines, fmt.Sprintf("  %s%s", styleOK.Render(fmt.Sprintf("%-14s", r.key)), styleDim.Render(r.desc)))
-	}
-	for len(lines) < h {
-		lines = append(lines, "")
-	}
-	return strings.Join(lines, "\n")
+	return rows
 }
 
 // relativeAge renders how long ago t was, in the coarsest unit that still says

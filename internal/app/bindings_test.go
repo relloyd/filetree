@@ -10,12 +10,17 @@ import (
 	"github.com/relloyd/filetree/internal/config"
 )
 
-// The starter gives "tab" to the focus-right command, and that only works
-// because buildBindings keeps finder-next-field out of m.bindings: the finder
-// handles tab itself, inside the modeFuzzy switch, so the main view never sees
-// it. Bind tab to a normal-mode action — or add finder-next-field to the
-// actions map — and the command is shadowed with nothing to show for it: tab
-// goes on cycling the finder's fields and quietly stops moving the tmux focus.
+// A command may take "tab", even though the finder wants it for
+// finder-next-field, because buildBindings keeps finder-next-field out of
+// m.bindings: the finder handles tab itself, inside the modeFuzzy switch, so
+// the main view never sees it. Bind tab to a normal-mode action — or add
+// finder-next-field to the actions map — and any command on tab is shadowed
+// with nothing to show for it: tab goes on cycling the finder's fields and the
+// command quietly stops running.
+//
+// The starter used to rely on this for focus-right, and no longer does — that
+// moved to ctrl+l when the pane commands were reworked. The property is still
+// worth holding: tab is offered to commands, so it has to keep working for one.
 func TestACommandCanOwnTab(t *testing.T) {
 	m := rootedModel(t, t.TempDir())
 	m.mode = modeNormal
