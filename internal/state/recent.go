@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strings"
 	"time"
+
+	"github.com/relloyd/filetree/internal/storekey"
 )
 
 // Recent is the per-root history of files that have been opened, newest first.
@@ -32,9 +33,7 @@ func NewRecent(root string) *Recent { return &Recent{Version: 1, Root: root} }
 
 // RecentFileName is the history file for a root, sitting next to FileName's
 // state file and sharing its hash so the pair are recognisably one root's.
-func RecentFileName(root string) string {
-	return strings.TrimSuffix(FileName(root), ".json") + ".recent.json"
-}
+func RecentFileName(root string) string { return storekey.Name(root, ".recent.json") }
 
 // LoadRecent returns the saved history for root, or an empty one if it is
 // missing, corrupt, or belongs to a different root. A history is a convenience,

@@ -178,6 +178,7 @@ func finderModel() *Model {
 		input:         textinput.New(),
 		typeInput:     textinput.New(),
 		grepInput:     textinput.New(),
+		bmInput:       textinput.New(),
 		cfg:           &config.Config{General: config.General{FuzzyMaxMatches: 200}},
 		repoRoots:     map[string]string{},
 		statuses:      map[string]*gitx.RepoStatus{},

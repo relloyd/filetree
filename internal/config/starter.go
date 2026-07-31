@@ -43,6 +43,12 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 # recent_max = 100         # how many opened files "b" remembers per tree.
 #                          # Kept in <root>.recent.json beside the tree's
 #                          # state file, so each tree has its own history.
+# bookmark_max = 500       # how many line bookmarks a repo keeps ("B").
+# bookmark_retention_days = 30
+#                          # a bookmark whose file has not been seen for this
+#                          # long is dropped. Long enough that a file hidden by
+#                          # a branch switch is still there when you switch
+#                          # back; 0 turns ageing out off entirely.
 # clear_marks_after_command = false
 #                          # drop the marked set once a command has acted on
 #                          # it. Off by default — opening files is not
@@ -69,6 +75,21 @@ watch_debounce_ms = 150
 #          the finder amounts to ("rg --files ..." when only Type is set);
 #          "ctrl+y" copies it so you can run it yourself.
 # With a Type filter and an empty Find, the list is every file of that type.
+
+# "B" opens the same finder over line bookmarks — a file and a line, captured
+# from your editor. Bind a key in helix to record one:
+#
+#   [keys.normal.space]
+#   b = ":sh ft bookmark %{buffer_name} %{cursor_line}"
+#
+# Do not add %{selection}: it works with a word selected and silently does
+# nothing at all when the selection spans lines. ft reads the line's text
+# itself, so the list still shows real content either way.
+#
+# Bookmarks belong to the repository, not to this tree, so every worktree of it
+# shares one list. tab sorts by recency or path, ctrl+s widens to every
+# project, ctrl+x forgets one, and enter opens the file at its line — following
+# the line if it has moved since.
 
 # "b" opens the same finder over the files you have opened from this tree,
 # newest first, with how long ago beside each one. It has the one Find line —
@@ -210,6 +231,7 @@ key = "tab"
 # finder-clear = "ctrl+l"          # empty all three finder fields
 # finder-resume = "f"              # reopen the finder where you left it
 # recent = "b"                     # the finder over recently opened files
+# bookmarks = "B"                  # the finder over this repo's line bookmarks
 # new-file = "a"
 # new-dir = "A"
 # rename = "R"

@@ -36,15 +36,21 @@ const (
 	finderFieldCount
 )
 
-// finderSource says where the finder's candidates come from. Both sources
-// produce root-relative slash-separated paths, which is what lets the ranking,
-// the result list, enter, and the finder_key commands be shared: only the
-// supply of candidates and the fields on offer differ.
+// finderSource says where the finder's candidates come from. The tree sources
+// speak root-relative paths, which is what lets the ranking, the result list,
+// enter, and the finder_key commands be shared.
+//
+// Bookmarks are the exception and the reason finderAbs exists: they are stored
+// against a repository, so their paths are relative to a checkout that need not
+// be the tree root — and may be outside it entirely. Every row therefore
+// resolves to an absolute path through one function rather than by joining the
+// root at each use.
 type finderSource int
 
 const (
-	srcTree   finderSource = iota // the walk, plus the Type and Grep fields
-	srcRecent                     // this root's history of opened files
+	srcTree     finderSource = iota // the walk, plus the Type and Grep fields
+	srcRecent                       // this root's history of opened files
+	srcBookmark                     // this repo's line bookmarks
 )
 
 // finderPick is a row the finder was left on, so reopening can put the
@@ -162,13 +168,16 @@ func (m *Model) startFuzzyIn(dir string) (tea.Model, tea.Cmd) {
 	return m.enterFuzzy()
 }
 
-// resumeFuzzy reopens the finder with the fields as they were left, and aims
-// to put the selection back on the row it was left on. The fields survive on
-// their own — neither esc nor a jump clears them, only the next startFuzzy —
-// so resuming is a matter of not resetting rather than of saving. The source is
-// left alone for the same reason: leaving the history and coming back to the
-// tree instead is not resuming.
+// resumeFuzzy reopens the "/" finder with the fields as they were left, and
+// aims to put the selection back on the row it was left on. The fields survive
+// on their own — neither esc nor a jump clears them, only the next startFuzzy —
+// so resuming is a matter of not resetting rather than of saving.
+//
+// It always resumes the tree search, whatever was open last. "f" means the
+// fuzzy finder and "B" means the bookmarks; each returns to its own state, so
+// that using one does not decide where the other takes you.
 func (m *Model) resumeFuzzy() (tea.Model, tea.Cmd) {
+	m.finderSrc = srcTree
 	m.resumeWant = m.lastPick
 	return m.enterFuzzy()
 }
@@ -185,7 +194,14 @@ func (m *Model) enterFuzzy() (tea.Model, tea.Cmd) {
 	// Compile straight into the model rather than through applyTypeFilter,
 	// which short-circuits when the text has not changed — on resume it has
 	// not, and the walk still needs the filter.
-	m.fuzzyFilterRaw = m.typeInput.Value()
+	//
+	// The bookmark view has no Type field, and must not inherit the tree's:
+	// leaving it compiled would tint bookmark rows gold wherever they happened
+	// to match a glob that is not being applied to them.
+	m.fuzzyFilterRaw = ""
+	if m.finderSrc != srcBookmark {
+		m.fuzzyFilterRaw = m.typeInput.Value()
+	}
 	if f, err := search.CompileFilter(m.fuzzyFilterRaw); err != nil {
 		m.fuzzyFilter, m.fuzzyFilterErr = search.Filter{}, err.Error()
 	} else {
@@ -232,13 +248,22 @@ func (m *Model) focusFinderField() tea.Cmd {
 	m.input.Blur()
 	m.typeInput.Blur()
 	m.grepInput.Blur()
+	m.bmInput.Blur()
 	return m.finderInput().Focus()
 }
 
-// clearFinder empties all three fields without leaving the finder. Focus stays
-// where it is: clearing is not moving, and the header keeps showing a focused
-// field even when it is empty, so nothing shifts under the cursor.
+// clearFinder empties the fields without leaving the finder. Focus stays where
+// it is: clearing is not moving, and the header keeps showing a focused field
+// even when it is empty, so nothing shifts under the cursor.
 func (m *Model) clearFinder() tea.Cmd {
+	if m.finderSrc == srcBookmark {
+		// Only its own field: emptying the tree's three here would throw away
+		// the search "f" is holding for you.
+		m.bmInput.Reset()
+		m.rebuildBookmarkRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return nil
+	}
 	m.input.Reset()
 	m.typeInput.Reset()
 	m.grepInput.Reset()
@@ -282,12 +307,19 @@ func (m *Model) restartFuzzyWalk() tea.Cmd {
 	m.fuzzyTrunc = false
 	m.fuzzyWalking = true
 
-	if m.finderSrc == srcRecent {
+	switch m.finderSrc {
+	case srcRecent:
 		// A hundred paths already in memory: no goroutine, no streaming, and
 		// nothing to cancel. The list arrives complete, so the walk is over
 		// before it started.
 		m.fuzzyWalking = false
 		m.addFuzzyCands(m.recentCands())
+		return nil
+	case srcBookmark:
+		// Bookmarks keep their own rows rather than going through fuzzyCands:
+		// a row is a place, with a line and its text, not just a path.
+		m.fuzzyWalking = false
+		m.loadBookmarks()
 		return nil
 	}
 
@@ -538,6 +570,13 @@ func (m *Model) addFuzzyCands(chunk []string) {
 // over every candidate — which is what keeps typing responsive on a large
 // corpus.
 func (m *Model) refuzzy() {
+	if m.finderSrc == srcBookmark {
+		// Its own field and its own rows; none of the candidate machinery
+		// below applies.
+		m.rebuildBookmarkRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return
+	}
 	q, prev := m.input.Value(), m.fuzzyQuery
 	m.fuzzyQuery = q
 	if m.grepping() {
@@ -613,6 +652,11 @@ func (m *Model) applyTypeFilter() tea.Cmd {
 // hundred paths, and there is nothing for ripgrep to search across files
 // scattered over the tree.
 func (m *Model) cycleFinderField(delta int) tea.Cmd {
+	if m.finderSrc == srcBookmark {
+		// Nothing to cycle to, so the key earns its keep re-ordering the list.
+		m.cycleBookmarkSort()
+		return nil
+	}
 	if m.finderSrc == srcRecent {
 		return nil
 	}
@@ -631,6 +675,9 @@ func (m *Model) finderCanDeleteForward() bool {
 
 // finderInput is the input line that currently has focus.
 func (m *Model) finderInput() *textinput.Model {
+	if m.finderSrc == srcBookmark {
+		return &m.bmInput // its own field, so "B" and "f" remember separately
+	}
 	switch m.finderField {
 	case fieldType:
 		return &m.typeInput
@@ -651,8 +698,8 @@ func (m *Model) fuzzyVisibleRows() int {
 // so an unused field costs no screen space.
 func (m *Model) finderHeaderLines() int {
 	n := 1
-	if m.finderSrc == srcRecent {
-		return n // one query line; the history offers no other field
+	if m.finderSrc == srcRecent || m.finderSrc == srcBookmark {
+		return n // one query line; neither list offers another field
 	}
 	if m.scopeDir != "" {
 		n++ // the Dir line, shown only when there is a scope to report
@@ -782,7 +829,7 @@ func (m *Model) fuzzyJump() (tea.Model, tea.Cmd) {
 	}
 	m.tr.ExpandRel(path.Dir(rel))
 	m.reflatten()
-	abs := filepath.Join(m.tr.Root.Path, filepath.FromSlash(rel))
+	abs := m.finderAbs(m.fuzzySel)
 	if n := m.tr.FindByPath(abs); n != nil {
 		for i, r := range m.rows {
 			if r.Node == n {

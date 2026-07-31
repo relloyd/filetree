@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/relloyd/filetree/internal/bookmark"
 	"github.com/relloyd/filetree/internal/gitx"
 	"github.com/relloyd/filetree/internal/icons"
 	"github.com/relloyd/filetree/internal/search"
@@ -369,6 +370,10 @@ func (m *Model) renderFinderHeader() []string {
 	if m.finderSrc == srcRecent {
 		return []string{label(" Recent ", fieldQuery) + m.input.View() + m.renderFinderCounter()}
 	}
+	if m.finderSrc == srcBookmark {
+		return []string{label(" Marks ", fieldQuery) + m.bmInput.View() +
+			m.renderFinderCounter() + m.renderBookmarkStatus()}
+	}
 	var lines []string
 	if m.scopeDir != "" {
 		lines = append(lines, m.renderFinderScope())
@@ -397,6 +402,111 @@ func (m *Model) renderFinderHeader() []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// renderBookmarkStatus is the trailing note on the bookmark view's input line:
+// the sort order, and — when the list is narrowed to this project — how many
+// bookmarks are filed elsewhere. Saying so is what stops a bookmark taken in
+// another repository from looking lost rather than merely out of scope.
+func (m *Model) renderBookmarkStatus() string {
+	s := "  " + m.bmSort.String()
+	if m.bmAllRepos {
+		return styleDim.Render(s + "  all projects")
+	}
+	if m.bmHidden > 0 {
+		return styleDim.Render(s) +
+			styleChanged.Render(fmt.Sprintf("  +%d elsewhere (ctrl+s)", m.bmHidden))
+	}
+	return styleDim.Render(s)
+}
+
+// renderBookmarkRow draws one bookmark as "path:line  text", with, in a widened
+// list, the project it belongs to. A bookmark whose file is gone keeps its
+// stored text in italics: it is still the best description of the place, and
+// still what the query matches on.
+//
+// matched holds byte offsets into searchText, which is built from these same
+// pieces in this same order — so the location's offsets are its own, and the
+// text's are shifted past the location and the space that joins them.
+func (m *Model) renderBookmarkRow(b resolvedBookmark, matched []int, selected bool) string {
+	prefix := "   "
+	if selected {
+		prefix = styleTitle.Render(" > ")
+	}
+	loc := b.location(m.bmAllRepos)
+	line := prefix + highlightIn(loc, matched, 0, styleBase)
+	used := 3 + lipgloss.Width(loc)
+
+	// A marker for anything the anchor had to work for, so a line number you
+	// are about to act on is never silently approximate.
+	if mark := bookmarkMark(b.State); mark != "" {
+		line += markStyle(b.State).Render(" " + mark)
+		used += 1 + lipgloss.Width(mark)
+	}
+
+	text := strings.TrimSpace(b.Text)
+	if room := m.width - used - 2; room > 0 && text != "" {
+		style := styleDim
+		if !b.State.Found() {
+			style = style.Italic(true)
+		}
+		line += "  " + highlightIn(truncate(text, room), matched, len(loc)+1, style)
+	}
+	return styleBase.MaxWidth(m.width).Render(line)
+}
+
+// highlightIn renders s in base, picking out the runes the query matched.
+//
+// matched is indexed against a larger string that s is a substring of, starting
+// at offset — so each part of a row can be drawn in its own style while sharing
+// one set of match positions. Offsets past the end of s are simply dropped,
+// which is what makes truncating the text first safe.
+func highlightIn(s string, matched []int, offset int, base lipgloss.Style) string {
+	if len(matched) == 0 {
+		return base.Render(s)
+	}
+	hit := make(map[int]bool, len(matched))
+	for _, i := range matched {
+		if i -= offset; i >= 0 && i < len(s) {
+			hit[i] = true
+		}
+	}
+	if len(hit) == 0 {
+		return base.Render(s)
+	}
+	var b strings.Builder
+	for bi, r := range s {
+		if hit[bi] {
+			b.WriteString(styleTitle.Render(string(r)))
+		} else {
+			b.WriteString(base.Render(string(r)))
+		}
+	}
+	return b.String()
+}
+
+func bookmarkMark(s bookmark.State) string {
+	switch s {
+	case bookmark.Moved:
+		return "~" // followed the anchor to a new line
+	case bookmark.Drifted:
+		return "≈" // only the line matched; approximate
+	case bookmark.Lost:
+		return "?" // the file is here, the anchor is not
+	case bookmark.Missing:
+		return "✗"
+	default:
+		return ""
+	}
+}
+
+func markStyle(s bookmark.State) lipgloss.Style {
+	switch s {
+	case bookmark.Missing, bookmark.Lost:
+		return styleError
+	default:
+		return styleChanged
+	}
 }
 
 // renderFinderScope is the "Dir" line: the directory "F" confined the search
@@ -448,6 +558,15 @@ func (m *Model) renderFuzzy() string {
 	h := m.treeHeight()
 	lines := make([]string, 0, h)
 	lines = append(lines, m.renderFinderHeader()...)
+	if m.finderSrc == srcBookmark {
+		for i := m.fuzzyScroll; i < len(m.bmRows) && len(lines) < h; i++ {
+			lines = append(lines, m.renderBookmarkRow(m.bmAll[m.bmRows[i]], m.bmMatched[i], i == m.fuzzySel))
+		}
+		for len(lines) < h {
+			lines = append(lines, "")
+		}
+		return strings.Join(lines, "\n")
+	}
 	if m.grepping() {
 		for i := m.fuzzyScroll; i < len(m.grepRows) && len(lines) < h; i++ {
 			lines = append(lines, m.renderGrepRow(m.grepHits[m.grepRows[i]], i == m.fuzzySel))
@@ -567,6 +686,7 @@ func (m *Model) renderHelp() string {
 		{m.actionKeys["finder-clear"], "in the fuzzy finder: empty all three fields"},
 		{m.actionKeys["finder-resume"], "reopen the fuzzy finder where you left it"},
 		{m.actionKeys["recent"], "recently opened files, newest first — enter reveals and opens"},
+		{m.actionKeys["bookmarks"], "line bookmarks (see \"ft bookmark\"); tab sorts, ctrl+s widens, ctrl+x forgets"},
 		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
 		{m.actionKeys["rename"], "rename"},
 		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},

@@ -109,8 +109,9 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `ctrl+l` | in the fuzzy finder: empty all three fields |
 | `ctrl+e` | in the fuzzy finder: open the highlighted result in helix, at the matched line — quitting returns you to the results |
 | `ctrl+t` | in the fuzzy finder: hand the highlighted result to the other tmux pane, without closing the finder |
-| `f` | reopen the fuzzy finder with the last `Find`/`Type`/`Grep` still in place |
+| `f` | reopen the `/` finder with the last `Find`/`Type`/`Grep` still in place |
 | `b` | recently opened files, newest first — fuzzy-filtered the same way; enter reveals and opens |
+| `B` | line bookmarks captured from your editor — searchable by path *and* by the line's contents |
 | `a` / `A` | new file / new directory |
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
@@ -350,6 +351,76 @@ This view has only the one input line. There is no `Type` filter — a hundred
 paths do not need a second way to narrow — and no `Grep`, since the files are
 scattered across the tree and there is no single directory to point `rg` at.
 
+### Line bookmarks
+
+`b` remembers files; **`B`** remembers *places*. A bookmark is a file and a
+line, captured from your editor and listed in the same finder — searchable by
+path and by the line's contents at once.
+
+Bind a key in helix to record one:
+
+```toml
+# ~/.config/helix/config.toml
+[keys.normal.space]
+b = ":sh ft bookmark %{buffer_name} %{cursor_line}"
+```
+
+`ft bookmark` is a subcommand of `ft` itself, so nothing needs to know the
+storage format and no daemon has to be running. A bad path exits non-zero and
+helix shows *"Shell command failed"* — which is what happens on an unnamed
+buffer, since helix expands that to the literal `[scratch]`.
+
+> **Do not add `%{selection}`.** It works with a word selected and **silently
+> does nothing at all** when the selection spans lines — helix still reports
+> "Command run". `ft` reads the line's text from the file itself, so the list
+> shows real content without it. The subcommand does take an optional third
+> argument if you want a label anyway.
+>
+> Note also that `%{cursor_line}` is the *head* of a selection, so bookmarking
+> with a block selected records the line the cursor ended on.
+
+In the view: `tab` sorts by recency or path, `enter` opens the file at its
+line, `ctrl+x` forgets one, and a command's `finder_key` still works — so
+`ctrl+t` pushes a bookmark to the other pane, at its line. Typing highlights
+what it matched, in the path or in the line's text, wherever the match landed.
+
+`B` always comes back to where you left it — the query, the sort and the scope
+last the session. It keeps that state separately from the `/` finder, so `B`
+and `f` never overwrite each other's.
+
+**Bookmarks belong to the repository, not to the tree.** They are stored
+relative to the checkout and keyed by the repo's common git dir, so every
+worktree shares one list and a bookmark taken on `main` resolves against the
+worktree's copy of the file. A file in no repository goes to a global store.
+
+One consequence worth knowing: a bookmark is filed under the project it points
+*into*, so bookmarking a file from another project while sitting in this one
+puts it in that project's list. The header says how many are hidden
+(`+7 elsewhere`), and **`ctrl+s`** widens the list to every project.
+
+**Lines move, and bookmarks follow them.** `ft` stores the bookmarked line plus
+a couple either side, and re-anchors by matching that block — which is what
+keeps a bookmark on `}` or `return nil` from following the wrong one of the
+dozen identical lines in the file. Rows are marked when the anchor had to work
+for it:
+
+| | |
+|---|---|
+| *(none)* | still exactly where it was |
+| `~` | the block moved; the line number followed it |
+| `≈` | only the line itself matched, and only because it was unique — approximate |
+| `?` | the file is here but the anchor is not |
+| `✗` | the file is missing; the stored text is shown instead, so the row stays searchable |
+
+A missing file is not forgotten straight away: it may be missing only on this
+branch. `bookmark_retention_days` (30 by default, `0` to disable) drops one
+whose file has not been *seen* for that long, so switching back to a branch
+that has it simply restarts the clock. `ctrl+x` forgets one immediately.
+
+Bookmarks live in `~/.filetree/bookmarks/`, capped at `bookmark_max` (500) per
+repository. Note that the anchor means a few lines of your source are written
+there.
+
 ### Picking up where you left off
 
 `/` always opens empty; **`f`** reopens
@@ -360,6 +431,11 @@ retyping a glob and a regexp. A content search is re-run rather than restored,
 since its results went stale while you were away. Restoring the row is best
 effort: if the file is gone, or no longer matches, the selection simply starts
 at the top. **`ctrl+l`** empties all three fields without leaving the finder.
+
+Each entry key owns its own view and its own memory. `f` always resumes the
+*tree* search, whatever you had open last, and `B` always comes back to the
+bookmarks you were filtering — so using one never decides where the other takes
+you. `ctrl+l` likewise clears only the fields of the view you are in.
 
 ### Editing the fields
 

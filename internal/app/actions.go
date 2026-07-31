@@ -552,9 +552,16 @@ func (m *Model) runFinderCommand(name string) (tea.Model, tea.Cmd) {
 	if rel == "" {
 		return m, nil // an empty result list is not an error
 	}
-	abs := filepath.Join(m.tr.Root.Path, filepath.FromSlash(rel))
+	abs := m.finderAbs(m.fuzzySel)
 	pick := finderPick{rel: rel}
-	if m.grepping() && m.fuzzySel < len(m.grepRows) {
+	switch {
+	case m.finderSrc == srcBookmark:
+		// The resolved line, not the stored one: a bookmark that has drifted
+		// should hand the editor where it is now.
+		if row, ok := m.bookmarkRow(m.fuzzySel); ok {
+			pick.line = row.AtLine
+		}
+	case m.grepping() && m.fuzzySel < len(m.grepRows):
 		pick.line = m.grepHits[m.grepRows[m.fuzzySel]].Line
 	}
 	// Not needed to come back here — we never left — but it keeps the

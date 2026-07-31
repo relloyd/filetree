@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -207,21 +208,55 @@ func (m *Model) rebuildGrepRows() {
 
 // finderLen is how many rows the result list has, whichever mode it is in.
 func (m *Model) finderLen() int {
-	if m.grepping() {
+	switch {
+	case m.finderSrc == srcBookmark:
+		return len(m.bmRows)
+	case m.grepping():
 		return len(m.grepRows)
+	default:
+		return len(m.fuzzyMatches)
 	}
-	return len(m.fuzzyMatches)
 }
 
-// finderPath is the root-relative path row i points at, or "" if there is no
-// such row. Content rows carry a line number as well, but enter jumps to the
-// file: the line is context for choosing, not a destination.
+// finderPath is the path row i points at, or "" if there is no such row.
+// Content rows carry a line number as well, but enter jumps to the file: the
+// line is context for choosing, not a destination.
+//
+// It is root-relative for the tree sources and checkout-relative for bookmarks,
+// which is why anything needing a real path goes through finderAbs rather than
+// joining the root itself.
 func (m *Model) finderPath(i int) string {
 	if i < 0 || i >= m.finderLen() {
 		return ""
 	}
-	if m.grepping() {
+	switch {
+	case m.finderSrc == srcBookmark:
+		return m.bmAll[m.bmRows[i]].Bookmark.Path
+	case m.grepping():
 		return m.grepHits[m.grepRows[i]].Path
+	default:
+		return m.fuzzyMatches[i].Str
 	}
-	return m.fuzzyMatches[i].Str
+}
+
+// finderAbs is the absolute path row i points at — the one place the finder's
+// relative paths are resolved.
+//
+// The tree sources measure from the tree root; a bookmark measures from the
+// checkout it was stored against, which may be a different worktree of the
+// repo, or another project entirely. Keeping that distinction in one function
+// is what let bookmarks join the finder without touching enter or the
+// finder_key commands.
+func (m *Model) finderAbs(i int) string {
+	if m.finderSrc == srcBookmark {
+		if row, ok := m.bookmarkRow(i); ok {
+			return row.Abs
+		}
+		return ""
+	}
+	rel := m.finderPath(i)
+	if rel == "" {
+		return ""
+	}
+	return filepath.Join(m.tr.Root.Path, filepath.FromSlash(rel))
 }

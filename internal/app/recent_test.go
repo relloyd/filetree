@@ -44,25 +44,48 @@ func recordOpen(m *Model, rel string, at time.Time) {
 	m.recent.Add(rel, at, m.recentMax())
 }
 
-// drainCmdDone finds the cmdDoneMsg a key produced. Enter in the history view
-// batches the reveal's status refresh with the open, so the message is one
-// level down inside a BatchMsg rather than returned directly.
+// runCmd runs one command with a deadline, reporting whether it answered.
+//
+// The deadline is not paranoia: a batch routinely carries timers alongside real
+// work — a status note re-arms itself seconds later — and calling one of those
+// inline blocks the test for its whole duration.
+func runCmd(c tea.Cmd, d time.Duration) (tea.Msg, bool) {
+	if c == nil {
+		return nil, false
+	}
+	ch := make(chan tea.Msg, 1)
+	go func() { ch <- c() }()
+	select {
+	case msg := <-ch:
+		return msg, true
+	case <-time.After(d):
+		return nil, false
+	}
+}
+
+// drainCmdDone finds the cmdDoneMsg a key produced. Enter in the history and
+// bookmark views batches the reveal's status refresh with the open, so the
+// message is one level down inside a BatchMsg rather than returned directly.
 func drainCmdDone(t *testing.T, cmd tea.Cmd) cmdDoneMsg {
 	t.Helper()
-	switch msg := cmd().(type) {
+	const budget = 5 * time.Second
+	msg, ok := runCmd(cmd, budget)
+	if !ok {
+		t.Fatal("command did not answer")
+	}
+	switch msg := msg.(type) {
 	case cmdDoneMsg:
 		return msg
 	case tea.BatchMsg:
 		for _, c := range msg {
-			if c == nil {
-				continue
-			}
-			if done, ok := c().(cmdDoneMsg); ok {
-				return done
+			if done, ok := runCmd(c, budget); ok {
+				if d, isDone := done.(cmdDoneMsg); isDone {
+					return d
+				}
 			}
 		}
 	}
-	t.Fatalf("no cmdDoneMsg in %T", cmd())
+	t.Fatalf("no cmdDoneMsg in %T", msg)
 	return cmdDoneMsg{}
 }
 
@@ -249,7 +272,13 @@ func TestRecentViewOffersOnlyTheQueryField(t *testing.T) {
 	}
 }
 
-// "/" and "F" go back to searching the tree; "f" resumes what you were last in.
+// Each entry key owns a view: "/" and "F" search the tree, "b" the history,
+// "B" the bookmarks — and "f" resumes the tree search whatever was open last.
+//
+// The alternative, which this used to do, is for "f" to reopen whichever list
+// you were in. That reads fine until you use one of the others: pressing "b" or
+// "B" then silently decides where "f" takes you next, and the tree search you
+// wanted back is unreachable.
 func TestFinderSourceFollowsTheEntryKey(t *testing.T) {
 	m := recentModel(t, "a.go")
 	recordOpen(m, "a.go", time.Now())
@@ -259,8 +288,8 @@ func TestFinderSourceFollowsTheEntryKey(t *testing.T) {
 		t.Fatal("b did not open the history")
 	}
 	m.resumeFuzzy()
-	if m.finderSrc != srcRecent {
-		t.Error("f left the history instead of resuming it")
+	if m.finderSrc != srcTree {
+		t.Error("f should resume the tree search, not the history")
 	}
 	m.startFuzzy()
 	if m.finderSrc != srcTree {

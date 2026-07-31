@@ -3,13 +3,12 @@
 package state
 
 import (
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/relloyd/filetree/internal/storekey"
 )
 
 type State struct {
@@ -29,23 +28,7 @@ func New(root string) *State {
 
 // FileName derives a stable, human-findable file name for a root:
 // <sanitised-basename>-<8 hex of sha256(root)>.json
-func FileName(root string) string {
-	sum := sha256.Sum256([]byte(root))
-	return fmt.Sprintf("%s-%x.json", sanitise(filepath.Base(root)), sum[:4])
-}
-
-func sanitise(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
-			b.WriteRune(r)
-		default:
-			b.WriteRune('_')
-		}
-	}
-	return b.String()
-}
+func FileName(root string) string { return storekey.Name(root, ".json") }
 
 // Load returns the saved state for root, or a fresh one if missing/corrupt.
 func Load(stateDir, root string) *State {

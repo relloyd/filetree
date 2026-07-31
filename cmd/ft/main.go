@@ -21,11 +21,20 @@ import (
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: ft [-no-tmux] [dir]\n\nOpens a file tree for dir (default: current directory).\nConfig: ~/.filetree/config.toml   State: ~/.filetree/state/\n")
+		fmt.Fprintf(os.Stderr, "usage: ft [-no-tmux] [dir]\n       ft bookmark <file> <line> [label]\n\nOpens a file tree for dir (default: current directory).\nThe bookmark form records a place for the \"B\" view and exits; it is meant to\nbe bound in an editor, e.g. helix:\n  :sh ft bookmark %%{buffer_name} %%{cursor_line}\nConfig: ~/.filetree/config.toml   State: ~/.filetree/state/\n")
 		flag.PrintDefaults()
 	}
 	noTmux := flag.Bool("no-tmux", false, "do not relaunch inside a new tmux session")
 	flag.Parse()
+
+	// "ft bookmark <file> <line>" is unambiguous because the tree form takes
+	// exactly one argument, so a directory called "bookmark" still opens.
+	if flag.NArg() >= 3 && flag.Arg(0) == "bookmark" {
+		dir, err := config.Dir()
+		fatalIf(err)
+		fatalIf(runBookmark(dir, flag.Args()[1:]))
+		return
+	}
 
 	root := "."
 	if flag.NArg() > 0 {

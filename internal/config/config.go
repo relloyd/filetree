@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -45,6 +46,15 @@ const DefaultFuzzyMaxCandidates = 50000
 // state file's size rather than anything the user would feel.
 const DefaultRecentMax = 100
 
+// Bookmark defaults. A bookmark whose file has not been seen for the retention
+// window is dropped — long enough that a file hidden by a branch switch is
+// still there when you switch back, short enough that a rename or a deletion
+// eventually stops cluttering the list.
+const (
+	DefaultBookmarkMax           = 500
+	DefaultBookmarkRetentionDays = 30
+)
+
 // DefaultFuzzyGrepMaxPerFile caps how many content matches the finder takes
 // from any one file, so a generated or minified file cannot fill the list.
 // A configured 0 means no limit.
@@ -69,6 +79,7 @@ var finderReservedKeys = []string{
 	"esc", "enter", "up", "down", "pgup", "pgdown",
 	"ctrl+p", "ctrl+n", "ctrl+u", "ctrl+d",
 	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+l",
+	"ctrl+s", "ctrl+x", // the bookmark view's scope and forget keys
 }
 
 type General struct {
@@ -82,6 +93,9 @@ type General struct {
 	FuzzyGrepMaxPerFile int    `toml:"fuzzy_grep_max_per_file"`
 	RecentMax           int    `toml:"recent_max"`
 	WatchDebounceMs     int    `toml:"watch_debounce_ms"`
+
+	BookmarkMax           int `toml:"bookmark_max"`
+	BookmarkRetentionDays int `toml:"bookmark_retention_days"`
 
 	// ClearMarksAfterCommand drops the marked set once a command has acted on
 	// it. Off by default: opening files is not destructive, so the marks are
@@ -114,16 +128,18 @@ type Config struct {
 func Default() *Config {
 	return &Config{
 		General: General{
-			ShowHidden:          false,
-			ShowIgnored:         true,
-			Icons:               "nerd",
-			LinkRef:             "commit",
-			Tmux:                tmux.ModeAuto,
-			FuzzyMaxMatches:     DefaultFuzzyMaxMatches,
-			FuzzyMaxCandidates:  DefaultFuzzyMaxCandidates,
-			FuzzyGrepMaxPerFile: DefaultFuzzyGrepMaxPerFile,
-			RecentMax:           DefaultRecentMax,
-			WatchDebounceMs:     150,
+			ShowHidden:            false,
+			ShowIgnored:           true,
+			Icons:                 "nerd",
+			LinkRef:               "commit",
+			Tmux:                  tmux.ModeAuto,
+			FuzzyMaxMatches:       DefaultFuzzyMaxMatches,
+			FuzzyMaxCandidates:    DefaultFuzzyMaxCandidates,
+			FuzzyGrepMaxPerFile:   DefaultFuzzyGrepMaxPerFile,
+			RecentMax:             DefaultRecentMax,
+			BookmarkMax:           DefaultBookmarkMax,
+			BookmarkRetentionDays: DefaultBookmarkRetentionDays,
+			WatchDebounceMs:       150,
 		},
 		Scratch: Scratch{
 			Dir:       "~/.filetree/scratch",
@@ -138,6 +154,13 @@ func Default() *Config {
 		},
 		Keys: map[string]string{},
 	}
+}
+
+// RetentionWindow is how long a bookmark survives without its file being
+// found. A configured zero means never expire, which the bookmark store reads
+// from a non-positive duration.
+func (c *Config) RetentionWindow() time.Duration {
+	return time.Duration(c.General.BookmarkRetentionDays) * 24 * time.Hour
 }
 
 // Dir returns ~/.filetree, creating it if needed.
@@ -210,6 +233,14 @@ func Load(path string) (*Config, error) {
 	// history that can never hold anything.
 	if cfg.General.RecentMax < 1 {
 		return nil, fmt.Errorf("%s: general.recent_max must be at least 1", path)
+	}
+	if cfg.General.BookmarkMax < 1 {
+		return nil, fmt.Errorf("%s: general.bookmark_max must be at least 1", path)
+	}
+	// Zero is meaningful: it turns ageing out off, so a bookmark survives until
+	// it is forgotten by hand.
+	if cfg.General.BookmarkRetentionDays < 0 {
+		return nil, fmt.Errorf("%s: general.bookmark_retention_days must not be negative", path)
 	}
 	cfg.Scratch.Extension = strings.TrimPrefix(cfg.Scratch.Extension, ".")
 	if cfg.Scratch.Dir == "" {

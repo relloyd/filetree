@@ -153,6 +153,24 @@ type Model struct {
 	// alongside st.
 	recent *state.Recent
 
+	// Bookmark view state. bmRows indexes bmAll after the query has narrowed
+	// it, the same indirection content mode uses for grepRows/grepHits, and
+	// bmMatched carries what the query matched so the rows can highlight it.
+	// bmAll is re-read and re-resolved on entry, since "ft bookmark" writes
+	// the store from its own process while this one is running.
+	//
+	// bmInput is the view's own query field rather than the shared one. The two
+	// views remember where they were independently — "B" comes back to the
+	// bookmarks you were filtering, "f" to the tree search you were running —
+	// and one input cannot hold both.
+	bmInput    textinput.Model
+	bmAll      []resolvedBookmark
+	bmRows     []int
+	bmMatched  [][]int
+	bmSort     bookmarkSort
+	bmAllRepos bool // ctrl+s: every project's store, not just this one
+	bmHidden   int  // bookmarks in other stores, when narrowed to this one
+
 	// homeRoot is the project root to return to from the scratch or worktrees
 	// view (session-only). Remembered once, on entering the first of them, and
 	// not overwritten by the second: the two views are siblings, so there is no
@@ -270,6 +288,9 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 	m.grepInput = textinput.New()
 	m.grepInput.SetVirtualCursor(true)
 	m.grepInput.Placeholder = "regexp searched with ripgrep"
+	m.bmInput = textinput.New()
+	m.bmInput.SetVirtualCursor(true)
+	m.bmInput.Placeholder = "path or line contents"
 
 	m.buildBindings()
 
@@ -505,10 +526,22 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeNormal
 			return m, nil
 		case "enter":
-			if m.finderSrc == srcRecent {
+			switch m.finderSrc {
+			case srcRecent:
 				return m.recentJumpAndOpen()
+			case srcBookmark:
+				return m.bookmarkJumpAndOpen()
 			}
 			return m.fuzzyJump()
+		case "ctrl+s":
+			if m.finderSrc == srcBookmark {
+				m.toggleBookmarkScope()
+				return m, nil
+			}
+		case "ctrl+x":
+			if m.finderSrc == srcBookmark {
+				return m, m.forgetBookmark()
+			}
 		case "up", "ctrl+p":
 			m.moveFuzzySel(-1)
 			return m, nil
@@ -581,6 +614,12 @@ func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// so stop trying to restore that row.
 	m.resumeWant = finderPick{}
 	var cmd tea.Cmd
+	if m.finderSrc == srcBookmark {
+		m.bmInput, cmd = m.bmInput.Update(msg)
+		m.rebuildBookmarkRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return m, cmd
+	}
 	switch m.finderField {
 	case fieldType:
 		m.typeInput, cmd = m.typeInput.Update(msg)
@@ -632,6 +671,7 @@ func (m *Model) buildBindings() {
 		// keys above it does belong in the actions map below.
 		"finder-resume": "f",
 		"recent":        "b", // the finder over this root's opened-file history
+		"bookmarks":     "B", // the finder over this repo's line bookmarks
 		"new-file":      "a",
 		"new-dir":       "A",
 		"rename":        "R",
@@ -670,6 +710,7 @@ func (m *Model) buildBindings() {
 		"fuzzy-here":     m.startFuzzyHere,
 		"finder-resume":  m.resumeFuzzy,
 		"recent":         m.startRecent,
+		"bookmarks":      m.startBookmarks,
 		"new-file":       func() (tea.Model, tea.Cmd) { return m.startPrompt(promptNewFile) },
 		"new-dir":        func() (tea.Model, tea.Cmd) { return m.startPrompt(promptNewDir) },
 		"rename":         func() (tea.Model, tea.Cmd) { return m.startPrompt(promptRename) },
