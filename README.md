@@ -106,7 +106,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `tab` | focus the tmux pane to the right; in the fuzzy finder: cycle the `Find` / `Type` / `Grep` fields |
 | `ctrl+g` | in the fuzzy finder: raise the match limit for the session (2×, 3×, …) |
 | `ctrl+y` | in the fuzzy finder: copy the `rg` command behind the `Type`/`Grep` fields |
-| `ctrl+l` | in the fuzzy finder: empty all three fields |
+| `ctrl+o` | in the fuzzy finder: empty all three fields |
 | `ctrl+e` | in the fuzzy finder: open the highlighted result in helix, at the matched line — quitting returns you to the results |
 | `ctrl+t` | in the fuzzy finder: hand the highlighted result to the other tmux pane, without closing the finder |
 | `f` | reopen the `/` finder with the last `Find`/`Type`/`Grep` still in place |
@@ -288,7 +288,7 @@ does, and the candidate cap stops being a factor. On the root there is nothing
 to confine to, so `F` is simply `/`.
 
 The scope belongs to a finder session and is fixed when it opens: `f` (resume)
-keeps it, so you come back to the results you left, and `ctrl+l` empties the
+keeps it, so you come back to the results you left, and `ctrl+o` empties the
 three fields without touching it. To change it, leave and press `F` again
 somewhere else — or `/` for the whole tree. The `Dir` line appears only when a
 scope is in force, so it always states a fact about the current search rather
@@ -430,12 +430,12 @@ look at it → back to the same results loop costs one keystroke instead of
 retyping a glob and a regexp. A content search is re-run rather than restored,
 since its results went stale while you were away. Restoring the row is best
 effort: if the file is gone, or no longer matches, the selection simply starts
-at the top. **`ctrl+l`** empties all three fields without leaving the finder.
+at the top. **`ctrl+o`** empties all three fields without leaving the finder.
 
 Each entry key owns its own view and its own memory. `f` always resumes the
 *tree* search, whatever you had open last, and `B` always comes back to the
 bookmarks you were filtering — so using one never decides where the other takes
-you. `ctrl+l` likewise clears only the fields of the view you are in.
+you. `ctrl+o` likewise clears only the fields of the view you are in.
 
 ### Editing the fields
 

@@ -78,7 +78,7 @@ type Command struct {
 var finderReservedKeys = []string{
 	"esc", "enter", "up", "down", "pgup", "pgdown",
 	"ctrl+p", "ctrl+n", "ctrl+u", "ctrl+d",
-	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+l",
+	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+o",
 	"ctrl+s", "ctrl+x", // the bookmark view's scope and forget keys
 }
 

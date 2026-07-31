@@ -951,16 +951,16 @@ func TestClearFinderEmptiesEverything(t *testing.T) {
 	}
 }
 
-// ctrl+l is finder-local, like the other finder keys, and never reaches the
+// ctrl+o is finder-local, like the other finder keys, and never reaches the
 // normal-mode binding table where it would shadow a command key.
 func TestFinderClearIsFinderLocal(t *testing.T) {
 	m := &Model{cfg: config.Default()}
 	m.buildBindings()
 
-	if got := m.actionKeys["finder-clear"]; got != "ctrl+l" {
-		t.Errorf("default finder-clear = %q, want ctrl+l", got)
+	if got := m.actionKeys["finder-clear"]; got != "ctrl+o" {
+		t.Errorf("default finder-clear = %q, want ctrl+o", got)
 	}
-	if _, ok := m.bindings["ctrl+l"]; ok {
+	if _, ok := m.bindings["ctrl+o"]; ok {
 		t.Error("finder-clear leaked into the normal-mode binding table")
 	}
 	// Resume is the opposite: it is a normal-mode action and must be bound.
@@ -1621,7 +1621,7 @@ func TestScopeIsDecidedAtEntry(t *testing.T) {
 	}
 }
 
-// ctrl+l empties the three fields. The scope is not one of them: it belongs to
+// ctrl+o empties the three fields. The scope is not one of them: it belongs to
 // the session, so clearing the query must not silently widen the search.
 func TestClearFinderKeepsTheScope(t *testing.T) {
 	root := t.TempDir()

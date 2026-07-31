@@ -438,7 +438,7 @@ func TestBookmarkAndFinderRememberIndependently(t *testing.T) {
 	}
 }
 
-// ctrl+l in the bookmark view clears its own field only.
+// ctrl+o in the bookmark view clears its own field only.
 func TestBookmarkClearLeavesTheTreeFieldsAlone(t *testing.T) {
 	m := bmModel(t, "a.go")
 	bmWrite(t, m, "a.go", bmSample)
@@ -453,7 +453,7 @@ func TestBookmarkClearLeavesTheTreeFieldsAlone(t *testing.T) {
 	for _, r := range "drop" {
 		m.handleKey(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
-	m.handleKey(tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl})
+	m.handleKey(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
 
 	if got := m.bmInput.Value(); got != "" {
 		t.Errorf("bookmark query = %q, want it cleared", got)

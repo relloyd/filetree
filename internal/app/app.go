@@ -666,7 +666,7 @@ func (m *Model) buildBindings() {
 		"finder-prev-field":   "shift+tab",
 		"finder-more":         "ctrl+g",
 		"finder-copy-command": "ctrl+y",
-		"finder-clear":        "ctrl+l",
+		"finder-clear":        "ctrl+o",
 		// finder-resume is a normal-mode action, so unlike the finder-local
 		// keys above it does belong in the actions map below.
 		"finder-resume": "f",
