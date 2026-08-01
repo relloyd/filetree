@@ -59,8 +59,15 @@ icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 #                          # clear. Either way "esc" clears them.
 watch_debounce_ms = 150
 
-# The "/" finder has three input lines; "tab" cycles them.
+# The "/" finder has three input lines; "tab" cycles them in this order, so
+# one "tab" from Find reaches Grep.
 #   Find:  fuzzy subsequence over paths (include "/" to pin path segments)
+#   Grep:  a regexp searched inside the files the Type filter below selects
+#          (needs ripgrep). Rows become "path:line  matched text"; enter still
+#          jumps to the file. Type + Grep together are the "fd ... | rg ..."
+#          combination. With Type or Grep filled in, the status bar shows the
+#          rg command the finder amounts to ("rg --files ..." when only Type
+#          is set); "ctrl+y" copies it so you can run it yourself.
 #   Type:  comma-separated file-type globs, applied while walking, so a
 #          filtered search reaches the leaves of a tree too big to index whole
 #          hcl              *.hcl, or a file named exactly "hcl"
@@ -69,12 +76,6 @@ watch_debounce_ms = 150
 #          *.tf             matched against the basename
 #          infra/**/*.hcl   matched against the whole path ("**" spans dirs)
 #          !vendor/**       a leading "!" excludes
-#   Grep:  a regexp searched inside the files Type selected (needs ripgrep).
-#          Rows become "path:line  matched text"; enter still jumps to the
-#          file. Type + Grep together are the "fd ... | rg ..." combination.
-#          With Type or Grep filled in, the status bar shows the rg command
-#          the finder amounts to ("rg --files ..." when only Type is set);
-#          "ctrl+y" copies it so you can run it yourself.
 # With a Type filter and an empty Find, the list is every file of that type.
 
 # "B" opens the same finder over line bookmarks — a file and a line, captured

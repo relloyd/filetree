@@ -379,13 +379,8 @@ func (m *Model) renderFinderHeader() []string {
 		lines = append(lines, m.renderFinderScope())
 	}
 	lines = append(lines, label(" Find ", fieldQuery)+m.input.View()+m.renderFinderCounter())
-	if m.finderField == fieldType || m.typeInput.Value() != "" {
-		line := label(" Type ", fieldType) + m.typeInput.View()
-		if m.fuzzyFilterErr != "" {
-			line += styleError.Render("  " + m.fuzzyFilterErr)
-		}
-		lines = append(lines, line)
-	}
+	// Grep before Type, matching the tab order the finderField enum sets; see
+	// the note on it in fuzzy.go.
 	if m.finderField == fieldGrep || m.grepInput.Value() != "" {
 		line := label(" Grep ", fieldGrep) + m.grepInput.View()
 		switch {
@@ -398,6 +393,13 @@ func (m *Model) renderFinderHeader() []string {
 		// stays up after it finishes rather than clearing with the spinner.
 		if n := m.grepSkipped; n > 0 {
 			line += styleChanged.Render(fmt.Sprintf("  %d skipped (line too long)", n))
+		}
+		lines = append(lines, line)
+	}
+	if m.finderField == fieldType || m.typeInput.Value() != "" {
+		line := label(" Type ", fieldType) + m.typeInput.View()
+		if m.fuzzyFilterErr != "" {
+			line += styleError.Render("  " + m.fuzzyFilterErr)
 		}
 		lines = append(lines, line)
 	}
@@ -775,7 +777,7 @@ func (m *Model) helpRows() []helpRow {
 		{m.actionKeys["reveal"], "reveal in Finder"},
 		{m.actionKeys["fuzzy"], "fuzzy finder"},
 		{m.actionKeys["fuzzy-here"], "fuzzy finder, confined to the selected dir"},
-		{m.actionKeys["finder-next-field"], "in the fuzzy finder: cycle Find / Type / Grep"},
+		{m.actionKeys["finder-next-field"], "in the fuzzy finder: cycle Find / Grep / Type"},
 		{m.actionKeys["finder-more"], "in the fuzzy finder: raise the match limit (2×, 3×, …)"},
 		{m.actionKeys["finder-copy-command"], "in the fuzzy finder: copy the rg command"},
 		{m.actionKeys["finder-clear"], "in the fuzzy finder: empty all three fields"},

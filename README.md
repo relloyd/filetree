@@ -103,13 +103,13 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `o` | reveal in Finder |
 | `/` | fuzzy finder (esc cancels, enter jumps) |
 | `F` | fuzzy finder, confined to the selected directory (its parent for a file) |
-| `tab` | in the fuzzy finder: cycle the `Find` / `Type` / `Grep` fields |
+| `tab` | in the fuzzy finder: cycle the `Find` / `Grep` / `Type` fields |
 | `ctrl+g` | in the fuzzy finder: raise the match limit for the session (2×, 3×, …) |
 | `ctrl+y` | in the fuzzy finder: copy the `rg` command behind the `Type`/`Grep` fields |
 | `ctrl+o` | in the fuzzy finder: empty all three fields |
 | `ctrl+e` | in the fuzzy finder: open the highlighted result in helix, at the matched line — quitting returns you to the results |
 | `ctrl+t` | in the fuzzy finder: hand the highlighted result to the other tmux pane, without closing the finder |
-| `f` | reopen the `/` finder with the last `Find`/`Type`/`Grep` still in place |
+| `f` | reopen the `/` finder with the last `Find`/`Grep`/`Type` still in place |
 | `b` | recently opened files, newest first — fuzzy-filtered the same way; enter reveals and opens |
 | `B` | line bookmarks captured from your editor — searchable by path *and* by the line's contents |
 | `a` / `A` | new file / new directory |
@@ -206,8 +206,9 @@ Worth knowing:
 
 ## Fuzzy Find
 
-Fuzzy find (`/`) has three input lines; `tab` (`shift+tab`) cycles them. Above
-them, a `Dir` line shows where it is searching — see
+Fuzzy find (`/`) has three input lines — `Find`, `Grep`, `Type` — and `tab`
+(`shift+tab`) cycles them in that order, so one `tab` from `Find` reaches
+`Grep`. Above them, a `Dir` line shows where it is searching — see
 [Scoping to a directory](#scoping-to-a-directory).
 
 ### Find
@@ -222,42 +223,9 @@ everything else, then shallow paths and basename matches beat equally-fuzzy
 deep ones. With an empty query the list shows exactly the visible tree entries
 in order, so `/` + cursor keys doubles as a quick jump list.
 
-### Type
-
-**`Type`** narrows by file type, as a comma-separated list of globs:
-
-| Typed | Matches |
-|---|---|
-| `hcl` | `*.hcl`, or a file named exactly `hcl` |
-| `.hcl` | `*.hcl` |
-| `terragrunt.hcl` | that basename, anywhere in the tree |
-| `*.tf` | matched against the basename |
-| `infra/**/*.hcl` | matched against the whole path (`**` spans directories) |
-| `!vendor/**` | a leading `!` excludes |
-
-The filter is applied **while walking**, not to the results, which is what
-makes it useful on a large root: `Type: terragrunt.hcl` with an empty `Find`
-lists every one of them in a monorepo far too big to index whole. Candidates
-come from a breadth-first walk, so top-level entries are always indexed even
-in huge roots, and the walk stops as soon as you leave the finder. At most 1000
-matches are kept (`fuzzy_max_matches` under `[general]`) out of at most 50,000
-indexed paths (`fuzzy_max_candidates`).
-
-When results are being dropped at that cap the counter says so — `12/1000 max`
-in amber — and **`ctrl+g`** multiplies the limit for the rest of the ft session:
-once for 2×, again for 3×, and so on. The counter turns green and gains a `×3`
-once raised, so a session running on a raised limit is never a surprise. In name
-mode this is instant, since the candidates are already walked; in content mode
-it re-runs the ripgrep search. The raise survives closing and reopening the
-finder, and resets when you quit.
-
-The part of each filename that the `Type` filter accounts for is highlighted in
-gold — the `.hcl` of `*.hcl`, the whole basename of `terragrunt.hcl` — while
-`Find` matches stay blue. Where they overlap, `Find` wins.
-
 ### Grep
 
-**`Grep`** searches *inside* the files `Type` selected, using
+**`Grep`** searches *inside* the files the `Type` filter below selects, using
 [ripgrep](https://github.com/BurntSushi/ripgrep) — this is the one part of
 `ft` that needs `rg` installed. Together the two fields are the `fd … | rg …`
 combination: `Type: hcl` + `Grep: dependency "` finds every `terragrunt.hcl`
@@ -292,6 +260,39 @@ matters in one case: when the **total** cap (`fuzzy_max_matches`) is reached,
 *which* files made it in is down to timing. `ctrl+g` raises the cap; ripgrep's
 own `--sort path` would make the order stable at the cost of running
 single-threaded.
+
+### Type
+
+**`Type`** narrows by file type, as a comma-separated list of globs:
+
+| Typed | Matches |
+|---|---|
+| `hcl` | `*.hcl`, or a file named exactly `hcl` |
+| `.hcl` | `*.hcl` |
+| `terragrunt.hcl` | that basename, anywhere in the tree |
+| `*.tf` | matched against the basename |
+| `infra/**/*.hcl` | matched against the whole path (`**` spans directories) |
+| `!vendor/**` | a leading `!` excludes |
+
+The filter is applied **while walking**, not to the results, which is what
+makes it useful on a large root: `Type: terragrunt.hcl` with an empty `Find`
+lists every one of them in a monorepo far too big to index whole. Candidates
+come from a breadth-first walk, so top-level entries are always indexed even
+in huge roots, and the walk stops as soon as you leave the finder. At most 1000
+matches are kept (`fuzzy_max_matches` under `[general]`) out of at most 50,000
+indexed paths (`fuzzy_max_candidates`).
+
+When results are being dropped at that cap the counter says so — `12/1000 max`
+in amber — and **`ctrl+g`** multiplies the limit for the rest of the ft session:
+once for 2×, again for 3×, and so on. The counter turns green and gains a `×3`
+once raised, so a session running on a raised limit is never a surprise. In name
+mode this is instant, since the candidates are already walked; in content mode
+it re-runs the ripgrep search. The raise survives closing and reopening the
+finder, and resets when you quit.
+
+The part of each filename that the `Type` filter accounts for is highlighted in
+gold — the `.hcl` of `*.hcl`, the whole basename of `terragrunt.hcl` — while
+`Find` matches stay blue. Where they overlap, `Find` wins.
 
 ### Scoping to a directory
 

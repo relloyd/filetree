@@ -29,10 +29,16 @@ const (
 // finderField identifies which of the finder's input lines has focus.
 type finderField int
 
+// Declaration order is the tab order, since cycleFinderField walks these by
+// number — Grep sits second because it is the field reached for most often, and
+// one tab from Find should land on it. renderFinderHeader draws the lines in
+// this same order; the two are kept honest by TestFinderFieldOrderMatchesHeader.
+//
+// fieldQuery has to stay at zero: it is the field a fresh Model starts on.
 const (
 	fieldQuery finderField = iota // fuzzy name query
-	fieldType                     // file-type filter (globs)
 	fieldGrep                     // content regex, run through ripgrep
+	fieldType                     // file-type filter (globs)
 	finderFieldCount
 )
 

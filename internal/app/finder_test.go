@@ -262,6 +262,47 @@ func TestWalkChunksIgnoredOutsideFinder(t *testing.T) {
 	}
 }
 
+// Two hardcoded orders have to agree: the enum cycleFinderField walks by
+// number, and the sequence renderFinderHeader appends its lines in. Nothing
+// links them, so changing one alone is a silent bug — tab would jump from the
+// first line to the third and back up, and every other test would still pass.
+//
+// This drives the real cycle and reads the real header, so it fails on either
+// half of that change rather than restating one of the two lists.
+func TestFinderFieldOrderMatchesHeader(t *testing.T) {
+	m := finderModel()
+	m.width = 80
+	// Both optional fields render only when focused or non-empty; fill them so
+	// every line is on screen at once.
+	m.typeInput.SetValue("hcl")
+	m.grepInput.SetValue("dependency")
+
+	labels := map[finderField]string{fieldQuery: "Find", fieldGrep: "Grep", fieldType: "Type"}
+
+	var tabbed []string
+	for range int(finderFieldCount) {
+		tabbed = append(tabbed, labels[m.finderField])
+		m.cycleFinderField(1)
+	}
+	if m.finderField != fieldQuery {
+		t.Fatalf("a full cycle of %d tabs ended on field %d, not back at Find", finderFieldCount, m.finderField)
+	}
+
+	var drawn []string
+	for _, line := range m.renderFinderHeader() {
+		for _, name := range tabbed {
+			if strings.Contains(plainText(line), " "+name+" ") {
+				drawn = append(drawn, name)
+			}
+		}
+	}
+
+	if !slices.Equal(tabbed, drawn) {
+		t.Errorf("tab visits %v but the header draws %v; the enum in fuzzy.go and\n"+
+			"renderFinderHeader in view.go have to list the fields in the same order", tabbed, drawn)
+	}
+}
+
 // Tab cycles the finder's input lines and each field keeps its text.
 func TestCycleFinderFieldKeepsText(t *testing.T) {
 	m := finderModel()
@@ -272,15 +313,15 @@ func TestCycleFinderFieldKeepsText(t *testing.T) {
 	if m.finderField != fieldQuery {
 		t.Fatalf("initial field = %d", m.finderField)
 	}
-	for i, want := range []finderField{fieldType, fieldGrep, fieldQuery} {
+	for i, want := range []finderField{fieldGrep, fieldType, fieldQuery} {
 		m.cycleFinderField(1)
 		if m.finderField != want {
 			t.Errorf("tab %d landed on field %d, want %d", i+1, m.finderField, want)
 		}
 	}
 	m.cycleFinderField(-1)
-	if m.finderField != fieldGrep {
-		t.Errorf("shift+tab went to %d, want fieldGrep", m.finderField)
+	if m.finderField != fieldType {
+		t.Errorf("shift+tab went to %d, want fieldType", m.finderField)
 	}
 	if m.input.Value() != "terragr" || m.typeInput.Value() != "hcl" || m.grepInput.Value() != "dependency" {
 		t.Errorf("cycling lost text: %q / %q / %q",
@@ -415,7 +456,7 @@ func TestFilterRestartsOnlyOnChange(t *testing.T) {
 func TestFinderTabIsHandledInFuzzyMode(t *testing.T) {
 	m := finderModel()
 	m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
-	if m.finderField != fieldType {
+	if m.finderField != fieldGrep {
 		t.Errorf("tab in the finder left the field at %d", m.finderField)
 	}
 }
