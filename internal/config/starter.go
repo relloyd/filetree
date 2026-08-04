@@ -237,11 +237,18 @@ key = "ctrl+k"
 finder_key = "ctrl+k"
 
 # Open lazygit for the repo containing the selection, in a popup. lazygit
-# finds the repo by walking up from its working directory, so cd to the
-# selection's directory ({dir} = the selection itself if it's a dir).
+# finds the repo by walking up from its working directory, so tmux has to be
+# told which directory that is: a popup starts in the *session's* working
+# directory — where the session was created — not in the cwd of the shell that
+# asked for it, so a "cd" in front of this would never reach lazygit. "-d"
+# places the popup, "-c" the session inside it ({dir} = the selection itself if
+# it's a dir). The inner command stays in double quotes because {dir} arrives
+# shell-quoted, and single quotes do not nest.
+# It is interactive so that quitting lazygit re-reads the tree and refreshes
+# git status, which is the whole point of having just used it.
 [commands.lazygit-popup]
-run = "cd {dir} && tmux display-popup -E -w 92% -h 92% 'tmux new-session lazygit'"
-mode = "background"
+run = 'tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} lazygit"'
+mode = "interactive"
 key = "L"
 
 # Diff the two most recently space-marked files in a split (older on the

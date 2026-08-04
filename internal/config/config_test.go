@@ -51,6 +51,12 @@ func TestLoadStarter(t *testing.T) {
 	if s := cfg.Commands["shell-vsplit-adjacent"]; s.Key != "N" || s.Mode != ModeBackground {
 		t.Errorf("shell-vsplit-adjacent = %+v, want key N, background", s)
 	}
+	// lazygit is the one popup that is interactive: only an interactive command
+	// refreshes git status when it returns, and a lazygit that has just been
+	// quit is exactly when the tree's status is stale.
+	if l := cfg.Commands["lazygit-popup"]; l.Key != "L" || l.Mode != ModeInteractive {
+		t.Errorf("lazygit-popup = %+v, want key L, interactive", l)
+	}
 	// The pane commands take chords rather than letters, in the tree and in the
 	// finder alike. ctrl+l only became free when finder-clear moved to ctrl+o.
 	for _, tc := range []struct{ name, key string }{
@@ -124,6 +130,36 @@ func TestStarterPaneCommandsAreGuarded(t *testing.T) {
 		if !strings.HasPrefix(c.Run, `[ -z "$TMUX" ] ||`) {
 			t.Errorf("commands.%s: run = %q, want the $TMUX guard in front", name, c.Run)
 		}
+	}
+}
+
+// A popup does not inherit the cwd of the shell that asked for it: tmux starts
+// it in the session's working directory, fixed when the session was created. So
+// "cd {dir} && tmux display-popup ..." silently drops the directory, and the
+// popup opens whereever ft happened to be started — which looks right for as
+// long as you only ever start ft in the directory you want. Every popup in the
+// starter has to name {dir} to tmux itself instead.
+func TestStarterPopupsNameTheirDirectoryToTmux(t *testing.T) {
+	cfg, err := loadTOML(t, starterTOML)
+	if err != nil {
+		t.Fatalf("starter config failed to load: %v", err)
+	}
+	seen := 0
+	for name, c := range cfg.Commands {
+		if !strings.Contains(c.Run, "display-popup") {
+			continue
+		}
+		seen++
+		if strings.Contains(c.Run, "cd {dir}") {
+			t.Errorf("commands.%s: run = %q, cd cannot set a popup's directory", name, c.Run)
+		}
+		if !strings.Contains(c.Run, "-d {dir}") && !strings.Contains(c.Run, "-c {dir}") {
+			t.Errorf("commands.%s: run = %q, want -d {dir} or -c {dir}", name, c.Run)
+		}
+	}
+	// Without this the loop above passes a starter with no popups at all.
+	if seen == 0 {
+		t.Error("the starter defines no popup command at all")
 	}
 }
 
