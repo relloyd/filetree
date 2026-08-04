@@ -173,12 +173,21 @@ run = 'tmux split-window -fh -c {root} "hx {paths}"'
 mode = "background"
 key = "v"
 
-# Open a shell in a new full-height split at the right edge, in the
-# selection's directory ({dir} = the selection itself if it's a dir).
+# Open a shell in a new pane immediately to the right of the filetree pane,
+# splitting ft's own space. Any existing pane to the right is pushed further
+# right — use this when you want to insert a pane next to ft without
+# disturbing the existing layout.
+[commands.shell-vsplit-adjacent]
+run = 'tmux split-window -h -c {dir}'
+mode = "background"
+key = "N"
+
+# Open a shell in a new full-height split at the right edge of the window,
+# regardless of what panes already exist there.
 [commands.shell-vsplit]
 run = 'tmux split-window -fh -c {dir}'
 mode = "background"
-key = "N"
+key = "n"
 
 # The same shell, in a popup over the whole window instead of a split — for
 # a command you want to run and dismiss rather than keep beside the tree.
@@ -187,7 +196,7 @@ key = "N"
 [commands.shell-popup]
 run = 'tmux display-popup -E -w 92% -h 92% "tmux new-session -c {dir}"'
 mode = "background"
-key = "n"
+key = "P"
 
 # Prime a ripgrep at the selection's directory in the other tmux pane:
 # the search path is filled in and the cursor waits where the pattern goes.

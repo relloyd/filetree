@@ -42,11 +42,14 @@ func TestLoadStarter(t *testing.T) {
 	if g := cfg.Commands["grep-here"]; g.Key != "r" {
 		t.Errorf("grep-here key = %q, want r", g.Key)
 	}
-	if s := cfg.Commands["shell-popup"]; s.Key != "n" || s.Mode != ModeBackground {
-		t.Errorf("shell-popup = %+v, want key n, background", s)
+	if s := cfg.Commands["shell-popup"]; s.Key != "P" || s.Mode != ModeBackground {
+		t.Errorf("shell-popup = %+v, want key P, background", s)
 	}
-	if s := cfg.Commands["shell-vsplit"]; s.Key != "N" || s.Mode != ModeBackground {
-		t.Errorf("shell-vsplit = %+v, want key N, background", s)
+	if s := cfg.Commands["shell-vsplit"]; s.Key != "n" || s.Mode != ModeBackground {
+		t.Errorf("shell-vsplit = %+v, want key n, background", s)
+	}
+	if s := cfg.Commands["shell-vsplit-adjacent"]; s.Key != "N" || s.Mode != ModeBackground {
+		t.Errorf("shell-vsplit-adjacent = %+v, want key N, background", s)
 	}
 	// The pane commands take chords rather than letters, in the tree and in the
 	// finder alike. ctrl+l only became free when finder-clear moved to ctrl+o.
