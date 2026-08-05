@@ -57,12 +57,21 @@ func TestLoadStarter(t *testing.T) {
 	if l := cfg.Commands["lazygit-popup"]; l.Key != "L" || l.Mode != ModeInteractive {
 		t.Errorf("lazygit-popup = %+v, want key L, interactive", l)
 	}
+	// The diff popup is mark-aware on purpose, which is also what puts the
+	// files it shows into the recent list: drop {paths} for {path} and both
+	// behaviours change at once.
+	if d := cfg.Commands["git-diff-popup"]; d.Key != "alt+d" || d.Mode != ModeInteractive {
+		t.Errorf("git-diff-popup = %+v, want key alt+d, interactive", d)
+	} else if !strings.Contains(d.Run, "{paths}") {
+		t.Errorf("git-diff-popup: run = %q, want {paths} so marks work", d.Run)
+	}
 	// The pane commands take chords rather than letters, in the tree and in the
 	// finder alike. ctrl+l only became free when finder-clear moved to ctrl+o.
 	for _, tc := range []struct{ name, key string }{
 		{"focus-right", "ctrl+l"},
 		{"resize-pane-30", "ctrl+j"},
 		{"resize-pane-80", "ctrl+k"},
+		{"even-horizontal", "alt+h"},
 	} {
 		c := cfg.Commands[tc.name]
 		if c.Key != tc.key || c.FinderKey != tc.key || c.Mode != ModeBackground {
@@ -121,7 +130,7 @@ func TestStarterPaneCommandsAreGuarded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("starter config failed to load: %v", err)
 	}
-	for _, name := range []string{"focus-right", "resize-pane-30", "resize-pane-80"} {
+	for _, name := range []string{"focus-right", "resize-pane-30", "resize-pane-80", "even-horizontal"} {
 		c, ok := cfg.Commands[name]
 		if !ok {
 			t.Errorf("commands.%s is missing from the starter", name)

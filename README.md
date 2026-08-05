@@ -74,8 +74,8 @@ one surfaces as an error in the status bar rather than a failure to start.
 
 | Tool | Enables | Optional? |
 |---|---|---|
-| `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees | optional, but most of the git awareness is dark without it |
-| `tmux` | the `t`/`v`/`N`/`r` split and hand-off commands, the `n`/`L` popups, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, and the auto-relaunch above | optional |
+| `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees, `alt+d` diffs | optional, but most of the git awareness is dark without it |
+| `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `P`/`L`/`alt+d` popups, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L`, in a popup over the window | optional |
@@ -138,19 +138,33 @@ session automatically, so they work out of the box.
 | `e` | `ctrl+e` | open the selection — or everything marked — in helix; works on directories too (helix shows its file picker) |
 | `t` | `ctrl+t` | smart hand-off to the previously-active tmux pane: opens the files in the helix already running there (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
 | `v` | | open the selection, or everything marked, in helix in a new full-height split at the right edge — repeatable, one pane per press |
-| `N` | | open a shell in a new full-height split at the right edge, in the selection's directory |
-| `n` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree |
+| `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
+| `N` | | the same shell in a split beside the tree, dividing the current pane rather than the window |
+| `P` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree |
 | `r` | | prime an `rg` in the other tmux pane at the selection's directory |
 | `L` | | open lazygit for the repo containing the selection, in a popup |
+| `alt+d` | | diff the selection — or everything marked — against `HEAD` in a popup; through git's pager if one is configured, and readable without one |
 | `D` | | diff the two most recently marked files in a split, with `delta` |
 | `ctrl+l` | `ctrl+l` | focus the tmux pane to the right of `ft` — the keyboard equivalent of `ctrl+b` `→`; silent when there is no pane to the right, or when `ft` is not in tmux |
 | `ctrl+j` | `ctrl+j` | narrow `ft`'s pane to 30% of the window |
 | `ctrl+k` | `ctrl+k` | widen `ft`'s pane to 80% of the window |
+| `alt+h` | `alt+h` | give every pane in the window the same width, side by side — tmux's `even-horizontal` layout, for a window that has drifted out of shape |
 
-The last three take the same chord in the tree and in the finder, so a search
-can be left up while you go and look at something in the pane beside it. Both
-popups run their own nested tmux session, which is what gives them their own
-panes and scrollback; closing that session (`exit`, `ctrl+d`) closes the popup.
+The last four take the same chord in the tree and in the finder, so a search
+can be left up while you go and look at something in the pane beside it. All
+three popups run their own nested tmux session, which is what gives them their
+own panes and scrollback; closing that session (`exit`, `ctrl+d`) closes the
+popup. `alt+d` wants that scrollback in particular: git pages its output only
+when a pager is configured, so a long diff on a machine without one still has
+somewhere to scroll back to. It waits for a keypress only when nothing else is
+holding the screen — an empty diff, a git error, or no pager at all — so with a
+pager configured the `q` that quits it closes the popup too.
+
+A popup does not inherit the working directory of the shell that asked for it:
+tmux starts it in the session's own working directory, which is wherever `ft`
+was started. So a command of your own that needs a popup somewhere in
+particular has to say so with `display-popup -d {dir}` (and `new-session -c
+{dir}` if it nests one) — putting `cd {dir} &&` in front of it does nothing.
 
 A command's `key` fires it against the tree selection. Its optional
 `finder_key` fires it from inside the fuzzy finder, against the highlighted
@@ -361,9 +375,10 @@ rather than overwrite each other's.
 What gets recorded is decided by the command, not the key: a command counts as
 opening a file when its template names it with `{paths}`, `{path}` or
 `{relpath}` — a marked set records every file in it. So
-`enter`, `e`, `t` and `v` are remembered, while `n`/`N` (a shell in `{dir}`),
-`r` (an `rg` primed at `{dir}`), `L` (lazygit in `{dir}`), `D` (a diff of
-marked paths) and the `ctrl+l`/`ctrl+j`/`ctrl+k` pane commands are not.
+`enter`, `e`, `t`, `v` and `alt+d` are remembered — reading a file's diff counts
+as having had it open — while `n`/`N`/`P` (a shell in `{dir}`), `r` (an `rg`
+primed at `{dir}`), `L` (lazygit in `{dir}`), `D` (a diff of marked paths) and
+the `ctrl+l`/`ctrl+j`/`ctrl+k`/`alt+h` pane commands are not.
 Directories are never recorded, and neither is `C` — its file lives outside the
 tree. Files deleted since are dropped from the list rather than offered and
 then failing to open, but they stay in the history, since a branch switch can

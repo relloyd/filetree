@@ -236,6 +236,17 @@ mode = "background"
 key = "ctrl+k"
 finder_key = "ctrl+k"
 
+# Give every pane in the window the same width, side by side — tmux's own
+# "even-horizontal" preset layout, and the undo for a window that has drifted
+# out of shape after a few splits and resizes. It takes the same $TMUX guard
+# as the two above, for the same reason: run outside a pane and tmux would
+# rearrange a window you are not even looking at.
+[commands.even-horizontal]
+run = '[ -z "$TMUX" ] || tmux select-layout even-horizontal'
+mode = "background"
+key = "alt+h"
+finder_key = "alt+h"
+
 # Open lazygit for the repo containing the selection, in a popup. lazygit
 # finds the repo by walking up from its working directory, so tmux has to be
 # told which directory that is: a popup starts in the *session's* working
@@ -250,6 +261,43 @@ finder_key = "ctrl+k"
 run = 'tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} lazygit"'
 mode = "interactive"
 key = "L"
+
+# Diff the selection — or everything marked — in a popup, working tree against
+# HEAD so staged changes still show after using lazygit above. {paths} is what
+# makes marks work: it is the marked set, oldest first, or the selection when
+# nothing is marked, and "git diff --" takes a list.
+# Like the two popups above it runs its own tmux session, so the diff has real
+# scrollback. That is not a nicety: git pages its output only when a pager is
+# configured, and a plain "git diff" with none simply prints, so without a
+# session the top of a long diff would scroll away with no way back to it.
+# The pause exists only for the cases where nothing else holds the screen —
+# nothing to show, git failing, or a pager of "cat", which is how "no pager at
+# all" reports itself. When a pager does run, quitting it closes the popup, so
+# a diff costs one "q" and no more. The pause takes any key rather than enter,
+# since "q" is already in your fingers from the pager.
+# An untracked file shows nothing: git has no version of it to compare against.
+[commands.git-diff-popup]
+run = '''
+tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} \"
+hold() {
+  echo
+  echo '-- press any key to close --'
+  stty raw -echo 2>/dev/null
+  dd bs=1 count=1 >/dev/null 2>&1
+  stty sane 2>/dev/null
+}
+if git -C {dir} diff --quiet HEAD -- {paths}; then
+  echo 'No changes vs HEAD'
+  hold
+elif ! git -C {dir} diff HEAD -- {paths}; then
+  hold
+elif git -C {dir} var GIT_PAGER | grep -qx cat; then
+  hold
+fi
+\""
+'''
+mode = "interactive"
+key = "alt+d"
 
 # Diff the two most recently space-marked files in a split (older on the
 # left); the trailing read keeps the pane open until you press Enter.
