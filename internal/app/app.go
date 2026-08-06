@@ -4,7 +4,9 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -253,6 +255,10 @@ type Model struct {
 	bindings   map[string]func() (tea.Model, tea.Cmd)
 	actionKeys map[string]string
 
+	// keyConflicts is what buildBindings had to refuse: reported once in the
+	// status bar and listed in full under the help key.
+	keyConflicts []keyConflict
+
 	// finderCmds maps a command's finder_key to its name. Separate from
 	// bindings, which is normal-mode only.
 	finderCmds map[string]string
@@ -360,7 +366,30 @@ func (m *Model) loadRoot(root string) error {
 func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{waitFs(m.watcher)}
 	cmds = append(cmds, m.ensureStatusesForExpanded()...)
+	if s := m.configNote(); s != "" {
+		cmds = append(cmds, m.note(s, true))
+	}
 	return tea.Batch(cmds...)
+}
+
+// configNote summarises what ft could not take at face value — settings that
+// decoded into nothing, and the key clashes buildBindings had to settle — for
+// the status bar, and is empty when there are none. The detail lives under the
+// help key: the status message clears itself after a few seconds, which is long
+// enough to notice a problem and not long enough to read a list of them.
+func (m *Model) configNote() string {
+	unknown, conflicts := m.cfg.Unknown, m.keyConflicts
+	help := m.actionKeys["help"]
+	switch n := len(unknown) + len(conflicts); {
+	case n == 0:
+		return ""
+	case n == 1 && len(conflicts) == 1:
+		return fmt.Sprintf("key conflict — %s (press %s)", conflicts[0], help)
+	case n == 1:
+		return fmt.Sprintf("unknown setting %s — nothing reads it (press %s)", unknown[0], help)
+	default:
+		return fmt.Sprintf("%d config warnings — press %s for details", n, help)
+	}
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -641,66 +670,64 @@ func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // buildBindings maps keys to actions: user command keys first, then
 // configurable actions (which win conflicts), then fixed navigation.
+//
+// Every pass runs in sorted order and claims through claim(), which records
+// what it displaced. Two things wanting one key is not an error worth refusing
+// to start over, but it used to be invisible *and* undecided: the actions pass
+// was a plain map range, so the winner was whichever Go's randomised iteration
+// reached last and could differ between launches. Now the precedence is fixed —
+// commands lose to actions, everything loses to navigation — and each casualty
+// is on m.keyConflicts for the status bar and the help page to report.
 func (m *Model) buildBindings() {
 	b := map[string]func() (tea.Model, tea.Cmd){}
+	owner := map[string]string{}
+	m.keyConflicts = nil
+
+	claim := func(key, who string, fn func() (tea.Model, tea.Cmd)) {
+		if key == "" {
+			return
+		}
+		if held, taken := owner[key]; taken {
+			m.keyConflicts = append(m.keyConflicts, keyConflict{
+				key: key, kept: who, refused: held, detail: held + " never runs",
+			})
+		}
+		b[key], owner[key] = fn, who
+	}
 
 	m.finderCmds = map[string]string{}
-	for name, c := range m.cfg.Commands {
-		if c.Key != "" {
-			b[c.Key] = func() (tea.Model, tea.Cmd) { return m.runCommand(name) }
+	for _, name := range sortedCommands(m.cfg.Commands) {
+		c := m.cfg.Commands[name]
+		claim(c.Key, "commands."+name, func() (tea.Model, tea.Cmd) { return m.runCommand(name) })
+		if c.FinderKey == "" {
+			continue
 		}
-		if c.FinderKey != "" {
-			m.finderCmds[c.FinderKey] = name
+		if held, taken := m.finderCmds[c.FinderKey]; taken {
+			// First in sorted order keeps it, so the loser is this one.
+			m.keyConflicts = append(m.keyConflicts, keyConflict{
+				key: c.FinderKey, kept: "commands." + held, refused: "commands." + name,
+				detail: "in the finder",
+			})
+			continue
 		}
+		m.finderCmds[c.FinderKey] = name
 	}
 
-	defaults := map[string]string{
-		"quit":           "q",
-		"toggle-hidden":  ".",
-		"toggle-ignored": "i",
-		"reload":         "", // F5 reloads; listed so [keys] can still bind one
-		"reveal":         "o",
-		"copy-abs":       "y",
-		"copy-rel":       "Y",
-		"fuzzy":          "/",
-		"fuzzy-here":     "F", // the finder, confined to the selected directory
-		// Finder-local: cycles the "/" input lines. Listed here so [keys] can
-		// remap it, but deliberately absent from the actions map below —
-		// m.bindings is normal-mode only.
-		"finder-next-field":   "tab",
-		"finder-prev-field":   "shift+tab",
-		"finder-more":         "ctrl+g",
-		"finder-copy-command": "ctrl+y",
-		"finder-clear":        "ctrl+o",
-		// finder-resume is a normal-mode action, so unlike the finder-local
-		// keys above it does belong in the actions map below.
-		"finder-resume": "f",
-		"recent":        "b", // the finder over this root's opened-file history
-		"bookmarks":     "B", // the finder over this repo's line bookmarks
-		"new-file":      "a",
-		"new-dir":       "A",
-		"rename":        "R",
-		"delete":        "d",
-		"collapse-all":  "H",
-		"edit-config":   "C",
-		"help":          "?",
-		"mark":          "space",
-		"clear-marks":   "esc",
-		"copy-here":     "p",
-		"move-here":     "m",
-		"scratch":       "s",
-		"scratch-new":   "S",
-		"copy-url":      "u",
-		"open-url":      "U",
-		"worktrees":     "w",
-		"worktree-new":  "W",
-	}
-	m.actionKeys = map[string]string{}
-	for action, key := range defaults {
-		if o, ok := m.cfg.Keys[action]; ok && o != "" {
-			key = o
+	keys, conflicts := resolveActionKeys(defaultActionKeys, m.cfg.Keys)
+	m.actionKeys, m.keyConflicts = keys, append(m.keyConflicts, conflicts...)
+
+	// A finder_key that lands on a remapped finder-local key: config.Load
+	// checks finderReservedKeys, which is the *default* set, so a [keys] line
+	// moving one of them is the case it cannot see.
+	for _, action := range []string{"finder-next-field", "finder-prev-field", "finder-more", "finder-copy-command", "finder-clear"} {
+		key := m.actionKeys[action]
+		if name, taken := m.finderCmds[key]; taken && key != "" {
+			m.keyConflicts = append(m.keyConflicts, keyConflict{
+				key: key, kept: "keys." + action, refused: "commands." + name,
+				detail: "the finder answers this key itself",
+			})
+			delete(m.finderCmds, key)
 		}
-		m.actionKeys[action] = key
 	}
 
 	actions := map[string]func() (tea.Model, tea.Cmd){
@@ -734,24 +761,50 @@ func (m *Model) buildBindings() {
 		"worktrees":      m.toggleWorktrees,
 		"worktree-new":   m.worktreeNew,
 	}
-	for action, fn := range actions {
-		if key := m.actionKeys[action]; key != "" {
-			b[key] = fn
-		}
+	names := make([]string, 0, len(actions))
+	for action := range actions {
+		names = append(names, action)
+	}
+	sort.Strings(names)
+	for _, action := range names {
+		claim(m.actionKeys[action], "keys."+action, actions[action])
 	}
 
-	b["ctrl+c"] = m.quit
-	b["f5"] = m.reloadAll
-	b["up"], b["k"] = m.cursorUp, m.cursorUp
-	b["down"], b["j"] = m.cursorDown, m.cursorDown
-	b["left"], b["h"] = m.leftKey, m.leftKey
-	b["right"], b["l"] = m.rightKey, m.rightKey
-	b["enter"] = m.enterKey
-	b["g"], b["home"] = m.gotoTop, m.gotoTop
-	b["G"], b["end"] = m.gotoBottom, m.gotoBottom
-	b["ctrl+d"], b["pgdown"] = m.halfPageDown, m.halfPageDown
-	b["ctrl+u"], b["pgup"] = m.halfPageUp, m.halfPageUp
+	// Fixed navigation, claimed last because it cannot be given up: there is no
+	// [keys] entry for it, so anything it displaces would otherwise be gone with
+	// no way to ask for it back.
+	for _, nav := range []struct {
+		keys []string
+		fn   func() (tea.Model, tea.Cmd)
+	}{
+		{[]string{"ctrl+c"}, m.quit},
+		{[]string{"f5"}, m.reloadAll},
+		{[]string{"up", "k"}, m.cursorUp},
+		{[]string{"down", "j"}, m.cursorDown},
+		{[]string{"left", "h"}, m.leftKey},
+		{[]string{"right", "l"}, m.rightKey},
+		{[]string{"enter"}, m.enterKey},
+		{[]string{"g", "home"}, m.gotoTop},
+		{[]string{"G", "end"}, m.gotoBottom},
+		{[]string{"ctrl+d", "pgdown"}, m.halfPageDown},
+		{[]string{"ctrl+u", "pgup"}, m.halfPageUp},
+	} {
+		for _, key := range nav.keys {
+			claim(key, "navigation", nav.fn)
+		}
+	}
 	m.bindings = b
+}
+
+// sortedCommands is the command names in a fixed order, so which of two
+// commands sharing a key wins is decided here rather than by map iteration.
+func sortedCommands(cmds map[string]config.Command) []string {
+	names := make([]string, 0, len(cmds))
+	for name := range cmds {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func waitFs(w *fsops.Watcher) tea.Cmd {

@@ -755,7 +755,32 @@ func (m *Model) helpRows() []helpRow {
 	if k := m.actionKeys["reload"]; k != "" {
 		reloadKeys = k + " / F5"
 	}
-	rows := []row{
+	var rows []row
+	// Config warnings come first: they are what the status bar's message
+	// pointed here for, and leading rows are the last thing layoutHelp
+	// truncates away on a short pane.
+	if len(m.cfg.Unknown) > 0 {
+		rows = append(rows, row{"", "settings nothing reads — check the spelling, and the [table] above them:"})
+		for _, k := range m.cfg.Unknown {
+			rows = append(rows, row{"✗", k})
+		}
+		rows = append(rows, row{"", ""})
+	}
+	if len(m.keyConflicts) > 0 {
+		rows = append(rows, row{"", "key conflicts — each key belongs to one thing:"})
+		for _, c := range m.keyConflicts {
+			desc := c.refused
+			if c.kept != "" {
+				desc = fmt.Sprintf("%s keeps it, %s refused", c.kept, c.refused)
+			}
+			if c.detail != "" {
+				desc += " — " + c.detail
+			}
+			rows = append(rows, row{c.key, desc})
+		}
+		rows = append(rows, row{"", ""})
+	}
+	rows = append(rows, []row{
 		{"↑/k ↓/j", "move selection"},
 		{"←/h", "collapse / go to parent"},
 		{"→/l", "expand / step in"},
@@ -791,7 +816,7 @@ func (m *Model) helpRows() []helpRow {
 		{m.actionKeys["edit-config"], "edit config (reloads on exit)"},
 		{m.actionKeys["help"], "toggle this help"},
 		{m.actionKeys["quit"], "quit"},
-	}
+	}...)
 	var names []string
 	for name, c := range m.cfg.Commands {
 		if c.Key != "" || c.FinderKey != "" {

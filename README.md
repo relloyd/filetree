@@ -125,7 +125,15 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `?` | help |
 | `q` | quit |
 
-Keys are remappable in the `[keys]` section of the config.
+Keys are remappable in the `[keys]` section of the config. A key belongs to one
+action, so moving an action onto a key another one already holds means saying
+where that one goes too — `rename = "f2"` alongside `worktree-new = "R"`, or a
+straight swap of the two. An override that would leave another action with no
+key at all is refused rather than obeyed, so a typo cannot hide `rename`: `ft`
+starts as usual, says how many conflicts it found in the status bar, and lists
+them at the top of `?`. The navigation keys (arrows, `hjkl`, `g`/`G`, `enter`,
+`ctrl+u`/`ctrl+d`, `ctrl+c`, `F5`) are not remappable and cannot be taken by a
+command either; anything that tries is reported the same way.
 
 ## Commands
 
@@ -528,3 +536,12 @@ toggle defaults, and keybinding overrides. The placeholders are `{path}`,
 
 `{paths}` is the multi-file counterpart of `{path}` — see
 [Acting on marked files](#acting-on-marked-files).
+
+A setting `ft` does not recognise is reported rather than obeyed or ignored: the
+status bar says how many there are at startup and `?` names them. A misspelling
+is one way to get one, but the usual cause is a line written under a `[keys]`
+header that is still commented out — TOML attaches it to whichever table came
+last instead, normally a command, as a field that command has no place for. It
+reads like a working line and does nothing at all, which is exactly why `ft`
+now says so. Everything else in the file still loads, so `C` can fix it from
+inside `ft`.

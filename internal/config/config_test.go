@@ -172,6 +172,44 @@ func TestStarterPopupsNameTheirDirectoryToTmux(t *testing.T) {
 	}
 }
 
+// A setting ft does not read is not an error — the rest of the config still
+// works — but it must not decode in silence. The shape that prompted this: a
+// keybinding written under a [keys] header still commented out, which TOML
+// attaches to whichever table came last instead, as a field it has no place
+// for. Nothing said so, and the binding simply never happened.
+func TestUnknownSettingsAreCollected(t *testing.T) {
+	cfg, err := loadTOML(t, starterTOML+"\nworktree-new = \"R\"\n")
+	if err != nil {
+		t.Fatalf("an unknown setting must not stop the config loading: %v", err)
+	}
+	if len(cfg.Unknown) != 1 || !strings.HasSuffix(cfg.Unknown[0], ".worktree-new") {
+		t.Errorf("cfg.Unknown = %v, want the stray worktree-new", cfg.Unknown)
+	}
+	// The same line in its proper place is a keybinding, not a stray.
+	cfg, err = loadTOML(t, starterTOML+"\n[keys]\nworktree-new = \"R\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Unknown) != 0 {
+		t.Errorf("cfg.Unknown = %v, want none", cfg.Unknown)
+	}
+	if cfg.Keys["worktree-new"] != "R" {
+		t.Errorf("keys.worktree-new = %q, want R", cfg.Keys["worktree-new"])
+	}
+}
+
+// The starter has to decode with nothing left over, or every user starts with a
+// warning about the config ft wrote for them.
+func TestStarterHasNoUnknownSettings(t *testing.T) {
+	cfg, err := loadTOML(t, starterTOML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Unknown) != 0 {
+		t.Errorf("the shipped starter has settings nothing reads: %v", cfg.Unknown)
+	}
+}
+
 func TestLoadValidation(t *testing.T) {
 	if _, err := loadTOML(t, "[commands]\ndefault = \"nope\"\n"); err == nil {
 		t.Error("undefined default command should fail")

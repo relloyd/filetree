@@ -746,7 +746,14 @@ func (m *Model) handleCmdDone(msg cmdDoneMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.cfg = cfg
 			m.buildBindings()
-			cmds = append(cmds, m.note("Config reloaded", false))
+			// A clash introduced by the edit is worth hearing about now, not
+			// at the next restart — this is the one moment the user is looking
+			// at the keys they just changed.
+			if s := m.configNote(); s != "" {
+				cmds = append(cmds, m.note("Config reloaded — "+s, true))
+			} else {
+				cmds = append(cmds, m.note("Config reloaded", false))
+			}
 		}
 	}
 	if msg.err != nil {

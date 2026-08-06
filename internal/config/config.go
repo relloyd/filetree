@@ -123,6 +123,11 @@ type Config struct {
 	DefaultCommand string // name in Commands that Enter runs
 	Commands       map[string]Command
 	Keys           map[string]string // action name -> key
+
+	// Unknown is every setting in the file that decoded into nothing, in
+	// dotted form ("commands.diff.worktree-new"). Not an error — the rest of
+	// the config is perfectly usable — but never silent either: see Load.
+	Unknown []string
 }
 
 func Default() *Config {
@@ -283,5 +288,22 @@ func Load(path string) (*Config, error) {
 	if _, ok := cfg.Commands[cfg.DefaultCommand]; !ok {
 		return nil, fmt.Errorf("%s: commands.default %q is not a defined command", path, cfg.DefaultCommand)
 	}
+
+	// Whatever the decode above never reached. A mistyped setting is one way to
+	// get here; the commoner one is a keybinding written under a [keys] header
+	// that is still commented out, which TOML files under whichever table came
+	// last — a command, usually — where it is a field that does not exist. Both
+	// look exactly like a setting that works and does nothing at all.
+	//
+	// Collected last, after the PrimitiveDecode pass over [commands]: md only
+	// counts a key as decoded once something has actually asked for it.
+	//
+	// It is a warning rather than an error because the config is still usable,
+	// and because refusing to start would take away the one comfortable way of
+	// fixing it — "C" opens this file in the editor and reloads on the way out.
+	for _, key := range md.Undecoded() {
+		cfg.Unknown = append(cfg.Unknown, key.String())
+	}
+	slices.Sort(cfg.Unknown)
 	return cfg, nil
 }

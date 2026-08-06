@@ -307,6 +307,20 @@ mode = "background"
 key = "D"
 
 # Keybinding overrides. Defaults shown; uncomment to change.
+#
+# A key belongs to one action, so moving an action onto a key another one
+# already holds means saying where that one goes too:
+#
+#   [keys]
+#   rename       = "f2"   # without this line the next one is refused,
+#   worktree-new = "R"    # because R is rename's
+#
+# A straight swap needs no more than the two lines. An override that would
+# leave another action with no key at all is refused instead of obeyed — ft
+# starts as usual, reports the clash in the status bar, and lists it under "?".
+# The keys the tree navigates with (arrows, hjkl, g/G, enter, ctrl+u/ctrl+d,
+# ctrl+c, F5) are not in this list and cannot be taken: a command or an action
+# put on one of them is reported and ignored.
 # [keys]
 # quit = "q"
 # toggle-hidden = "."
