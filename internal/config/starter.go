@@ -321,6 +321,11 @@ key = "D"
 # The keys the tree navigates with (arrows, hjkl, g/G, enter, ctrl+u/ctrl+d,
 # ctrl+c, F5) are not in this list and cannot be taken: a command or an action
 # put on one of them is reported and ignored.
+#
+# This header has to be uncommented for anything below it to be a keybinding:
+# a "name = key" line with no [keys] above it belongs to whichever table came
+# last in the file, which is one of the commands, and is dropped as a field it
+# does not have.
 # [keys]
 # quit = "q"
 # toggle-hidden = "."
