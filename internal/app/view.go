@@ -29,6 +29,7 @@ var (
 	colTitle   = lipgloss.Color("#569CD6")
 	colMark    = lipgloss.Color("#C586C0") // marks: magenta, distinct from git colours
 	colType    = lipgloss.Color("#D7BA7D") // finder: what the Type filter matched
+	colFinder  = lipgloss.Color("#9CDCFE") // help: a key the finder answers, not the tree
 
 	styleBase    = lipgloss.NewStyle()
 	styleDim     = lipgloss.NewStyle().Foreground(colDim)
@@ -39,6 +40,7 @@ var (
 	styleChanged = lipgloss.NewStyle().Foreground(colChanged)
 	styleMark    = lipgloss.NewStyle().Foreground(colMark)
 	styleType    = lipgloss.NewStyle().Foreground(colType)
+	styleFinder  = lipgloss.NewStyle().Foreground(colFinder)
 
 	codeColors = map[gitx.Code]color.Color{
 		gitx.Ignored:   lipgloss.Color("#6D6D6D"),
@@ -654,10 +656,69 @@ func (m *Model) renderGrepRow(h search.Hit, selected bool) string {
 	return styleBase.MaxWidth(m.width).Render(line)
 }
 
-type helpRow struct{ key, desc string }
+// helpRow is one action and the keys that reach it: key in the tree,
+// finderKey inside the "/" finder. Either may be empty — plenty of actions
+// exist in only one of the two places — and when both are set and equal, the
+// finder cell renders as a ditto rather than saying the same thing twice.
+type helpRow struct{ key, finderKey, desc string }
+
+// sameKeyMark stands in for a finder key identical to the tree key beside it.
+// One cell wide on purpose: the key columns are padded by rune count, so a
+// double-width glyph here would push every row after it out of line.
+const sameKeyMark = "·"
 
 func (m *Model) renderHelp() string {
-	return m.layoutHelp(m.helpRows(), m.treeHeight(), m.width)
+	warn := m.helpWarnings(m.width)
+	body := m.layoutHelp(m.helpRows(), m.treeHeight()-len(warn), m.width)
+	if len(warn) == 0 {
+		return body
+	}
+	return strings.Join(warn, "\n") + "\n" + body
+}
+
+// helpWarnings renders the config problems as full-width lines above the key
+// table, and nothing at all when there are none.
+//
+// They sit outside the column grid deliberately. These are sentences, and the
+// grid sizes its shared description column to the widest row in it: one
+// 75-character conflict among 50-character bindings is enough to cost the page
+// a whole column and start truncating the bindings themselves. Out here they
+// can also wrap instead of being cut.
+func (m *Model) helpWarnings(width int) []string {
+	n := len(m.cfg.Unknown) + len(m.keyConflicts)
+	if n == 0 {
+		return nil
+	}
+	head := fmt.Sprintf(" ⚠ %d config warning", n)
+	if n > 1 {
+		head += "s"
+	}
+	lines := []string{styleError.Bold(true).Render(head)}
+
+	// Wrapped rather than clipped: the useful half of a conflict — what became
+	// of the binding that lost — is at the end of the sentence. Each wrapped
+	// line goes in separately, since the caller subtracts len(lines) from the
+	// height it gives the table and a multi-line entry would count as one.
+	wrap := styleError.Width(max(20, width-5))
+	add := func(text string) {
+		for _, l := range strings.Split(wrap.Render(text), "\n") {
+			lines = append(lines, "   "+l)
+		}
+	}
+	for _, c := range m.keyConflicts {
+		text := c.refused
+		if c.kept != "" {
+			text = fmt.Sprintf("%q: %s keeps it, %s refused", c.key, c.kept, c.refused)
+		}
+		if c.detail != "" {
+			text += " — " + c.detail
+		}
+		add(text)
+	}
+	for _, k := range m.cfg.Unknown {
+		add("✗ " + k + " — nothing reads it")
+	}
+	return append(lines, "")
 }
 
 // layoutHelp arranges the rows into as few columns as will fit the height,
@@ -671,7 +732,7 @@ func (m *Model) renderHelp() string {
 // wide pane. On a narrow one they cannot, and the tail is still cut; that at
 // least says so now instead of pretending the list ended.
 func (m *Model) layoutHelp(rows []helpRow, height, width int) string {
-	lines := []string{styleTitle.Render(" Keys"), ""}
+	lines := []string{m.helpTitle(width), ""}
 	avail := max(1, height-len(lines))
 
 	const gap = 3
@@ -680,12 +741,12 @@ func (m *Model) layoutHelp(rows []helpRow, height, width int) string {
 		if len(rows) <= avail*(n-1) {
 			break // the previous count already had room to spare
 		}
-		if _, _, _, w := helpMetrics(rows, n, avail, gap); w > width {
+		if _, _, _, _, w := helpMetrics(rows, n, avail, gap); w > width {
 			break
 		}
 		cols = n
 	}
-	per, keyW, descW, _ := helpMetrics(rows, cols, avail, gap)
+	per, keyW, findW, descW, _ := helpMetrics(rows, cols, avail, gap)
 
 	for r := 0; r < per; r++ {
 		var b strings.Builder
@@ -700,6 +761,9 @@ func (m *Model) layoutHelp(rows []helpRow, height, width int) string {
 			// Pad before styling: lipgloss counts the escape bytes otherwise.
 			b.WriteString("  ")
 			b.WriteString(styleOK.Render(fmt.Sprintf("%-*s", keyW, rows[i].key)))
+			if findW > 0 {
+				b.WriteString(styleFinder.Render(fmt.Sprintf("%-*s", findW, finderCell(rows[i]))))
+			}
 			// Clip the description to what is left of the line. A single column
 			// is never narrowed to fit, so in a sidebar-width pane a long
 			// description would wrap and push the status bar off the screen.
@@ -717,15 +781,43 @@ func (m *Model) layoutHelp(rows []helpRow, height, width int) string {
 	return strings.Join(lines, "\n")
 }
 
+// finderCell is what goes in the finder column: the key, a ditto when it is
+// the same key as the tree's, or nothing when the finder has no say.
+func finderCell(r helpRow) string {
+	switch {
+	case r.finderKey == "":
+		return ""
+	case r.finderKey == r.key:
+		return sameKeyMark
+	default:
+		return r.finderKey
+	}
+}
+
+// helpTitle is the heading and, where there is room for it, a legend for the
+// two key colours. The colours are the whole point of the second column, and a
+// swatch costs one line against a page of rows that would otherwise need the
+// words "in the fuzzy finder" on every one of them.
+func (m *Model) helpTitle(width int) string {
+	title := styleTitle.Render(" Keys")
+	if width < 60 {
+		return title
+	}
+	return title + "   " + styleOK.Render("●") + styleDim.Render(" tree  ") +
+		styleFinder.Render("●") + styleDim.Render(" finder  ("+sameKeyMark+" = same key)")
+}
+
 // helpMetrics measures the layout n columns would actually produce: rows per
-// column, the two column widths, and the total width of the widest line.
+// column, the three column widths, and the total width of the widest line.
 //
 // It measures the rows that would really be shown rather than the whole set,
 // which is what makes two columns viable at ordinary terminal widths. A couple
 // of descriptions here are half again as long as the rest; sizing every column
 // to the longest of them overstates the layout by ~25 columns and gives up on
 // two columns at widths where they fit comfortably.
-func helpMetrics(rows []helpRow, cols, avail, gap int) (per, keyW, descW, width int) {
+// findW is zero when no row shown has a finder key, so a config binding none
+// pays nothing for the column.
+func helpMetrics(rows []helpRow, cols, avail, gap int) (per, keyW, findW, descW, width int) {
 	per = (len(rows) + cols - 1) / cols // column-major: each column filled down
 	if per > avail {
 		// Give up a line for the "… more" marker, so the count it reports is
@@ -737,16 +829,22 @@ func helpMetrics(rows []helpRow, cols, avail, gap int) (per, keyW, descW, width 
 	// align. lastW is that column's natural width, still part of the line.
 	var lastW int
 	for i, r := range rows[:shown] {
-		keyW = max(keyW, len(r.key))
+		// Display cells, not bytes: "↑/k ↓/j" is seven cells and eleven bytes,
+		// and measuring it as eleven padded every key column four too wide.
+		keyW = max(keyW, lipgloss.Width(r.key))
+		findW = max(findW, lipgloss.Width(finderCell(r)))
 		if i < (cols-1)*per {
 			descW = max(descW, lipgloss.Width(r.desc))
 		} else {
 			lastW = max(lastW, lipgloss.Width(r.desc))
 		}
 	}
-	keyW++ // one space between the key and its description
-	width = (cols-1)*(2+keyW+descW+gap) + 2 + keyW + lastW
-	return per, keyW, descW, width
+	keyW++ // one space between the key and what follows it
+	if findW > 0 {
+		findW += 2
+	}
+	width = (cols-1)*(2+keyW+findW+descW+gap) + 2 + keyW + findW + lastW
+	return per, keyW, findW, descW, width
 }
 
 func (m *Model) helpRows() []helpRow {
@@ -755,68 +853,54 @@ func (m *Model) helpRows() []helpRow {
 	if k := m.actionKeys["reload"]; k != "" {
 		reloadKeys = k + " / F5"
 	}
-	var rows []row
-	// Config warnings come first: they are what the status bar's message
-	// pointed here for, and leading rows are the last thing layoutHelp
-	// truncates away on a short pane.
-	if len(m.cfg.Unknown) > 0 {
-		rows = append(rows, row{"", "settings nothing reads — check the spelling, and the [table] above them:"})
-		for _, k := range m.cfg.Unknown {
-			rows = append(rows, row{"✗", k})
-		}
-		rows = append(rows, row{"", ""})
+	// The four finder-local actions take the second key column rather than a
+	// "in the fuzzy finder:" prefix on every description: the column and its
+	// colour say the same thing, and say it in no characters at all.
+	finderOnly := func(action, desc string) row {
+		return row{finderKey: m.actionKeys[action], desc: desc}
 	}
-	if len(m.keyConflicts) > 0 {
-		rows = append(rows, row{"", "key conflicts — each key belongs to one thing:"})
-		for _, c := range m.keyConflicts {
-			desc := c.refused
-			if c.kept != "" {
-				desc = fmt.Sprintf("%s keeps it, %s refused", c.kept, c.refused)
-			}
-			if c.detail != "" {
-				desc += " — " + c.detail
-			}
-			rows = append(rows, row{c.key, desc})
-		}
-		rows = append(rows, row{"", ""})
+	rows := []row{
+		{key: "↑/k ↓/j", desc: "move selection"},
+		{key: "←/h", desc: "collapse / go to parent"},
+		{key: "→/l", desc: "expand / step in"},
+		{key: "enter", desc: "open file (default command) / toggle dir"},
+		{key: "g G", desc: "top / bottom"},
+		{key: "ctrl+u ctrl+d", desc: "half page up / down"},
+		{key: m.actionKeys["mark"], desc: "mark/unmark selection (and move down)"},
+		{key: m.actionKeys["clear-marks"], desc: "clear marks, else leave scratch/worktrees view"},
+		{key: m.actionKeys["scratch"], desc: "toggle scratch view"},
+		{key: m.actionKeys["scratch-new"], desc: "new scratch file, opened in editor"},
+		{key: m.actionKeys["worktrees"], desc: "toggle worktrees view"},
+		{key: m.actionKeys["worktree-new"], desc: "new git worktree (branch name or PR#)"},
+		{key: m.actionKeys["copy-here"] + " / " + m.actionKeys["move-here"], desc: "copy / move marked items here"},
+		{key: m.actionKeys["copy-abs"] + " / " + m.actionKeys["copy-rel"], desc: "copy absolute / git-relative path"},
+		{key: m.actionKeys["copy-url"] + " / " + m.actionKeys["open-url"], desc: "copy web URL / open in browser (+copy)"},
+		{key: m.actionKeys["toggle-hidden"], desc: "toggle hidden files"},
+		{key: m.actionKeys["toggle-ignored"], desc: "toggle gitignored files"},
+		{key: reloadKeys, desc: "reload from disk"},
+		{key: m.actionKeys["reveal"], desc: "reveal in Finder"},
+		{key: m.actionKeys["fuzzy"], desc: "fuzzy finder"},
+		{key: m.actionKeys["fuzzy-here"], desc: "fuzzy finder, confined to the selected dir"},
+		finderOnly("finder-next-field", "cycle Find / Grep / Type"),
+		finderOnly("finder-more", "raise the match limit (2×, 3×, …)"),
+		finderOnly("finder-copy-command", "copy the rg command"),
+		finderOnly("finder-clear", "empty all three fields"),
+		{key: m.actionKeys["finder-resume"], desc: "reopen the fuzzy finder where you left it"},
+		{key: m.actionKeys["recent"], desc: "recently opened files; enter reveals and opens"},
+		{key: m.actionKeys["bookmarks"], desc: "line bookmarks for this repo; tab sorts"},
+		// The bookmark view's own two keys belong in the finder column with the
+		// rest of the finder's keys, rather than spelled out inside the
+		// description above — which was the longest line on the page.
+		{finderKey: "ctrl+s", desc: "bookmarks: widen to every project"},
+		{finderKey: "ctrl+x", desc: "bookmarks: forget the highlighted one"},
+		{key: m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], desc: "new file / directory"},
+		{key: m.actionKeys["rename"], desc: "rename"},
+		{key: m.actionKeys["delete"], desc: "delete to Trash; on a worktree: git remove"},
+		{key: m.actionKeys["collapse-all"], desc: "collapse all"},
+		{key: m.actionKeys["edit-config"], desc: "edit config (reloads on exit)"},
+		{key: m.actionKeys["help"], desc: "toggle this help"},
+		{key: m.actionKeys["quit"], desc: "quit"},
 	}
-	rows = append(rows, []row{
-		{"↑/k ↓/j", "move selection"},
-		{"←/h", "collapse / go to parent"},
-		{"→/l", "expand / step in"},
-		{"enter", "open file (default command) / toggle dir"},
-		{"g G", "top / bottom"},
-		{"ctrl+u ctrl+d", "half page up / down"},
-		{m.actionKeys["mark"], "mark/unmark selection (and move down)"},
-		{m.actionKeys["clear-marks"], "clear marks, else leave scratch/worktrees view"},
-		{m.actionKeys["scratch"], "toggle scratch view"},
-		{m.actionKeys["scratch-new"], "new scratch file, opened in editor"},
-		{m.actionKeys["worktrees"], "toggle worktrees view"},
-		{m.actionKeys["worktree-new"], "new git worktree (branch name or PR#)"},
-		{m.actionKeys["copy-here"] + " / " + m.actionKeys["move-here"], "copy / move marked items here"},
-		{m.actionKeys["copy-abs"] + " / " + m.actionKeys["copy-rel"], "copy absolute / git-relative path"},
-		{m.actionKeys["copy-url"] + " / " + m.actionKeys["open-url"], "copy web URL / open in browser (+copy)"},
-		{m.actionKeys["toggle-hidden"], "toggle hidden files"},
-		{m.actionKeys["toggle-ignored"], "toggle gitignored files"},
-		{reloadKeys, "reload from disk"},
-		{m.actionKeys["reveal"], "reveal in Finder"},
-		{m.actionKeys["fuzzy"], "fuzzy finder"},
-		{m.actionKeys["fuzzy-here"], "fuzzy finder, confined to the selected dir"},
-		{m.actionKeys["finder-next-field"], "in the fuzzy finder: cycle Find / Grep / Type"},
-		{m.actionKeys["finder-more"], "in the fuzzy finder: raise the match limit (2×, 3×, …)"},
-		{m.actionKeys["finder-copy-command"], "in the fuzzy finder: copy the rg command"},
-		{m.actionKeys["finder-clear"], "in the fuzzy finder: empty all three fields"},
-		{m.actionKeys["finder-resume"], "reopen the fuzzy finder where you left it"},
-		{m.actionKeys["recent"], "recently opened files, newest first — enter reveals and opens"},
-		{m.actionKeys["bookmarks"], "line bookmarks; tab sorts, ctrl+s widens, ctrl+x forgets"},
-		{m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], "new file / directory"},
-		{m.actionKeys["rename"], "rename"},
-		{m.actionKeys["delete"], "delete marked (or selection) to Trash; worktree: git remove"},
-		{m.actionKeys["collapse-all"], "collapse all"},
-		{m.actionKeys["edit-config"], "edit config (reloads on exit)"},
-		{m.actionKeys["help"], "toggle this help"},
-		{m.actionKeys["quit"], "quit"},
-	}...)
 	var names []string
 	for name, c := range m.cfg.Commands {
 		if c.Key != "" || c.FinderKey != "" {
@@ -824,14 +908,12 @@ func (m *Model) helpRows() []helpRow {
 		}
 	}
 	sort.Strings(names)
+	// A command that binds both keys is one action, so it gets one row: the
+	// two used to be separate lines whose descriptions differed only by the
+	// prefix, which is the bulk of what made this page long.
 	for _, name := range names {
 		c := m.cfg.Commands[name]
-		if c.Key != "" {
-			rows = append(rows, row{c.Key, "run command: " + name})
-		}
-		if c.FinderKey != "" {
-			rows = append(rows, row{c.FinderKey, "in the fuzzy finder: run command: " + name})
-		}
+		rows = append(rows, row{key: c.Key, finderKey: c.FinderKey, desc: "run: " + name})
 	}
 	return rows
 }

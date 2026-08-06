@@ -151,26 +151,19 @@ func TestHelpListsKeyConflicts(t *testing.T) {
 	if note := m.configNote(); !strings.Contains(note, "key conflict") {
 		t.Errorf("status note = %q, want it to mention the conflict", note)
 	}
-	var found bool
-	for _, r := range m.helpRows() {
-		if r.key == "R" && strings.Contains(r.desc, "worktree-new") {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("the help page does not list the conflict on R")
+	warn := strings.Join(m.helpWarnings(100), "\n")
+	if !strings.Contains(warn, "worktree-new") || !strings.Contains(warn, "config warning") {
+		t.Errorf("the help page does not list the conflict on R:\n%s", warn)
 	}
 
-	// A clean config must not grow a conflicts section out of nowhere.
+	// A clean config must not grow a warnings block out of nowhere.
 	m.cfg.Keys = nil
 	m.buildBindings()
 	if n := len(m.keyConflicts); n != 0 {
 		t.Fatalf("a clean config reported %d conflicts: %v", n, m.keyConflicts)
 	}
-	for _, r := range m.helpRows() {
-		if strings.Contains(r.desc, "key conflicts") {
-			t.Error("the help page shows the conflicts heading with no conflicts")
-		}
+	if got := m.helpWarnings(100); len(got) != 0 {
+		t.Errorf("a clean config still rendered a warnings block: %q", got)
 	}
 }
 
@@ -188,14 +181,9 @@ func TestUnknownSettingsAreReported(t *testing.T) {
 	if !strings.Contains(note, "commands.diff.worktree-new") || !strings.Contains(note, "unknown setting") {
 		t.Errorf("status note = %q, want it to name the setting", note)
 	}
-	var found bool
-	for _, r := range m.helpRows() {
-		if r.desc == "commands.diff.worktree-new" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("the help page does not list the unknown setting")
+	warn := strings.Join(m.helpWarnings(100), "\n")
+	if !strings.Contains(warn, "commands.diff.worktree-new") {
+		t.Errorf("the help page does not list the unknown setting:\n%s", warn)
 	}
 
 	// Both kinds at once are counted together rather than one hiding the other.

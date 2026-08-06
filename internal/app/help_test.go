@@ -33,11 +33,12 @@ func TestHelpShowsEveryRowOnAWidePane(t *testing.T) {
 	m := starterHelpModel(t)
 	rows := m.helpRows()
 
-	// Without this the test would pass just as well on a list that fits, which
-	// is not the situation being guarded.
-	const height = 48
-	if len(rows) <= height {
-		t.Fatalf("only %d help rows against a height of %d: one column still fits, so this test proves nothing", len(rows), height)
+	// A height the list cannot fit in one column, derived rather than fixed:
+	// merging the finder rows into their own column took the starter from ~55
+	// rows to ~49, which a hardcoded 48 survived by one row.
+	height := len(rows) - 3
+	if height < 10 {
+		t.Fatalf("only %d help rows: too few for this test to prove anything", len(rows))
 	}
 
 	out := m.layoutHelp(rows, height, 200)
@@ -86,6 +87,98 @@ func TestHelpFillsExactlyTheHeight(t *testing.T) {
 	for _, size := range []struct{ w, h int }{{200, 48}, {160, 48}, {60, 48}, {200, 12}, {40, 6}} {
 		if got := len(strings.Split(m.layoutHelp(rows, size.h, size.w), "\n")); got != size.h {
 			t.Errorf("at %dx%d the help body is %d lines, want exactly %d", size.w, size.h, got, size.h)
+		}
+	}
+}
+
+// A command with both keys is one action, so it gets one row carrying both —
+// the two rows it used to get differed only by a prefix. And no description may
+// still spell out where a key applies: the second column and its colour say it.
+func TestHelpMergesTheFinderKeyIntoOneRow(t *testing.T) {
+	m := starterHelpModel(t)
+	rows := m.helpRows()
+
+	var both, finderOnly int
+	for _, r := range rows {
+		if strings.Contains(r.desc, "fuzzy finder:") || strings.Contains(r.desc, "in the finder") {
+			t.Errorf("row %q still says where it applies: %q", r.key, r.desc)
+		}
+		switch {
+		case r.key != "" && r.finderKey != "":
+			both++
+		case r.finderKey != "":
+			finderOnly++
+		}
+	}
+	if both == 0 || finderOnly == 0 {
+		t.Fatalf("expected rows of both kinds, got %d with two keys and %d finder-only", both, finderOnly)
+	}
+	// The starter binds edit to e/ctrl+e and focus-right to ctrl+l in both
+	// places: one merged row each, and only the second is a ditto.
+	for _, tc := range []struct{ key, finderKey, want string }{
+		{"e", "ctrl+e", "ctrl+e"},
+		{"ctrl+l", "ctrl+l", sameKeyMark},
+		{"", "tab", "tab"},
+		{"R", "", ""},
+	} {
+		if got := finderCell(helpRow{key: tc.key, finderKey: tc.finderKey}); got != tc.want {
+			t.Errorf("finderCell(%q, %q) = %q, want %q", tc.key, tc.finderKey, got, tc.want)
+		}
+	}
+}
+
+// Warnings are rendered above the table rather than inside it. Inside, their
+// sentences set the width of the shared description column, and one conflict
+// was enough to cost a wide pane its second column and start truncating the
+// bindings themselves.
+func TestConfigWarningsDoNotCostTheTableItsColumns(t *testing.T) {
+	m := starterHelpModel(t)
+	rows := m.helpRows()
+	const w, h = 150, 45
+
+	clean := m.layoutHelp(rows, h, w)
+	m.cfg.Keys = map[string]string{"worktree-new": "R"}
+	m.cfg.Unknown = []string{"commands.diff.worktree-new"}
+	m.buildBindings()
+
+	if got := m.layoutHelp(m.helpRows(), h, w); got != clean {
+		t.Error("a config warning changed the shape of the key table")
+	}
+	// And the table really is multi-column at this size, or the check above
+	// would hold just as well for two single-column layouts.
+	body := strings.Split(clean, "\n")
+	var packed int
+	for _, line := range body {
+		if strings.Count(line, "move selection")+strings.Count(line, "toggle this help") > 0 && lipgloss.Width(line) > 90 {
+			packed++
+		}
+	}
+	if packed == 0 {
+		t.Errorf("expected columns side by side at %dx%d:\n%s", w, h, clean)
+	}
+
+	warn := strings.Join(m.helpWarnings(w), "\n")
+	if !strings.Contains(warn, "config warning") || !strings.Contains(warn, "commands.diff.worktree-new") {
+		t.Errorf("the warning block is missing its contents:\n%s", warn)
+	}
+}
+
+// The warning block is part of the height budget, so its lines have to be
+// counted one by one — a wrapped conflict is several lines, not one.
+func TestHelpWarningsCountEveryRenderedLine(t *testing.T) {
+	m := starterHelpModel(t)
+	m.cfg.Keys = map[string]string{"worktree-new": "R"}
+	m.buildBindings()
+
+	for _, w := range []int{40, 56, 100, 200} {
+		lines := m.helpWarnings(w)
+		for _, l := range lines {
+			if strings.Contains(l, "\n") {
+				t.Errorf("at width %d a warning entry holds more than one line: %q", w, l)
+			}
+			if got := lipgloss.Width(l); got > w {
+				t.Errorf("at width %d a warning line is %d cells wide: %q", w, got, l)
+			}
 		}
 	}
 }
