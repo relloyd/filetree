@@ -121,7 +121,8 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `w` | toggle the worktrees view (and back) |
 | `W` | new git worktree for the repo containing the selection, from a branch name or PR number — lands in the worktrees view with it selected |
 | `H` | collapse all (also clears marks) |
-| `C` | edit `~/.filetree/config.toml` in the default editor; config reloads on exit |
+| `C` | edit `~/.filetree/config.toml` in the default command; an editor that takes over this pane reloads the config when it exits |
+| `alt+c` | re-read the config from disk — for when the editor is somewhere `ft` cannot see it finish, such as the `t` hand-off to another pane |
 | `?` | help |
 | `q` | quit |
 

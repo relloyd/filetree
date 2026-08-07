@@ -359,6 +359,8 @@ key = "D"
 # worktrees = "w"
 # worktree-new = "W"
 # collapse-all = "H"
-# edit-config = "C"
+# edit-config = "C"           # opens it in the default command
+# reload-config = "alt+c"     # re-read it: an editor in another pane cannot
+#                             # tell ft it has finished, so ask when you have
 # help = "?"
 `

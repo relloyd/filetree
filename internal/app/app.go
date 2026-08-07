@@ -749,6 +749,7 @@ func (m *Model) buildBindings() {
 		"delete":         m.confirmDelete,
 		"collapse-all":   m.collapseAll,
 		"edit-config":    m.editConfig,
+		"reload-config":  m.reloadConfig,
 		"help":           m.toggleHelp,
 		"mark":           m.toggleMark,
 		"clear-marks":    m.escKey,

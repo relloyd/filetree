@@ -598,6 +598,33 @@ func (m *Model) editConfig() (tea.Model, tea.Cmd) {
 	}, true)
 }
 
+// reloadConfig re-reads ~/.filetree/config.toml and rebuilds everything it
+// feeds: commands, keys, general settings.
+//
+// It has its own key because there is no reliable moment to do it for you. An
+// editor that takes over this pane tells ft when it has finished by exiting,
+// but one that hands the file to another pane — or a window, or another
+// machine — does not, and a config saved there would otherwise sit unread
+// until the next restart.
+//
+// A file that no longer parses leaves the running config alone: the error is
+// worth reporting, but not at the price of dropping every binding ft has.
+func (m *Model) reloadConfig() (tea.Model, tea.Cmd) {
+	cfg, err := config.Load(m.cfgPath)
+	if err != nil {
+		return m, m.note("config: "+err.Error(), true)
+	}
+	m.cfg = cfg
+	m.buildBindings()
+	// A clash introduced by the edit is worth hearing about now, not at the
+	// next restart — this is the one moment the user is looking at the keys
+	// they just changed.
+	if s := m.configNote(); s != "" {
+		return m, m.note("Config reloaded — "+s, true)
+	}
+	return m, m.note("Config reloaded", false)
+}
+
 func (m *Model) execCommand(name string, c config.Command, v config.Vars, reloadCfg bool) (tea.Model, tea.Cmd) {
 	m.recordRecent(c.Run, v)
 	if m.clearMarksAfter(c.Run, v) {
@@ -741,19 +768,16 @@ func (m *Model) handleCmdDone(msg cmdDoneMsg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.refreshAllStatusCmds()...)
 	}
 	if msg.reloadConfig && msg.err == nil {
-		if cfg, err := config.Load(m.cfgPath); err != nil {
-			cmds = append(cmds, m.note("config: "+err.Error(), true))
+		// Only an interactive editor has finished editing by the time it
+		// returns. A background one — a hand-off that types the path into
+		// another pane and exits — comes back immediately, so re-reading the
+		// file here would read it exactly as it was, and saying "reloaded"
+		// would be a plain untruth.
+		if msg.interactive {
+			_, cmd := m.reloadConfig()
+			cmds = append(cmds, cmd)
 		} else {
-			m.cfg = cfg
-			m.buildBindings()
-			// A clash introduced by the edit is worth hearing about now, not
-			// at the next restart — this is the one moment the user is looking
-			// at the keys they just changed.
-			if s := m.configNote(); s != "" {
-				cmds = append(cmds, m.note("Config reloaded — "+s, true))
-			} else {
-				cmds = append(cmds, m.note("Config reloaded", false))
-			}
+			cmds = append(cmds, m.note(fmt.Sprintf("config opened — %s reloads it", m.actionKeys["reload-config"]), false))
 		}
 	}
 	if msg.err != nil {

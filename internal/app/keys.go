@@ -42,6 +42,7 @@ var defaultActionKeys = map[string]string{
 	"delete":        "d",
 	"collapse-all":  "H",
 	"edit-config":   "C",
+	"reload-config": "alt+c",
 	"help":          "?",
 	"mark":          "space",
 	"clear-marks":   "esc",

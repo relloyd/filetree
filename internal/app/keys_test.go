@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -115,6 +117,22 @@ func TestResolveActionKeysNeverStrandsAnAction(t *testing.T) {
 			if def != "" && keys[action] == "" {
 				t.Errorf("overrides %v left %s unbound", overrides, action)
 			}
+		}
+	}
+}
+
+// The commented [keys] block in the starter is the only list of action names a
+// user ever sees, so an action missing from it is an action nobody can rebind
+// — they would have to read the source to learn the name. Adding one is two
+// edits in two packages, which is exactly the pair that drifts.
+func TestEveryActionIsDocumentedInTheStarter(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "config", "starter.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for action := range defaultActionKeys {
+		if !strings.Contains(string(src), "\n# "+action+" = ") {
+			t.Errorf("commands.%s is bindable but absent from the starter's [keys] block", action)
 		}
 	}
 }

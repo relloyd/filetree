@@ -897,7 +897,8 @@ func (m *Model) helpRows() []helpRow {
 		{key: m.actionKeys["rename"], desc: "rename"},
 		{key: m.actionKeys["delete"], desc: "delete to Trash; on a worktree: git remove"},
 		{key: m.actionKeys["collapse-all"], desc: "collapse all"},
-		{key: m.actionKeys["edit-config"], desc: "edit config (reloads on exit)"},
+		{key: m.actionKeys["edit-config"], desc: "edit config in the default command"},
+		{key: m.actionKeys["reload-config"], desc: "re-read the config from disk"},
 		{key: m.actionKeys["help"], desc: "toggle this help"},
 		{key: m.actionKeys["quit"], desc: "quit"},
 	}
