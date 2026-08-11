@@ -115,7 +115,7 @@ watch_debounce_ms = 150
 # dir = "~/.filetree/worktrees"
 
 [commands]
-default = "edit"           # the command Enter runs
+default = "tmux-handoff"   # the command Enter runs
 
 # Open the selection in helix, taking over this pane until you quit.
 # Enter runs this for files; the "e" key runs it for anything, including
@@ -156,7 +156,7 @@ case "$target" in
     tmux send-keys -t "{last}" C-u "hx {paths}" Enter
     ;;
   *)
-    tmux split-window -fh -c {root} "hx {paths}"
+    tmux split-window -fdh -c {root} "hx {paths}"
     ;;
 esac
 '''
@@ -230,8 +230,8 @@ mode = "background"
 key = "ctrl+j"
 finder_key = "ctrl+j"
 
-[commands.resize-pane-80]
-run = '[ -z "$TMUX" ] || tmux resize-pane -x 80%'
+[commands.resize-pane-70]
+run = '[ -z "$TMUX" ] || tmux resize-pane -x 70%'
 mode = "background"
 key = "ctrl+k"
 finder_key = "ctrl+k"
@@ -261,6 +261,15 @@ finder_key = "alt+h"
 run = 'tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} lazygit"'
 mode = "interactive"
 key = "L"
+
+# Blame view for the selected file in lazygit: opens the same popup as
+# lazygit-popup but passes "-f {path}" so lazygit jumps straight into the
+# file's blame / log view. Quitting lazygit refreshes git status in the tree,
+# just as the plain popup does.
+[commands.lazygit-blame-popup]
+run = 'tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} lazygit -f {path}"'
+mode = "interactive"
+key = "M"
 
 # Diff the selection — or everything marked — in a popup, working tree against
 # HEAD so staged changes still show after using lazygit above. {paths} is what

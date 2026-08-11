@@ -78,7 +78,7 @@ one surfaces as an error in the status bar rather than a failure to start.
 | `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `P`/`L`/`alt+d` popups, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
-| `lazygit` | `L`, in a popup over the window | optional |
+| `lazygit` | `L` (repo view) and `M` (file blame/log view), in popups over the window | optional |
 | `delta` | `D` diff the two most recently marked files | optional |
 
 Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
@@ -152,11 +152,12 @@ session automatically, so they work out of the box.
 | `P` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree |
 | `r` | | prime an `rg` in the other tmux pane at the selection's directory |
 | `L` | | open lazygit for the repo containing the selection, in a popup |
+| `M` | | open lazygit focused on the selected file's blame / log view, in a popup |
 | `alt+d` | | diff the selection — or everything marked — against `HEAD` in a popup; through git's pager if one is configured, and readable without one |
 | `D` | | diff the two most recently marked files in a split, with `delta` |
 | `ctrl+l` | `ctrl+l` | focus the tmux pane to the right of `ft` — the keyboard equivalent of `ctrl+b` `→`; silent when there is no pane to the right, or when `ft` is not in tmux |
 | `ctrl+j` | `ctrl+j` | narrow `ft`'s pane to 30% of the window |
-| `ctrl+k` | `ctrl+k` | widen `ft`'s pane to 80% of the window |
+| `ctrl+k` | `ctrl+k` | widen `ft`'s pane to 70% of the window |
 | `alt+h` | `alt+h` | give every pane in the window the same width, side by side — tmux's `even-horizontal` layout, for a window that has drifted out of shape |
 
 The last four take the same chord in the tree and in the finder, so a search

@@ -26,8 +26,8 @@ func TestLoadStarter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("starter config failed to load: %v", err)
 	}
-	if cfg.DefaultCommand != "edit" {
-		t.Errorf("default command = %q, want edit", cfg.DefaultCommand)
+	if cfg.DefaultCommand != "tmux-handoff" {
+		t.Errorf("default command = %q, want tmux-handoff", cfg.DefaultCommand)
 	}
 	edit, ok := cfg.Commands["edit"]
 	if !ok || edit.Mode != ModeInteractive {
@@ -70,7 +70,7 @@ func TestLoadStarter(t *testing.T) {
 	for _, tc := range []struct{ name, key string }{
 		{"focus-right", "ctrl+l"},
 		{"resize-pane-30", "ctrl+j"},
-		{"resize-pane-80", "ctrl+k"},
+		{"resize-pane-70", "ctrl+k"},
 		{"even-horizontal", "alt+h"},
 	} {
 		c := cfg.Commands[tc.name]
@@ -130,7 +130,7 @@ func TestStarterPaneCommandsAreGuarded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("starter config failed to load: %v", err)
 	}
-	for _, name := range []string{"focus-right", "resize-pane-30", "resize-pane-80", "even-horizontal"} {
+	for _, name := range []string{"focus-right", "resize-pane-30", "resize-pane-70", "even-horizontal"} {
 		c, ok := cfg.Commands[name]
 		if !ok {
 			t.Errorf("commands.%s is missing from the starter", name)
