@@ -71,7 +71,7 @@ func TestLoadStarter(t *testing.T) {
 		{"focus-right", "ctrl+l"},
 		{"resize-pane-30", "ctrl+j"},
 		{"resize-pane-70", "ctrl+k"},
-		{"even-horizontal", "alt+h"},
+		{"tmux-even-panes", "alt+h"},
 	} {
 		c := cfg.Commands[tc.name]
 		if c.Key != tc.key || c.FinderKey != tc.key || c.Mode != ModeBackground {
@@ -130,7 +130,7 @@ func TestStarterPaneCommandsAreGuarded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("starter config failed to load: %v", err)
 	}
-	for _, name := range []string{"focus-right", "resize-pane-30", "resize-pane-70", "even-horizontal"} {
+	for _, name := range []string{"focus-right", "resize-pane-30", "resize-pane-70", "tmux-even-panes"} {
 		c, ok := cfg.Commands[name]
 		if !ok {
 			t.Errorf("commands.%s is missing from the starter", name)

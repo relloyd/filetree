@@ -241,7 +241,7 @@ finder_key = "ctrl+k"
 # out of shape after a few splits and resizes. It takes the same $TMUX guard
 # as the two above, for the same reason: run outside a pane and tmux would
 # rearrange a window you are not even looking at.
-[commands.even-horizontal]
+[commands.tmux-even-panes]
 run = '[ -z "$TMUX" ] || tmux select-layout even-horizontal'
 mode = "background"
 key = "alt+h"
