@@ -54,7 +54,8 @@ internal/config/    TOML config, command templates + shell quoting, starter
 internal/state/     per-root JSON persistence (expansion, selection, toggles)
 internal/icons/     Nerd Font glyphs; table.go is GENERATED — see below
 internal/platform/  OS interface; darwin impl (pbcopy, open -R, Finder trash)
-internal/tmux/      self-relaunch into a tmux session (decision + syscall.Exec)
+internal/tmux/      every tmux invocation: the self-relaunch decision, and
+                    the named agent sessions (name building, list parsing, kill)
 ```
 
 Design rules that keep this maintainable:
@@ -79,8 +80,11 @@ Design rules that keep this maintainable:
 - Web links (`u`/`U`): `internal/gitx/link.go` owns remote-URL
   normalisation and URL building (pure, table-tested); `platform.OpenURL`
   owns the browser.
-- The tmux self-relaunch keeps its decision pure: `tmux.ShouldWrap` takes an
-  `Env` struct so it is table-tested, and the `syscall.Exec` lives alone in
+- `internal/tmux` owns every tmux call, the way `gitx` owns git: the pure half
+  (`session.go` — name building, `list-sessions` parsing) is table-tested, and
+  the process spawns live alone in `run.go` and `exec.go`. The self-relaunch
+  keeps its decision pure the same way: `tmux.ShouldWrap` takes an `Env` struct
+  so it is table-tested, and the `syscall.Exec` lives alone in
   `internal/tmux/exec.go`. It runs in `main` *after* root validation and config
   load, so startup errors print in the user's terminal instead of dying with
   the session they would have created.
@@ -119,6 +123,16 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   the app only sequences them in async `tea.Cmd`s. `d` on a worktree root
   becomes `git worktree remove` (pendingOp kind `opWorktree`, with an `f`
   force re-prompt when git refuses a dirty tree).
+- Agent tmux sessions (`c`/`x`/`alt+s` to create, `T` to list) are named
+  `<[sessions] prefix><repo>/<branch>/<tool>`, built by `tmux.SessionName` from
+  `m.repoIdentFor` (internal/app/sessions.go) — the *main* repo of a linked
+  worktree, so every worktree files under one name. The prefix is the only
+  filter, and everything ft opens for itself stays unnamed. "." and ":" are
+  rewritten to "_" in a name because tmux does that silently otherwise, which
+  would stop `new-session -A` finding what it created. The picker is a fourth
+  `finderSource` (`srcTmux`), not a new mode — see the bookmark view for the
+  pattern; its ctrl+w/ctrl+x/alt+n are hardcoded in the modeFuzzy switch and
+  listed in `finderReservedKeys`.
 - The status-bar branch (`⎇ …`) is cached per repo in `m.branches`, filled
   by the same async cmds that read git status — so it refreshes wherever
   status does, and nowhere else.

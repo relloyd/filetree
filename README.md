@@ -44,6 +44,14 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   and an unknown name becomes a new branch off HEAD. `d` on a worktree root
   runs `git worktree remove` (offering `--force` when it has local changes)
   instead of trashing the directory.
+- Agent sessions: `c` opens **Claude Code** — `x` Copilot, `alt+s` a plain
+  shell — in a *named* tmux session for the repo and branch of the selection
+  (`ft/<repo>/<branch>/<tool>`), in a popup over the tree. Detach and it keeps
+  running; press the same key again and you are back in it. `T` lists every
+  such session across all your repos and worktrees, newest first with the ones
+  ringing a bell on top — `enter` reattaches in a popup, `ctrl+w` gives one the
+  whole window, `ctrl+x` kills it, `alt+n` starts one for the selection. The
+  sessions ft opens for itself are unnamed, so they never clutter the list.
 - The status bar shows `⎇ <branch>` for the repo containing the highlighted
   item (short commit hash when detached). It refreshes with git status, so a
   bare `git checkout` elsewhere that touches no watched file needs F5.
@@ -75,11 +83,12 @@ one surfaces as an error in the status bar rather than a failure to start.
 | Tool | Enables | Optional? |
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees, `alt+d` diffs | optional, but most of the git awareness is dark without it |
-| `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `P`/`L`/`alt+d` popups, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, and the auto-relaunch above | optional |
+| `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `P`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L` (repo view) and `M` (file blame/log view), in popups over the window | optional |
 | `delta` | `D` diff the two most recently marked files | optional |
+| `claude` / `copilot` | the `c` / `x` agent sessions, and the `T` list they populate | optional; any CLI works — the commands are ordinary config |
 
 Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 `osascript` — all macOS built-ins, nothing to install.
@@ -120,6 +129,9 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `S` | new scratch file (`YYYYMMDDHH.md`, pre-created empty) opened in the default editor |
 | `w` | toggle the worktrees view (and back) |
 | `W` | new git worktree for the repo containing the selection, from a branch name or PR number — lands in the worktrees view with it selected |
+| `c` / `x` | Claude Code / Copilot in a named tmux session for the selection's repo and branch, in a popup; pressing it again reattaches to the same one |
+| `alt+s` | a plain named shell in the same scheme — for a dev server or a test watcher you want to find again |
+| `T` | list the named sessions: `enter` reattaches in a popup, `ctrl+w` switches the whole window to one, `ctrl+x` kills it (asking first if it is attached elsewhere), `alt+n` starts one for the selection |
 | `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default command; an editor that takes over this pane reloads the config when it exits |
 | `alt+c` | re-read the config from disk — for when the editor is somewhere `ft` cannot see it finish, such as the `t` hand-off to another pane |
@@ -150,6 +162,9 @@ session automatically, so they work out of the box.
 | `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
 | `N` | | the same shell in a split beside the tree, dividing the current pane rather than the window |
 | `P` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree |
+| `c` | | Claude Code in a named tmux session for the selection's repo and branch, in a popup — created on the first press, reattached on every one after |
+| `x` | | the same for the Copilot CLI |
+| `alt+s` | | the same for a plain shell, so long-running work is reachable from the `T` list too |
 | `r` | | prime an `rg` in the other tmux pane at the selection's directory |
 | `L` | | open lazygit for the repo containing the selection, in a popup |
 | `M` | | open lazygit focused on the selected file's blame / log view, in a popup |
@@ -159,6 +174,36 @@ session automatically, so they work out of the box.
 | `ctrl+j` | `ctrl+j` | narrow `ft`'s pane to 30% of the window |
 | `ctrl+k` | `ctrl+k` | widen `ft`'s pane to 70% of the window |
 | `alt+h` | `alt+h` | give every pane in the window the same width, side by side — tmux's `even-horizontal` layout, for a window that has drifted out of shape |
+
+### Agent sessions
+
+`c`, `x` and `alt+s` all build their session name the same way, from the git
+repository holding the selection:
+
+```
+ft/<repo>/<branch>/<tool>       ft/filetree/main/claude
+                                ft/filetree/claude-tmux-nav/copilot
+```
+
+A branch's `/` is flattened to `-`, and `.` and `:` become `_` because tmux
+rewrites those itself. The repo is the **main** repository even when the
+selection is in a linked worktree, so every worktree of a project files under
+one name and `T` reads down its first column. The prefix is `[sessions]
+prefix` in the config, and it is the only thing `T` filters on — everything
+`ft` opens for itself is unnamed and stays out of the list.
+
+The session outlives the tool: the command is `claude; exec $SHELL`, so
+quitting the agent leaves a shell in the same directory with the scrollback
+still there. `T` shows what is running in each one (`claude` while it works,
+your shell once it has stopped), how long since it last did anything, `●` for
+one you have open somewhere, and `!` for one with a terminal bell pending —
+which is what Claude Code rings when it is waiting for you.
+
+These are ordinary `[commands]` entries: point them at any CLI, change the
+keys, or add a fourth. `{session}`, `{repo}`, `{branch}` and `{gitroot}` are
+the template variables that make the naming work, and a command using any of
+them is refused outside a git repository rather than run with a half-built
+name.
 
 The last four take the same chord in the tree and in the finder, so a search
 can be left up while you go and look at something in the pane beside it. All

@@ -36,6 +36,7 @@ var defaultActionKeys = map[string]string{
 	"finder-resume": "f",
 	"recent":        "b", // the finder over this root's opened-file history
 	"bookmarks":     "B", // the finder over this repo's line bookmarks
+	"tmux-sessions": "T", // the finder over the named agent tmux sessions
 	"new-file":      "a",
 	"new-dir":       "A",
 	"rename":        "R",

@@ -20,6 +20,7 @@ import (
 	"github.com/relloyd/filetree/internal/platform"
 	"github.com/relloyd/filetree/internal/search"
 	"github.com/relloyd/filetree/internal/state"
+	"github.com/relloyd/filetree/internal/tmux"
 	"github.com/relloyd/filetree/internal/tree"
 )
 
@@ -116,6 +117,7 @@ const (
 	opCopy
 	opMove
 	opWorktree
+	opKillSession
 )
 
 // pendingOp is a staged operation awaiting confirmation in modeConfirm.
@@ -126,6 +128,7 @@ type pendingOp struct {
 	conflicts int      // destinations that already exist
 	repoRoot  string   // opWorktree: the repo owning the worktree
 	force     bool     // opWorktree: re-asking after a dirty-worktree refusal
+	session   string   // opKillSession: the tmux session to kill
 }
 
 type Model struct {
@@ -172,6 +175,19 @@ type Model struct {
 	bmSort     bookmarkSort
 	bmAllRepos bool // ctrl+s: every project's store, not just this one
 	bmHidden   int  // bookmarks in other stores, when narrowed to this one
+
+	// The named tmux sessions agent tools run in ("T"). Like the bookmark
+	// view this keeps its own query field, so "T" comes back to the sessions
+	// you were filtering rather than to the tree search.
+	//
+	// tmuxAll is re-read on entry and after every kill: the sessions belong to
+	// the tmux server, and any other ft — or the user, at a shell — can change
+	// the list while this one is showing it.
+	tmuxInput   textinput.Model
+	tmuxAll     []tmux.Session
+	tmuxRows    []int
+	tmuxMatched [][]int
+	tmuxErr     string // what List had to say, if anything
 
 	// homeRoot is the project root to return to from the scratch or worktrees
 	// view (session-only). Remembered once, on entering the first of them, and
@@ -297,6 +313,9 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 	m.bmInput = textinput.New()
 	m.bmInput.SetVirtualCursor(true)
 	m.bmInput.Placeholder = "path or line contents"
+	m.tmuxInput = textinput.New()
+	m.tmuxInput.SetVirtualCursor(true)
+	m.tmuxInput.Placeholder = "repo, branch or tool"
 
 	m.buildBindings()
 
@@ -404,6 +423,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.typeInput.SetWidth(w)
 		m.grepInput.SetWidth(w)
 		m.bmInput.SetWidth(w)
+		m.tmuxInput.SetWidth(w)
 		m.clampScroll()
 		m.ensureVisible()
 		return m, nil
@@ -565,6 +585,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m.recentJumpAndOpen()
 			case srcBookmark:
 				return m.bookmarkJumpAndOpen()
+			case srcTmux:
+				return m.attachSession()
 			}
 			return m.fuzzyJump()
 		case "ctrl+s":
@@ -575,6 +597,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "ctrl+x":
 			if m.finderSrc == srcBookmark {
 				return m, m.forgetBookmark()
+			}
+			if m.finderSrc == srcTmux {
+				return m.killSession()
+			}
+		case "ctrl+w":
+			// Only the session list claims this; everywhere else it stays
+			// textinput's delete-word-backward.
+			if m.finderSrc == srcTmux {
+				return m.switchSession()
+			}
+		case "alt+n":
+			if m.finderSrc == srcTmux {
+				return m.newSessionHere()
 			}
 		case "up", "ctrl+p":
 			m.moveFuzzySel(-1)
@@ -651,6 +686,12 @@ func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.finderSrc == srcBookmark {
 		m.bmInput, cmd = m.bmInput.Update(msg)
 		m.rebuildBookmarkRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return m, cmd
+	}
+	if m.finderSrc == srcTmux {
+		m.tmuxInput, cmd = m.tmuxInput.Update(msg)
+		m.rebuildTmuxRows()
 		m.fuzzySel, m.fuzzyScroll = 0, 0
 		return m, cmd
 	}
@@ -743,6 +784,7 @@ func (m *Model) buildBindings() {
 		"finder-resume":  m.resumeFuzzy,
 		"recent":         m.startRecent,
 		"bookmarks":      m.startBookmarks,
+		"tmux-sessions":  m.startTmuxSessions,
 		"new-file":       func() (tea.Model, tea.Cmd) { return m.startPrompt(promptNewFile) },
 		"new-dir":        func() (tea.Model, tea.Cmd) { return m.startPrompt(promptNewDir) },
 		"rename":         func() (tea.Model, tea.Cmd) { return m.startPrompt(promptRename) },

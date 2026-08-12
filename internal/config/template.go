@@ -16,6 +16,18 @@ type Vars struct {
 	Line    int      // matched line of a finder Grep hit; 0 when there is none
 	Paths   []string // what the command should act on: the marks, else Path
 	Marked  []string // marked paths in mark order (oldest first)
+
+	// The git repository the selection sits in, and the tmux session name
+	// built from it. All four are empty outside a repository, which is what
+	// lets a command that needs them be refused rather than run against a
+	// half-built name.
+	//
+	// GitRoot is not Root: Root is the tree root, which in the worktrees view
+	// is the worktrees directory itself — the wrong place to start an agent.
+	GitRoot string // repo (or linked worktree) root containing the selection
+	Repo    string // basename of the main repo, shared by all its worktrees
+	Branch  string // branch of that checkout, slashes flattened
+	Session string // "<prefix><repo>/<branch>"; the tool is appended by the config
 }
 
 // ExpandCommand substitutes known {placeholders} with shell-quoted values.
@@ -39,6 +51,12 @@ type Vars struct {
 // becomes `path:42` when there is a line to go to, and a list is plain. Note
 // this is the opposite of {line}'s own 0 → 1 fallback: that exists so
 // `{path}:{line}` stays valid, and appending `:1` here would be noise.
+//
+// {session} is the tmux session name for the selection's repo and branch,
+// without a tool on the end: a command appends its own, as in
+// `-s {session}/claude`. That works despite the quoting because the value is
+// quoted and the suffix is not, so the shell joins `'ft/repo/main'/claude`
+// back into one word.
 func ExpandCommand(tmpl string, v Vars) string {
 	quoted := make([]string, len(v.Marked))
 	for i, p := range v.Marked {
@@ -55,6 +73,10 @@ func ExpandCommand(tmpl string, v Vars) string {
 	// {marked1}/{marked2} must precede {marked}, and {paths} must precede
 	// {path}: strings.Replacer tries patterns in argument order at each
 	// position, so the shorter prefix would otherwise win and leave a stray "s".
+	//
+	// {gitroot} and {root} need no such care — a token only ever matches from
+	// its own "{", and "{gitroot}" does not contain "{root}" — but the pair is
+	// close enough to look like it does, hence this note and the test.
 	repl := strings.NewReplacer(
 		"{paths}", expandPaths(v),
 		"{path}", ShellQuote(v.Path),
@@ -66,6 +88,10 @@ func ExpandCommand(tmpl string, v Vars) string {
 		"{marked1}", m1,
 		"{marked2}", m2,
 		"{marked}", strings.Join(quoted, " "),
+		"{gitroot}", ShellQuote(v.GitRoot),
+		"{repo}", ShellQuote(noFlag(v.Repo)),
+		"{branch}", ShellQuote(noFlag(v.Branch)),
+		"{session}", ShellQuote(v.Session),
 	)
 	return repl.Replace(tmpl)
 }
@@ -97,6 +123,23 @@ func expandPaths(v Vars) string {
 // to the Replacer that defines them, so a caller asking "did this command use
 // the marks?" cannot drift out of step with what actually gets substituted.
 var markTokens = []string{"{paths}", "{marked}", "{marked1}", "{marked2}"}
+
+// repoTokens are the placeholders that only mean something inside a git
+// repository. Kept beside the Replacer for the same reason as markTokens.
+var repoTokens = []string{"{session}", "{repo}", "{branch}", "{gitroot}"}
+
+// NeedsRepo reports whether a command template depends on the selection being
+// in a git repository. A template that does is refused outside one rather than
+// run with the tokens empty — "tmux new-session -s ”" would otherwise create
+// an unnamed session that the picker could never find again.
+func NeedsRepo(tmpl string) bool {
+	for _, tok := range repoTokens {
+		if strings.Contains(tmpl, tok) {
+			return true
+		}
+	}
+	return false
+}
 
 // UsesMarks reports whether a command template acts on the marked paths. It is
 // what decides whether running the command should consume them.

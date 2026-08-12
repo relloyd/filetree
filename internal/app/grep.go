@@ -211,6 +211,8 @@ func (m *Model) finderLen() int {
 	switch {
 	case m.finderSrc == srcBookmark:
 		return len(m.bmRows)
+	case m.finderSrc == srcTmux:
+		return len(m.tmuxRows)
 	case m.grepping():
 		return len(m.grepRows)
 	default:
@@ -232,6 +234,10 @@ func (m *Model) finderPath(i int) string {
 	switch {
 	case m.finderSrc == srcBookmark:
 		return m.bmAll[m.bmRows[i]].Bookmark.Path
+	case m.finderSrc == srcTmux:
+		// A session has no path; its name is what identifies the row, and it
+		// is what the finder-resume machinery and the status bar read.
+		return m.tmuxAll[m.tmuxRows[i]].Name
 	case m.grepping():
 		return m.grepHits[m.grepRows[i]].Path
 	default:
@@ -251,6 +257,15 @@ func (m *Model) finderAbs(i int) string {
 	if m.finderSrc == srcBookmark {
 		if row, ok := m.bookmarkRow(i); ok {
 			return row.Abs
+		}
+		return ""
+	}
+	// A session's "path" is where it runs, which is what makes a finder_key
+	// command against a session row do something sensible rather than joining
+	// its name onto the tree root.
+	if m.finderSrc == srcTmux {
+		if s, ok := m.tmuxRow(i); ok {
+			return s.Dir
 		}
 		return ""
 	}

@@ -281,6 +281,18 @@ func (m *Model) handleConfirmKey(s string) (tea.Model, tea.Cmd) {
 				return cancel()
 			}
 		}
+	case opKillSession:
+		// The picker is still underneath: this was asked from inside it, and
+		// pruning a list is rarely a single press, so go back to it either way
+		// rather than dropping out to the tree.
+		switch s {
+		case "y", "enter":
+			m.mode, m.pending = modeFuzzy, nil
+			return m, m.killSessionNamed(p.session)
+		case "n", "esc", "q":
+			m.mode, m.pending = modeFuzzy, nil
+			return m, nil
+		}
 	case opCopy, opMove:
 		if p.conflicts == 0 {
 			switch s {
@@ -505,15 +517,22 @@ func (m *Model) runCommand(name string) (tea.Model, tea.Cmd) {
 	if len(paths) == 0 {
 		return m, m.note("Marked items no longer exist", true)
 	}
-	return m.execCommand(name, c, config.Vars{
-		Path:    n.Path,
-		RelPath: m.gitRelPath(n),
-		Dir:     dir,
-		Root:    m.tr.Root.Path,
-		Name:    n.Name,
-		Paths:   paths,
-		Marked:  append([]string(nil), m.markOrder...),
-	}, false)
+	// A command naming {session} and friends is asking for the repository the
+	// selection is in. Outside one there is no name to build, and running it
+	// anyway would create a session the picker could never find again — so say
+	// so instead.
+	v := m.sessionVars(m.repoIdentFor(dir))
+	if config.NeedsRepo(c.Run) && v.Session == "" {
+		return m, m.note(fmt.Sprintf("%s needs a git repo — %s is not in one", name, n.Name), true)
+	}
+	v.Path = n.Path
+	v.RelPath = m.gitRelPath(n)
+	v.Dir = dir
+	v.Root = m.tr.Root.Path
+	v.Name = n.Name
+	v.Paths = paths
+	v.Marked = append([]string(nil), m.markOrder...)
+	return m.execCommand(name, c, v, false)
 }
 
 // commandTargets is what a command should act on: the marked paths in mark
@@ -570,16 +589,24 @@ func (m *Model) runFinderCommand(name string) (tea.Model, tea.Cmd) {
 	// Paths is the row alone. Marks belong to the tree, and the finder acts on
 	// what is under its own cursor: letting them in would make ctrl+e open
 	// something other than the row you are looking at.
-	return m.execCommand(name, c, config.Vars{
-		Path:    abs,
-		RelPath: m.gitRelPathFor(abs),
-		Dir:     filepath.Dir(abs),
-		Root:    m.tr.Root.Path,
-		Name:    path.Base(rel),
-		Line:    pick.line,
-		Paths:   []string{abs},
-		Marked:  append([]string(nil), m.markOrder...),
-	}, false)
+	//
+	// The repo variables follow the row too, not the tree selection: a
+	// finder_key that opens an agent should open it for the file you are
+	// looking at, which in the bookmark view can be in another repo entirely.
+	dir := filepath.Dir(abs)
+	v := m.sessionVars(m.repoIdentFor(dir))
+	if config.NeedsRepo(c.Run) && v.Session == "" {
+		return m, m.note(fmt.Sprintf("%s needs a git repo", name), true)
+	}
+	v.Path = abs
+	v.RelPath = m.gitRelPathFor(abs)
+	v.Dir = dir
+	v.Root = m.tr.Root.Path
+	v.Name = path.Base(rel)
+	v.Line = pick.line
+	v.Paths = []string{abs}
+	v.Marked = append([]string(nil), m.markOrder...)
+	return m.execCommand(name, c, v, false)
 }
 
 // editConfig runs the default editor command against ~/.filetree/config.toml

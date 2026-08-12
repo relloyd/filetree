@@ -17,6 +17,13 @@ const starterTOML = `# filetree configuration
 #   {marked}   all marked paths (space-marked), oldest first
 #   {marked1}  second-most-recently marked path ('' if fewer than two)
 #   {marked2}  most recently marked path       ('' if fewer than two)
+#   {gitroot}  root of the repo — or linked worktree — holding the selection
+#   {repo}     basename of the main repo, shared by all of its worktrees
+#   {branch}   branch of that checkout, with "/" flattened to "-"
+#   {session}  tmux session name for that repo and branch, without a tool on
+#              the end: write "-s {session}/claude" and the shell joins them.
+#              The four above are empty outside a git repository, and a
+#              command that uses any of them is refused there rather than run
 # Unknown {tokens} are left alone, so tmux formats like "{last}" still work.
 
 [general]
@@ -114,6 +121,27 @@ watch_debounce_ms = 150
 # [worktrees]
 # dir = "~/.filetree/worktrees"
 
+# Agent tmux sessions: "T" lists the named sessions the commands below create,
+# so a Claude or Copilot you detached from is one key away from wherever you
+# are. Enter reattaches in a popup, ctrl+w gives it the whole window, ctrl+x
+# kills it, alt+n starts one for the selection.
+#
+# Sessions are named "<prefix><repo>/<branch>/<tool>", and the prefix is the
+# only thing the list filters on — everything else ft opens is unnamed, so it
+# never appears. Change the prefix and you change which sessions this ft sees;
+# it cannot be empty, since that would match every session on the server.
+#
+# A branch name's "/" is flattened to "-" so the name stays four parts, and
+# "." and ":" become "_" because tmux rewrites them anyway. Two branches that
+# differ only in those characters therefore share one session.
+#
+# new_command is what "alt+n" runs from inside the list. Several commands below
+# create sessions, so this says which one that key means; without it the key
+# falls back to whichever of them sorts first.
+[sessions]
+prefix = "ft/"
+new_command = "claude-popup"
+
 [commands]
 default = "tmux-handoff"   # the command Enter runs
 
@@ -197,6 +225,58 @@ key = "n"
 run = 'tmux display-popup -E -w 92% -h 92% "tmux new-session -c {dir}"'
 mode = "background"
 key = "P"
+
+# Agent sessions: a coding agent parked in a *named* tmux session, one per
+# repo and branch, so you can detach and come back to it hours later. "T"
+# lists them; these three keys create or return to one.
+#
+# The name is {session} with the tool on the end —
+# "ft/<repo>/<branch>/<tool>" — and it is what "T" filters on, so these
+# sessions are the only ones in the list. Everything else ft opens (the tree
+# itself, the splits above, the popups) stays unnamed and stays out of it.
+#
+# "-A" is what makes the key idempotent: it attaches to the session if it is
+# already there and creates it otherwise. Note that it *ignores the command*
+# when the session exists, so "claude" only ever runs on first creation —
+# press "c" again and you are back in the same conversation, not a new one.
+#
+# "claude; exec ${SHELL:-sh}" is what keeps the session alive after the tool
+# stops. Without it, "/exit" or a crash takes the session and its scrollback
+# with it; with it you land in a shell in the same directory, can read what
+# happened, and press up-arrow to run it again.
+#
+# "sh -m" turns job control on, and it is what makes the "T" list readable: a
+# plain "sh -c" keeps itself in the foreground process group, so tmux reports
+# the *shell* as the session's current command whatever is running inside it,
+# and every row would say "sh". With -m the tool gets its own foreground
+# group, so the list shows "claude" while it is working and your shell once it
+# has stopped — which is the difference the list is there to show.
+#
+# {gitroot} rather than {dir}: an agent wants the repository, not whichever
+# subdirectory the cursor happens to be in. It is the repo — or linked
+# worktree — containing the selection, so this does the right thing in the
+# worktrees view, where {root} is the worktrees directory itself.
+#
+# They are interactive so that quitting the popup re-reads the tree and
+# refreshes git status, which is exactly what you want after an agent has
+# spent ten minutes editing files.
+[commands.claude-popup]
+run = 'tmux display-popup -E -d {gitroot} -w 92% -h 92% "tmux new-session -A -s {session}/claude -c {gitroot} sh -mc \"claude; exec \${SHELL:-sh}\""'
+mode = "interactive"
+key = "c"
+
+[commands.copilot-popup]
+run = 'tmux display-popup -E -d {gitroot} -w 92% -h 92% "tmux new-session -A -s {session}/copilot -c {gitroot} sh -mc \"copilot; exec \${SHELL:-sh}\""'
+mode = "interactive"
+key = "x"
+
+# The same scheme without a tool: a named shell for the long-running things
+# that are not agents — a dev server, a test watcher — reachable from the same
+# "T" list rather than lost among anonymous panes.
+[commands.agent-shell]
+run = 'tmux display-popup -E -d {gitroot} -w 92% -h 92% "tmux new-session -A -s {session}/shell -c {gitroot}"'
+mode = "interactive"
+key = "alt+s"
 
 # Prime a ripgrep at the selection's directory in the other tmux pane:
 # the search path is filled in and the cursor waits where the pattern goes.
@@ -367,6 +447,7 @@ key = "D"
 # scratch-new = "S"
 # worktrees = "w"
 # worktree-new = "W"
+# tmux-sessions = "T"         # named agent sessions; enter reattaches in a popup
 # collapse-all = "H"
 # edit-config = "C"           # opens it in the default command
 # reload-config = "alt+c"     # re-read it: an editor in another pane cannot

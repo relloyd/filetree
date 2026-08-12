@@ -17,6 +17,7 @@ import (
 	"github.com/relloyd/filetree/internal/gitx"
 	"github.com/relloyd/filetree/internal/icons"
 	"github.com/relloyd/filetree/internal/search"
+	"github.com/relloyd/filetree/internal/tmux"
 	"github.com/relloyd/filetree/internal/tree"
 )
 
@@ -322,6 +323,12 @@ func (m *Model) renderConfirm() string {
 		}
 		return styleError.Render(" Remove worktree " + name + "? (y/n)")
 	}
+	if p.kind == opKillSession {
+		// Naming the client count is the whole reason this one asks: a session
+		// attached elsewhere may be on another terminal entirely.
+		return styleError.Render(" Kill "+strings.TrimPrefix(p.session, m.sessionPrefix())+
+			" — it is attached elsewhere.") + styleTitle.Render(" (y/n)")
+	}
 	if p.kind == opTrash {
 		if len(p.items) == 1 {
 			return styleError.Render(" Move " + filepath.Base(p.items[0]) + " to Trash? (y/n)")
@@ -375,6 +382,13 @@ func (m *Model) renderFinderHeader() []string {
 	if m.finderSrc == srcBookmark {
 		return []string{label(" Marks ", fieldQuery) + m.bmInput.View() +
 			m.renderFinderCounter() + m.renderBookmarkStatus()}
+	}
+	if m.finderSrc == srcTmux {
+		// Clamped, unlike the lines above it: this one carries a note whose
+		// length is not under the user's control, and ft is often a sidebar.
+		return []string{styleBase.MaxWidth(m.width).Render(
+			label(" Sessions ", fieldQuery) + m.tmuxInput.View() +
+				m.renderFinderCounter() + m.tmuxStatusNote())}
 	}
 	var lines []string
 	if m.scopeDir != "" {
@@ -571,6 +585,16 @@ func (m *Model) renderFuzzy() string {
 		}
 		return strings.Join(lines, "\n")
 	}
+	if m.finderSrc == srcTmux {
+		now := time.Now()
+		for i := m.fuzzyScroll; i < len(m.tmuxRows) && len(lines) < h; i++ {
+			lines = append(lines, m.renderTmuxRow(m.tmuxAll[m.tmuxRows[i]], m.tmuxMatched[i], i == m.fuzzySel, now))
+		}
+		for len(lines) < h {
+			lines = append(lines, "")
+		}
+		return strings.Join(lines, "\n")
+	}
 	if m.grepping() {
 		for i := m.fuzzyScroll; i < len(m.grepRows) && len(lines) < h; i++ {
 			lines = append(lines, m.renderGrepRow(m.grepHits[m.grepRows[i]], i == m.fuzzySel))
@@ -601,6 +625,61 @@ func (m *Model) renderFuzzy() string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderTmuxRow draws one named tmux session as its repo/branch/tool label,
+// with a status block pushed to the right edge: what is running in it, whether
+// anyone has it open, and how long since it last did anything.
+//
+// The label is the only thing the query matches, so the offsets start at zero
+// and the status block carries no highlighting — it changes on its own, and
+// highlighting a column the query cannot reach would only mislead.
+func (m *Model) renderTmuxRow(s tmux.Session, matched []int, selected bool, now time.Time) string {
+	prefix := "   "
+	if selected {
+		prefix = styleTitle.Render(" > ")
+	}
+	label := s.Label(m.sessionPrefix())
+	line := prefix + highlightIn(label, matched, 0, styleBase)
+	used := 3 + lipgloss.Width(label)
+
+	plain, styled := tmuxRowStatus(s, now)
+	// One space minimum between the name and the status, or the two read as
+	// one word on a narrow pane. Below that there is no room for the status at
+	// all and the name gets the line to itself.
+	if pad := m.width - used - lipgloss.Width(plain) - 1; pad > 0 {
+		line += strings.Repeat(" ", pad) + styled
+	}
+	return styleBase.MaxWidth(m.width).Render(line)
+}
+
+// tmuxRowStatus is the right-hand block of a session row, returned both as
+// plain text (to measure) and styled (to draw).
+//
+// The marker cell is always one column wide, blank included, so the ages below
+// each other line up and the eye can run down them. "!" is a pending bell,
+// which is what Claude Code rings when it is waiting for you — the one thing
+// in this list worth spotting from across the room.
+func tmuxRowStatus(s tmux.Session, now time.Time) (plain, styled string) {
+	var texts, out []string
+	add := func(text string, st lipgloss.Style) {
+		if text == "" {
+			return
+		}
+		texts = append(texts, text)
+		out = append(out, st.Render(text))
+	}
+	add(s.Command, styleDim)
+	switch {
+	case s.Alert:
+		add("!", styleChanged)
+	case s.Attached > 0:
+		add("●", styleTitle)
+	default:
+		add(" ", styleBase)
+	}
+	add(relativeAge(s.Activity, now), styleDim)
+	return strings.Join(texts, " "), strings.Join(out, " ")
 }
 
 // highlightPath colours a result path: the runes the Find query matched in
@@ -893,6 +972,10 @@ func (m *Model) helpRows() []helpRow {
 		// description above — which was the longest line on the page.
 		{finderKey: "ctrl+s", desc: "bookmarks: widen to every project"},
 		{finderKey: "ctrl+x", desc: "bookmarks: forget the highlighted one"},
+		{key: m.actionKeys["tmux-sessions"], desc: "named agent tmux sessions; enter reattaches"},
+		{finderKey: "ctrl+w", desc: "sessions: switch the window to it"},
+		{finderKey: "ctrl+x", desc: "sessions: kill the highlighted one"},
+		{finderKey: "alt+n", desc: "sessions: start one for the selection"},
 		{key: m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], desc: "new file / directory"},
 		{key: m.actionKeys["rename"], desc: "rename"},
 		{key: m.actionKeys["delete"], desc: "delete to Trash; on a worktree: git remove"},

@@ -80,6 +80,7 @@ var finderReservedKeys = []string{
 	"ctrl+p", "ctrl+n", "ctrl+u", "ctrl+d",
 	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+o",
 	"ctrl+s", "ctrl+x", // the bookmark view's scope and forget keys
+	"ctrl+w", "alt+n", // the session list's switch-client and new-session keys
 }
 
 type General struct {
@@ -116,10 +117,28 @@ type Worktrees struct {
 	Dir string `toml:"dir"` // supports ~; created on demand
 }
 
+// Sessions configures the named tmux sessions agent tools run in ("T"), which
+// are laid out as <prefix><repo>/<branch>/<tool>.
+type Sessions struct {
+	// Prefix is what marks a session as belonging to this feature, and is the
+	// only thing the picker filters on. Everything ft creates for itself — the
+	// self-relaunch, the splits, the popups — is unnamed, so the prefix is what
+	// keeps the picker to sessions worth coming back to.
+	Prefix string `toml:"prefix"`
+
+	// NewCommand is the command "alt+n" runs from inside the picker to start a
+	// session for the current selection. Naming it is what makes that key
+	// predictable: several commands create sessions, and picking between them
+	// by any rule of ft's own would be a guess. Empty falls back to whichever
+	// session-creating command sorts first, so the key still does something.
+	NewCommand string `toml:"new_command"`
+}
+
 type Config struct {
 	General        General
 	Scratch        Scratch
 	Worktrees      Worktrees
+	Sessions       Sessions
 	DefaultCommand string // name in Commands that Enter runs
 	Commands       map[string]Command
 	Keys           map[string]string // action name -> key
@@ -152,6 +171,9 @@ func Default() *Config {
 		},
 		Worktrees: Worktrees{
 			Dir: "~/.filetree/worktrees",
+		},
+		Sessions: Sessions{
+			Prefix: tmux.DefaultPrefix,
 		},
 		DefaultCommand: "edit",
 		Commands: map[string]Command{
@@ -199,12 +221,14 @@ func Load(path string) (*Config, error) {
 		General   *General                  `toml:"general"`
 		Scratch   *Scratch                  `toml:"scratch"`
 		Worktrees *Worktrees                `toml:"worktrees"`
+		Sessions  *Sessions                 `toml:"sessions"`
 		Commands  map[string]toml.Primitive `toml:"commands"`
 		Keys      map[string]string         `toml:"keys"`
 	}
 	raw.General = &cfg.General // decode over defaults
 	raw.Scratch = &cfg.Scratch
 	raw.Worktrees = &cfg.Worktrees
+	raw.Sessions = &cfg.Sessions
 	md, err := toml.DecodeFile(path, &raw)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -254,6 +278,12 @@ func Load(path string) (*Config, error) {
 	if cfg.Worktrees.Dir == "" {
 		return nil, fmt.Errorf("%s: worktrees.dir must not be empty", path)
 	}
+	// An empty prefix would match every session on the server — ft's own
+	// wrapper session, every popup, everything the user has open outside ft —
+	// which is exactly the pollution the naming convention exists to avoid.
+	if cfg.Sessions.Prefix == "" {
+		return nil, fmt.Errorf("%s: sessions.prefix must not be empty", path)
+	}
 
 	// [commands] mixes `default = "name"` with per-command sub-tables, so it
 	// is decoded in two passes via toml.Primitive.
@@ -287,6 +317,13 @@ func Load(path string) (*Config, error) {
 	}
 	if _, ok := cfg.Commands[cfg.DefaultCommand]; !ok {
 		return nil, fmt.Errorf("%s: commands.default %q is not a defined command", path, cfg.DefaultCommand)
+	}
+	// Checked here rather than at the [sessions] block above because it names
+	// a command, and the commands are only known once the pass above has run.
+	if n := cfg.Sessions.NewCommand; n != "" {
+		if _, ok := cfg.Commands[n]; !ok {
+			return nil, fmt.Errorf("%s: sessions.new_command %q is not a defined command", path, n)
+		}
 	}
 
 	// Whatever the decode above never reached. A mistyped setting is one way to

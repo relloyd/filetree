@@ -153,17 +153,28 @@ func TestStarterPopupsNameTheirDirectoryToTmux(t *testing.T) {
 	if err != nil {
 		t.Fatalf("starter config failed to load: %v", err)
 	}
+	// Either directory token will do; what matters is that tmux is told, not
+	// which of the two the command wants. The agent popups use {gitroot}
+	// because an agent belongs to the repository rather than to whichever
+	// subdirectory the cursor is in.
+	dirTokens := []string{"{dir}", "{gitroot}"}
 	seen := 0
 	for name, c := range cfg.Commands {
 		if !strings.Contains(c.Run, "display-popup") {
 			continue
 		}
 		seen++
-		if strings.Contains(c.Run, "cd {dir}") {
-			t.Errorf("commands.%s: run = %q, cd cannot set a popup's directory", name, c.Run)
+		named := false
+		for _, tok := range dirTokens {
+			if strings.Contains(c.Run, "cd "+tok) {
+				t.Errorf("commands.%s: run = %q, cd cannot set a popup's directory", name, c.Run)
+			}
+			if strings.Contains(c.Run, "-d "+tok) || strings.Contains(c.Run, "-c "+tok) {
+				named = true
+			}
 		}
-		if !strings.Contains(c.Run, "-d {dir}") && !strings.Contains(c.Run, "-c {dir}") {
-			t.Errorf("commands.%s: run = %q, want -d {dir} or -c {dir}", name, c.Run)
+		if !named {
+			t.Errorf("commands.%s: run = %q, want -d or -c with %v", name, c.Run, dirTokens)
 		}
 	}
 	// Without this the loop above passes a starter with no popups at all.
@@ -372,6 +383,149 @@ func TestWorktreesConfig(t *testing.T) {
 
 	if _, err := loadTOML(t, "[worktrees]\ndir = \"\"\n"); err == nil {
 		t.Error("empty worktrees.dir should fail")
+	}
+}
+
+func TestSessionsConfig(t *testing.T) {
+	cfg, err := loadTOML(t, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Sessions.Prefix != "ft/" {
+		t.Errorf("default = %+v", cfg.Sessions)
+	}
+	// Unset by default: with no commands defined there is nothing to name.
+	if cfg.Sessions.NewCommand != "" {
+		t.Errorf("default new_command = %q, want empty", cfg.Sessions.NewCommand)
+	}
+	// It must name a real command, or "alt+n" would silently do nothing.
+	if _, err := loadTOML(t, "[sessions]\nnew_command = \"nope\"\n"); err == nil {
+		t.Error("an unknown sessions.new_command should fail")
+	}
+
+	cfg, err = loadTOML(t, "[sessions]\nprefix = \"agent/\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Sessions.Prefix != "agent/" {
+		t.Errorf("prefix override = %q", cfg.Sessions.Prefix)
+	}
+
+	// An empty prefix would put every session on the server in the picker,
+	// including ft's own — the opposite of what the convention is for.
+	if _, err := loadTOML(t, "[sessions]\nprefix = \"\"\n"); err == nil {
+		t.Error("empty sessions.prefix should fail")
+	}
+}
+
+// The agent popups are the reason {gitroot} and {session} exist; the shapes
+// asserted here are what make "press c twice and you are back in the same
+// conversation" true.
+func TestStarterAgentCommands(t *testing.T) {
+	cfg, err := loadTOML(t, starterTOML)
+	if err != nil {
+		t.Fatalf("starter config failed to load: %v", err)
+	}
+	for _, tc := range []struct{ name, key, tool string }{
+		{"claude-popup", "c", "claude"},
+		{"copilot-popup", "x", "copilot"},
+		{"agent-shell", "alt+s", "shell"},
+	} {
+		c, ok := cfg.Commands[tc.name]
+		if !ok {
+			t.Errorf("commands.%s is missing from the starter", tc.name)
+			continue
+		}
+		if c.Key != tc.key {
+			t.Errorf("commands.%s: key = %q, want %q", tc.name, c.Key, tc.key)
+		}
+		// Interactive so that returning re-reads the tree: an agent has
+		// usually been editing files while you were in there.
+		if c.Mode != ModeInteractive {
+			t.Errorf("commands.%s: mode = %q, want interactive", tc.name, c.Mode)
+		}
+		// Without "-A" a second press would fail on a duplicate session name
+		// instead of taking you back to the one already running.
+		if !strings.Contains(c.Run, "new-session -A") {
+			t.Errorf("commands.%s: run = %q, want new-session -A", tc.name, c.Run)
+		}
+		if want := "-s {session}/" + tc.tool; !strings.Contains(c.Run, want) {
+			t.Errorf("commands.%s: run = %q, want %q", tc.name, c.Run, want)
+		}
+		if !NeedsRepo(c.Run) {
+			t.Errorf("commands.%s: run = %q, should be gated on being in a repo", tc.name, c.Run)
+		}
+	}
+	// The two tool popups keep the session alive once the tool stops; the
+	// plain shell has nothing to outlive.
+	// "alt+n" in the picker has to mean something definite.
+	if cfg.Sessions.NewCommand != "claude-popup" {
+		t.Errorf("starter new_command = %q, want claude-popup", cfg.Sessions.NewCommand)
+	}
+	for _, name := range []string{"claude-popup", "copilot-popup"} {
+		c := cfg.Commands[name]
+		if !strings.Contains(c.Run, "exec \\${SHELL:-sh}") {
+			t.Errorf("commands.%s: run = %q, want the shell fallback so the session survives the tool", name, c.Run)
+		}
+		// Job control, or tmux reports the wrapper shell as the session's
+		// current command and every row in the "T" list reads "sh".
+		if !strings.Contains(c.Run, "sh -mc") {
+			t.Errorf("commands.%s: run = %q, want sh -mc so the tool shows in the session list", name, c.Run)
+		}
+	}
+}
+
+func TestNeedsRepo(t *testing.T) {
+	cases := []struct {
+		tmpl string
+		want bool
+	}{
+		{"tmux new-session -s {session}/claude", true},
+		{"echo {repo}", true},
+		{"echo {branch}", true},
+		{"cd {gitroot}", true},
+		{"hx {path}", false},
+		{"tmux split-window -c {dir}", false},
+		// {root} is the tree root and is available everywhere, so it must not
+		// drag a command into being repo-gated.
+		{"tmux split-window -c {root}", false},
+	}
+	for _, tc := range cases {
+		if got := NeedsRepo(tc.tmpl); got != tc.want {
+			t.Errorf("NeedsRepo(%q) = %v, want %v", tc.tmpl, got, tc.want)
+		}
+	}
+}
+
+func TestExpandCommandRepoVars(t *testing.T) {
+	v := Vars{
+		Root:    "/home/rl",
+		GitRoot: "/home/rl/my repo",
+		Repo:    "filetree",
+		Branch:  "claude-tmux-nav",
+		Session: "ft/filetree/claude-tmux-nav",
+	}
+	// The tool is appended outside the token on purpose: the value is quoted
+	// and the suffix is not, so the shell joins them into one word.
+	got := ExpandCommand("tmux new-session -A -s {session}/claude -c {gitroot}", v)
+	want := `tmux new-session -A -s ft/filetree/claude-tmux-nav/claude -c '/home/rl/my repo'`
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+
+	// {gitroot} and {root} are distinct, and neither eats the other: a
+	// Replacer only ever matches a token from its own "{".
+	got = ExpandCommand("{root} {gitroot} {repo} {branch}", v)
+	want = `/home/rl '/home/rl/my repo' filetree claude-tmux-nav`
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+
+	// Outside a repo every one of them is empty rather than absent, so a
+	// template that slipped through still expands to something inert.
+	got = ExpandCommand("{session}/claude", Vars{})
+	if want := `''/claude`; got != want {
+		t.Errorf("empty: got %q, want %q", got, want)
 	}
 }
 

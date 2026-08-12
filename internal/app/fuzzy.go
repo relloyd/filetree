@@ -53,10 +53,15 @@ const (
 // root at each use.
 type finderSource int
 
+// Sessions are the second exception, and a larger one: their rows are not
+// files at all. They resolve to the directory the session runs in, which is
+// what keeps finderAbs meaningful for them, but enter attaches rather than
+// opening anything.
 const (
 	srcTree     finderSource = iota // the walk, plus the Type and Grep fields
 	srcRecent                       // this root's history of opened files
 	srcBookmark                     // this repo's line bookmarks
+	srcTmux                         // named tmux sessions for agent tools
 )
 
 // finderPick is a row the finder was left on, so reopening can put the
@@ -270,6 +275,12 @@ func (m *Model) clearFinder() tea.Cmd {
 		m.fuzzySel, m.fuzzyScroll = 0, 0
 		return nil
 	}
+	if m.finderSrc == srcTmux {
+		m.tmuxInput.Reset()
+		m.rebuildTmuxRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return nil
+	}
 	m.input.Reset()
 	m.typeInput.Reset()
 	m.grepInput.Reset()
@@ -326,6 +337,13 @@ func (m *Model) restartFuzzyWalk() tea.Cmd {
 		// a row is a place, with a line and its text, not just a path.
 		m.fuzzyWalking = false
 		m.loadBookmarks()
+		return nil
+	case srcTmux:
+		// Sessions keep their own rows too, and for a stronger reason: they
+		// are not paths at all. The list is one tmux call, so it is read here
+		// rather than streamed.
+		m.fuzzyWalking = false
+		m.loadTmuxSessions()
 		return nil
 	}
 
@@ -583,6 +601,11 @@ func (m *Model) refuzzy() {
 		m.fuzzySel, m.fuzzyScroll = 0, 0
 		return
 	}
+	if m.finderSrc == srcTmux {
+		m.rebuildTmuxRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return
+	}
 	q, prev := m.input.Value(), m.fuzzyQuery
 	m.fuzzyQuery = q
 	if m.grepping() {
@@ -663,7 +686,7 @@ func (m *Model) cycleFinderField(delta int) tea.Cmd {
 		m.cycleBookmarkSort()
 		return nil
 	}
-	if m.finderSrc == srcRecent {
+	if m.finderSrc == srcRecent || m.finderSrc == srcTmux {
 		return nil
 	}
 	n := int(finderFieldCount)
@@ -683,6 +706,9 @@ func (m *Model) finderCanDeleteForward() bool {
 func (m *Model) finderInput() *textinput.Model {
 	if m.finderSrc == srcBookmark {
 		return &m.bmInput // its own field, so "B" and "f" remember separately
+	}
+	if m.finderSrc == srcTmux {
+		return &m.tmuxInput
 	}
 	switch m.finderField {
 	case fieldType:
@@ -704,8 +730,8 @@ func (m *Model) fuzzyVisibleRows() int {
 // so an unused field costs no screen space.
 func (m *Model) finderHeaderLines() int {
 	n := 1
-	if m.finderSrc == srcRecent || m.finderSrc == srcBookmark {
-		return n // one query line; neither list offers another field
+	if m.finderSrc == srcRecent || m.finderSrc == srcBookmark || m.finderSrc == srcTmux {
+		return n // one query line; none of these lists offers another field
 	}
 	if m.scopeDir != "" {
 		n++ // the Dir line, shown only when there is a scope to report
