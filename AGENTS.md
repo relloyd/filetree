@@ -173,3 +173,21 @@ drive the real binary:
 Known input gotcha (documented in the starter config): keys sent to helix
 via `tmux send-keys` must deliver `Escape` in its own send, then sleep
 ~150ms, or ESC coalesces with the next byte and parses as an Alt-chord.
+
+**Anything that builds a shell string for tmux has to be exercised on macOS.**
+tmux runs `display-popup` and `send-keys` commands through `default-shell`,
+which is `/bin/zsh` on a stock macOS and `/bin/sh` or bash in a Linux
+container — so a whole class of bug is invisible off the supported OS. The one
+that shipped: `ShellQuote` treated `=` as safe, the session picker's `=`
+exact-match target reached zsh bare, zsh applied *equals expansion* (a word
+starting with `=` becomes the path of the command it names), and
+`attach-session` failed with the popup closing too fast to read the error.
+Every other shell leaves `=foo` alone. Prefer passing tmux targets as direct
+argv (`exec.Command("tmux", "kill-session", "-t", target)`) where there is no
+template to honour — that path was never affected.
+
+Two things worth measuring rather than reasoning about, both of which were
+guessed wrong first: `display-popup` **blocks** its caller until the popup
+closes (`display-popup -E "sleep 4"` takes four seconds), and a popup is not a
+pane, so attaching from inside one passes tmux's nested-session check even
+though `$TMUX` is set.
