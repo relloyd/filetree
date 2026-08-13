@@ -1,7 +1,111 @@
 package config
 
 // starterTOML is written to ~/.filetree/config.toml on first run.
+//
+// It is a starter, not a catalogue. The commands ft ships with live in
+// catalogue.go and come with the binary, so this file must never define one:
+// anything put here reaches only people whose first run is still ahead of
+// them, which is how the agent-session keys went missing for every existing
+// install. TestStarterDefinesNoCommands keeps that honest.
+//
+// What belongs here is what genuinely varies per machine — toggles, paths,
+// limits — plus a pointer to the two escape hatches. "?" is the authoritative
+// list of keys, since it is generated from the catalogue and cannot go stale.
 const starterTOML = `# filetree configuration
+#
+# Everything here is optional: ft ships with a full set of commands and keys
+# built in, and this file only says where you differ from them. Press "?" in ft
+# for the current list of keys and what each one does.
+
+[general]
+show_hidden = false
+show_ignored = true        # gitignored entries are shown greyed-out; "i" toggles
+icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
+watch_debounce_ms = 150
+# link_ref = "commit"      # ref for u/U web links: "commit" (permanent) or "branch"
+# tmux = "auto"            # "auto": when started outside tmux, ft relaunches itself
+#                          # in a new tmux session (needs tmux on PATH) so the
+#                          # split, popup, focus and resize commands work.
+#                          # "never": run as-is.
+#                          # "ft --no-tmux" turns it off for one run.
+# fuzzy_max_matches = 1000 # how many "/" results are ranked and kept; raising
+#                          # it costs sort time on huge trees, not render time.
+#                          # "ctrl+g" in the finder doubles, triples, ... this
+#                          # for the rest of the session when you need more
+# fuzzy_max_candidates = 50000
+#                          # how many paths the "/" walk indexes before it
+#                          # stops. Rarely reached with a Type filter set,
+#                          # since the filter is applied while walking.
+# fuzzy_grep_max_per_file = 5
+#                          # matches taken from any one file by the Grep
+#                          # field, so a generated file can't fill the list;
+#                          # 0 means no limit
+# recent_max = 100         # how many opened files "b" remembers per tree
+# bookmark_max = 500       # how many line bookmarks a repo keeps ("B")
+# bookmark_retention_days = 30
+#                          # a bookmark whose file has not been seen for this
+#                          # long is dropped; 0 turns ageing out off entirely
+# clear_marks_after_command = false
+#                          # drop the marked set once a command has acted on
+#                          # it. Off by default — opening files is not
+#                          # destructive, so the marks are there for the next
+#                          # command. Either way "esc" clears them.
+
+# Scratch files: "S" creates an empty YYYYMMDDHH.<extension> here and opens it;
+# "s" toggles the scratch view. Defaults shown.
+# [scratch]
+# dir = "~/.filetree/scratch"
+# extension = "md"
+
+# Git worktrees: "W" creates one for the repo containing the selection, laid
+# out as <dir>/<repo name>/<branch or pr-N>; "w" toggles the view. Default
+# shown.
+# [worktrees]
+# dir = "~/.filetree/worktrees"
+
+# Agent tmux sessions ("T"), named "<prefix><repo>/<branch>/<tool>". The prefix
+# is the only thing the list filters on, so everything else ft opens stays out
+# of it; it cannot be empty, since that would match every session on the
+# server. new_command is what "alt+n" runs from inside the list. Defaults
+# shown.
+# [sessions]
+# prefix = "ft/"
+# new_command = "claude-popup"
+
+# Keys. Every action *and* every command can be moved by name — "?" lists the
+# names — and one line is enough:
+#
+#   [keys]
+#   claude-popup = "C"    # move a command off "c"
+#   rename       = "f2"
+#
+# A key belongs to one thing, so moving something onto a key another thing
+# already holds means saying where that one goes too. An override that would
+# leave something with no key at all is refused rather than obeyed: ft starts
+# as usual, says how many clashes it found in the status bar, and lists them at
+# the top of "?". The keys the tree navigates with (arrows, hjkl, g/G, enter,
+# ctrl+u/ctrl+d, ctrl+c, F5) cannot be taken.
+#
+# This header has to be uncommented for anything under it to count: a
+# "name = key" line with no [keys] above it belongs to whichever table came
+# last in the file.
+# [keys]
+
+# Commands. The built-in set needs no configuration — this table is only for
+# changing one, switching one off, or adding your own.
+#
+#   [commands]
+#   default  = "tmux-handoff"          # what Enter runs
+#   disabled = ["copilot-popup"]       # switch one off and free its key
+#
+#   [commands.claude-popup]            # override a built-in: only the fields
+#   run = "..."                        # you name change, the rest is kept
+#
+#   [commands.notes]                   # or add one of your own
+#   run  = "hx ~/notes/{name}.md"
+#   mode = "interactive"               # or "background" (the default)
+#   key  = "ctrl+b"
+#   desc = "open this file's notes"    # shown in "?"
 #
 # Command templates may use these placeholders (values are shell-quoted):
 #   {path}     absolute path of the selection
@@ -25,432 +129,4 @@ const starterTOML = `# filetree configuration
 #              The four above are empty outside a git repository, and a
 #              command that uses any of them is refused there rather than run
 # Unknown {tokens} are left alone, so tmux formats like "{last}" still work.
-
-[general]
-show_hidden = false
-show_ignored = true        # gitignored entries are shown greyed-out; "i" toggles
-icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
-# link_ref = "commit"      # ref for u/U web links: "commit" (permanent) or "branch"
-# tmux = "auto"            # "auto": when started outside tmux, ft relaunches itself
-#                          # in a new tmux session (needs tmux on PATH) so the
-#                          # split, popup, focus and resize commands below work.
-#                          # "never": run as-is.
-#                          # "ft --no-tmux" turns it off for one run.
-# fuzzy_max_matches = 1000 # how many "/" results are ranked and kept; raising
-#                          # it costs sort time on huge trees, not render time.
-#                          # "ctrl+g" in the fuzzy finder doubles, triples, ... this
-#                          # for the rest of the session when you need more
-# fuzzy_max_candidates = 50000
-#                          # how many paths the "/" walk indexes before it
-#                          # stops. Rarely reached with a Type filter set,
-#                          # since the filter is applied while walking.
-# fuzzy_grep_max_per_file = 5
-#                          # matches taken from any one file by the Grep
-#                          # field, so a generated file can't fill the list;
-#                          # 0 means no limit
-# recent_max = 100         # how many opened files "b" remembers per tree.
-#                          # Kept in <root>.recent.json beside the tree's
-#                          # state file, so each tree has its own history.
-# bookmark_max = 500       # how many line bookmarks a repo keeps ("B").
-# bookmark_retention_days = 30
-#                          # a bookmark whose file has not been seen for this
-#                          # long is dropped. Long enough that a file hidden by
-#                          # a branch switch is still there when you switch
-#                          # back; 0 turns ageing out off entirely.
-# clear_marks_after_command = false
-#                          # drop the marked set once a command has acted on
-#                          # it. Off by default — opening files is not
-#                          # destructive, so the marks are there for the next
-#                          # command ("e" to open them, then "t" to push them
-#                          # to a pane). Turn it on to match d/p/m, which do
-#                          # clear. Either way "esc" clears them.
-watch_debounce_ms = 150
-
-# The "/" finder has three input lines; "tab" cycles them in this order, so
-# one "tab" from Find reaches Grep.
-#   Find:  fuzzy subsequence over paths (include "/" to pin path segments)
-#   Grep:  a regexp searched inside the files the Type filter below selects
-#          (needs ripgrep). Rows become "path:line  matched text"; enter still
-#          jumps to the file. Type + Grep together are the "fd ... | rg ..."
-#          combination. With Type or Grep filled in, the status bar shows the
-#          rg command the finder amounts to ("rg --files ..." when only Type
-#          is set); "ctrl+y" copies it so you can run it yourself.
-#   Type:  comma-separated file-type globs, applied while walking, so a
-#          filtered search reaches the leaves of a tree too big to index whole
-#          hcl              *.hcl, or a file named exactly "hcl"
-#          .hcl             *.hcl
-#          terragrunt.hcl   that basename, anywhere in the tree
-#          *.tf             matched against the basename
-#          infra/**/*.hcl   matched against the whole path ("**" spans dirs)
-#          !vendor/**       a leading "!" excludes
-# With a Type filter and an empty Find, the list is every file of that type.
-
-# "B" opens the same finder over line bookmarks — a file and a line, captured
-# from your editor. Bind a key in helix to record one:
-#
-#   [keys.normal.space]
-#   b = ":sh ft bookmark %{buffer_name} %{cursor_line}"
-#
-# Do not add %{selection}: it works with a word selected and silently does
-# nothing at all when the selection spans lines. ft reads the line's text
-# itself, so the list still shows real content either way.
-#
-# Bookmarks belong to the repository, not to this tree, so every worktree of it
-# shares one list. tab sorts by recency or path, ctrl+s widens to every
-# project, ctrl+x forgets one, and enter opens the file at its line — following
-# the line if it has moved since.
-
-# "b" opens the same finder over the files you have opened from this tree,
-# newest first, with how long ago beside each one. It has the one Find line —
-# there is no directory for ripgrep to search across scattered files — and
-# enter reveals the file in the tree and opens it. A command's finder_key
-# works here too, so "ctrl+t" hands a remembered file straight to a pane.
-
-# Scratch files: "S" creates an empty YYYYMMDDHH.<extension> file here and
-# opens it in the default command; "s" toggles the scratch view; Esc (with
-# no marks active) returns to the original root. Defaults shown.
-# [scratch]
-# dir = "~/.filetree/scratch"
-# extension = "md"
-
-# Git worktrees: "W" asks for a branch name or PR number and creates a
-# worktree for the repo containing the selection, then jumps into it; "w"
-# toggles the worktrees view; Esc (with no marks active) returns. "d" on a
-# worktree root runs "git worktree remove" instead of trashing it. Layout is
-# <dir>/<repo name>/<branch or pr-N>. Default shown.
-# [worktrees]
-# dir = "~/.filetree/worktrees"
-
-# Agent tmux sessions: "T" lists the named sessions the commands below create,
-# so a Claude or Copilot you detached from is one key away from wherever you
-# are. Enter reattaches in a popup, ctrl+w gives it the whole window, ctrl+x
-# kills it, alt+n starts one for the selection.
-#
-# Sessions are named "<prefix><repo>/<branch>/<tool>", and the prefix is the
-# only thing the list filters on — everything else ft opens is unnamed, so it
-# never appears. Change the prefix and you change which sessions this ft sees;
-# it cannot be empty, since that would match every session on the server.
-#
-# A branch name's "/" is flattened to "-" so the name stays four parts, and
-# "." and ":" become "_" because tmux rewrites them anyway. Two branches that
-# differ only in those characters therefore share one session.
-#
-# new_command is what "alt+n" runs from inside the list. Several commands below
-# create sessions, so this says which one that key means; without it the key
-# falls back to whichever of them sorts first.
-[sessions]
-prefix = "ft/"
-new_command = "claude-popup"
-
-[commands]
-default = "tmux-handoff"   # the command Enter runs
-
-# Open the selection in helix, taking over this pane until you quit.
-# Enter runs this for files; the "e" key runs it for anything, including
-# directories (helix opens its file picker on a directory). "ctrl+e" runs it
-# from inside the "/" finder against the highlighted row, landing on the
-# matched line of a Grep hit; quitting helix returns you to the finder with
-# the results still up.
-# {paths} is what makes marks work here: space-mark several files and one
-# press of "e" opens them all as buffers in a single helix, in mark order.
-[commands.edit]
-run = "hx {paths}"
-mode = "interactive"
-key = "e"
-finder_key = "ctrl+e"
-
-# Smart hand-off to the previously-active tmux pane ("{last}"): if helix is
-# running there, open the file in that session (:open); if a shell is
-# waiting, type the hx command; otherwise (including no last pane) create a
-# split. send-keys types into whatever runs in the pane, so blindly sending
-# "hx ..." a second time would land inside helix as editor keystrokes.
-# "ctrl+t" runs it from inside the "/" finder without closing it, so several
-# results can be pushed into panes in one visit. All three branches take
-# {paths}, so marking several files sends the lot: helix's ":open" accepts a
-# list, and both it and the hx binary accept a "path:line" argument, so the
-# same expansion works whichever branch runs.
-[commands.tmux-handoff]
-run = '''
-target=$(tmux display-message -p -t "{last}" "#{pane_current_command}" 2>/dev/null)
-case "$target" in
-  hx)
-    # Escape must arrive in its own read: coalesced with ":" it parses as
-    # Alt+: and the command text gets typed into the buffer instead.
-    tmux send-keys -t "{last}" Escape
-    sleep 0.15
-    tmux send-keys -t "{last}" ":open {paths}" Enter
-    ;;
-  sh|dash|bash|zsh|fish|ksh|nu)
-    tmux send-keys -t "{last}" C-u "hx {paths}" Enter
-    ;;
-  *)
-    tmux split-window -fdh -c {root} "hx {paths}"
-    ;;
-esac
-'''
-mode = "background"
-key = "t"
-finder_key = "ctrl+t"
-
-# Always open the selection — or everything marked — in helix in a new
-# full-height split at the right edge of the window ("vertical split").
-# Repeatable: each press adds another pane; quitting helix (:q) closes its
-# pane again.
-[commands.helix-vsplit]
-run = 'tmux split-window -fh -c {root} "hx {paths}"'
-mode = "background"
-key = "v"
-
-# Open a shell in a new pane immediately to the right of the filetree pane,
-# splitting ft's own space. Any existing pane to the right is pushed further
-# right — use this when you want to insert a pane next to ft without
-# disturbing the existing layout.
-[commands.shell-vsplit-adjacent]
-run = 'tmux split-window -h -c {dir}'
-mode = "background"
-key = "N"
-
-# Open a shell in a new full-height split at the right edge of the window,
-# regardless of what panes already exist there.
-[commands.shell-vsplit]
-run = 'tmux split-window -fh -c {dir}'
-mode = "background"
-key = "n"
-
-# The same shell, in a popup over the whole window instead of a split — for
-# a command you want to run and dismiss rather than keep beside the tree.
-# The popup runs its own tmux session, so it has its own panes and its own
-# scrollback, and closing that session (exit / ctrl+d) closes the popup.
-[commands.shell-popup]
-run = 'tmux display-popup -E -w 92% -h 92% "tmux new-session -c {dir}"'
-mode = "background"
-key = "P"
-
-# Agent sessions: a coding agent parked in a *named* tmux session, one per
-# repo and branch, so you can detach and come back to it hours later. "T"
-# lists them; these three keys create or return to one.
-#
-# The name is {session} with the tool on the end —
-# "ft/<repo>/<branch>/<tool>" — and it is what "T" filters on, so these
-# sessions are the only ones in the list. Everything else ft opens (the tree
-# itself, the splits above, the popups) stays unnamed and stays out of it.
-#
-# "-A" is what makes the key idempotent: it attaches to the session if it is
-# already there and creates it otherwise. Note that it *ignores the command*
-# when the session exists, so "claude" only ever runs on first creation —
-# press "c" again and you are back in the same conversation, not a new one.
-#
-# "claude; exec ${SHELL:-sh}" is what keeps the session alive after the tool
-# stops. Without it, "/exit" or a crash takes the session and its scrollback
-# with it; with it you land in a shell in the same directory, can read what
-# happened, and press up-arrow to run it again.
-#
-# "sh -m" turns job control on, and it is what makes the "T" list readable: a
-# plain "sh -c" keeps itself in the foreground process group, so tmux reports
-# the *shell* as the session's current command whatever is running inside it,
-# and every row would say "sh". With -m the tool gets its own foreground
-# group, so the list shows "claude" while it is working and your shell once it
-# has stopped — which is the difference the list is there to show.
-#
-# {gitroot} rather than {dir}: an agent wants the repository, not whichever
-# subdirectory the cursor happens to be in. It is the repo — or linked
-# worktree — containing the selection, so this does the right thing in the
-# worktrees view, where {root} is the worktrees directory itself.
-#
-# They are interactive so that quitting the popup re-reads the tree and
-# refreshes git status, which is exactly what you want after an agent has
-# spent ten minutes editing files.
-[commands.claude-popup]
-run = 'tmux display-popup -E -d {gitroot} -w 92% -h 92% "tmux new-session -A -s {session}/claude -c {gitroot} sh -mc \"claude; exec \${SHELL:-sh}\""'
-mode = "interactive"
-key = "c"
-
-[commands.copilot-popup]
-run = 'tmux display-popup -E -d {gitroot} -w 92% -h 92% "tmux new-session -A -s {session}/copilot -c {gitroot} sh -mc \"copilot; exec \${SHELL:-sh}\""'
-mode = "interactive"
-key = "x"
-
-# The same scheme without a tool: a named shell for the long-running things
-# that are not agents — a dev server, a test watcher — reachable from the same
-# "T" list rather than lost among anonymous panes.
-[commands.agent-shell]
-run = 'tmux display-popup -E -d {gitroot} -w 92% -h 92% "tmux new-session -A -s {session}/shell -c {gitroot}"'
-mode = "interactive"
-key = "alt+s"
-
-# Prime a ripgrep at the selection's directory in the other tmux pane:
-# the search path is filled in and the cursor waits where the pattern goes.
-# Falls back to a fresh shell split at that directory.
-[commands.grep-here]
-run = 'tmux send-keys -t "{last}" "rg -n {dir} -e " 2>/dev/null || tmux split-window -h -c {dir}'
-mode = "background"
-key = "r"
-
-# Focus the tmux pane to the right of ft, so "ctrl+l" replaces tmux's own
-# "ctrl+b →" for getting back to a split opened above. Silent when there is
-# no pane to the right: select-pane -R simply exits 0 in a single-pane
-# window. The $TMUX guard matters — outside a pane, tmux resolves the command
-# against the most recently used session and would move the focus in an
-# unrelated window.
-# It takes the same chord in the finder, so a search can be left running in
-# one pane while you go and look at something in another.
-[commands.focus-right]
-run = '[ -z "$TMUX" ] || tmux select-pane -R'
-mode = "background"
-key = "ctrl+l"
-finder_key = "ctrl+l"
-
-# Narrow ft to a sidebar, or widen it to read by. Both resize the *active*
-# pane, which is ft's whenever you are pressing its keys, and both take the
-# same $TMUX guard as focus-right above: a size change in an unrelated
-# window is just as silent as a focus change, and just as unwelcome.
-[commands.resize-pane-30]
-run = '[ -z "$TMUX" ] || tmux resize-pane -x 30%'
-mode = "background"
-key = "ctrl+j"
-finder_key = "ctrl+j"
-
-[commands.resize-pane-70]
-run = '[ -z "$TMUX" ] || tmux resize-pane -x 70%'
-mode = "background"
-key = "ctrl+k"
-finder_key = "ctrl+k"
-
-# Give every pane in the window the same width, side by side — tmux's own
-# "even-horizontal" preset layout, and the undo for a window that has drifted
-# out of shape after a few splits and resizes. It takes the same $TMUX guard
-# as the two above, for the same reason: run outside a pane and tmux would
-# rearrange a window you are not even looking at.
-[commands.tmux-even-panes]
-run = '[ -z "$TMUX" ] || tmux select-layout even-horizontal'
-mode = "background"
-key = "alt+h"
-finder_key = "alt+h"
-
-# Open lazygit for the repo containing the selection, in a popup. lazygit
-# finds the repo by walking up from its working directory, so tmux has to be
-# told which directory that is: a popup starts in the *session's* working
-# directory — where the session was created — not in the cwd of the shell that
-# asked for it, so a "cd" in front of this would never reach lazygit. "-d"
-# places the popup, "-c" the session inside it ({dir} = the selection itself if
-# it's a dir). The inner command stays in double quotes because {dir} arrives
-# shell-quoted, and single quotes do not nest.
-# It is interactive so that quitting lazygit re-reads the tree and refreshes
-# git status, which is the whole point of having just used it.
-[commands.lazygit-popup]
-run = 'tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} lazygit"'
-mode = "interactive"
-key = "L"
-
-# Blame view for the selected file in lazygit: opens the same popup as
-# lazygit-popup but passes "-f {path}" so lazygit jumps straight into the
-# file's blame / log view. Quitting lazygit refreshes git status in the tree,
-# just as the plain popup does.
-[commands.lazygit-blame-popup]
-run = 'tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} lazygit -f {path}"'
-mode = "interactive"
-key = "M"
-
-# Diff the selection — or everything marked — in a popup, working tree against
-# HEAD so staged changes still show after using lazygit above. {paths} is what
-# makes marks work: it is the marked set, oldest first, or the selection when
-# nothing is marked, and "git diff --" takes a list.
-# Like the two popups above it runs its own tmux session, so the diff has real
-# scrollback. That is not a nicety: git pages its output only when a pager is
-# configured, and a plain "git diff" with none simply prints, so without a
-# session the top of a long diff would scroll away with no way back to it.
-# The pause exists only for the cases where nothing else holds the screen —
-# nothing to show, git failing, or a pager of "cat", which is how "no pager at
-# all" reports itself. When a pager does run, quitting it closes the popup, so
-# a diff costs one "q" and no more. The pause takes any key rather than enter,
-# since "q" is already in your fingers from the pager.
-# An untracked file shows nothing: git has no version of it to compare against.
-[commands.git-diff-popup]
-run = '''
-tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} \"
-hold() {
-  echo
-  echo '-- press any key to close --'
-  stty raw -echo 2>/dev/null
-  dd bs=1 count=1 >/dev/null 2>&1
-  stty sane 2>/dev/null
-}
-if git -C {dir} diff --quiet HEAD -- {paths}; then
-  echo 'No changes vs HEAD'
-  hold
-elif ! git -C {dir} diff HEAD -- {paths}; then
-  hold
-elif git -C {dir} var GIT_PAGER | grep -qx cat; then
-  hold
-fi
-\""
-'''
-mode = "interactive"
-key = "alt+d"
-
-# Diff the two most recently space-marked files in a split (older on the
-# left); the trailing read keeps the pane open until you press Enter.
-[commands.diff]
-run = 'tmux split-window -fh "delta {marked1} {marked2}; read x"'
-mode = "background"
-key = "D"
-
-# Keybinding overrides. Defaults shown; uncomment to change.
-#
-# A key belongs to one action, so moving an action onto a key another one
-# already holds means saying where that one goes too:
-#
-#   [keys]
-#   rename       = "f2"   # without this line the next one is refused,
-#   worktree-new = "R"    # because R is rename's
-#
-# A straight swap needs no more than the two lines. An override that would
-# leave another action with no key at all is refused instead of obeyed — ft
-# starts as usual, reports the clash in the status bar, and lists it under "?".
-# The keys the tree navigates with (arrows, hjkl, g/G, enter, ctrl+u/ctrl+d,
-# ctrl+c, F5) are not in this list and cannot be taken: a command or an action
-# put on one of them is reported and ignored.
-#
-# This header has to be uncommented for anything below it to be a keybinding:
-# a "name = key" line with no [keys] above it belongs to whichever table came
-# last in the file, which is one of the commands, and is dropped as a field it
-# does not have.
-# [keys]
-# quit = "q"
-# toggle-hidden = "."
-# toggle-ignored = "i"
-# reload = ""              # unbound: F5 always reloads; set a key to add one
-# reveal = "o"
-# copy-abs = "y"
-# copy-rel = "Y"
-# fuzzy = "/"
-# fuzzy-here = "F"                 # the finder, confined to the selected dir
-# finder-next-field = "tab"        # move between the "/" finder's input lines
-# finder-prev-field = "shift+tab"
-# finder-more = "ctrl+g"           # raise fuzzy_max_matches for this session
-# finder-copy-command = "ctrl+y"   # copy the rg command behind Type/Grep
-# finder-clear = "ctrl+o"          # empty the finder fields
-# finder-resume = "f"              # reopen the finder where you left it
-# recent = "b"                     # the finder over recently opened files
-# bookmarks = "B"                  # the finder over this repo's line bookmarks
-# new-file = "a"
-# new-dir = "A"
-# rename = "R"
-# delete = "d"
-# mark = "space"
-# clear-marks = "esc"
-# copy-here = "p"
-# move-here = "m"
-# copy-url = "u"
-# open-url = "U"
-# scratch = "s"
-# scratch-new = "S"
-# worktrees = "w"
-# worktree-new = "W"
-# tmux-sessions = "T"         # named agent sessions; enter reattaches in a popup
-# collapse-all = "H"
-# edit-config = "C"           # opens it in the default command
-# reload-config = "alt+c"     # re-read it: an editor in another pane cannot
-#                             # tell ft it has finished, so ask when you have
-# help = "?"
 `

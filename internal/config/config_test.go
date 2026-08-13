@@ -22,7 +22,7 @@ func loadTOML(t *testing.T, body string) (*Config, error) {
 
 // The starter config we ship must always parse.
 func TestLoadStarter(t *testing.T) {
-	cfg, err := loadTOML(t, starterTOML)
+	cfg, err := loadTOML(t, Starter())
 	if err != nil {
 		t.Fatalf("starter config failed to load: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestLoadStarter(t *testing.T) {
 // as finderReservedKeys grows: add a chord to that list without noticing the
 // starter uses it and ft fails to start at all, with the shipped config.
 func TestStarterFinderKeysAreNotReserved(t *testing.T) {
-	cfg, err := loadTOML(t, starterTOML)
+	cfg, err := loadTOML(t, Starter())
 	if err != nil {
 		t.Fatalf("starter config failed to load: %v", err)
 	}
@@ -120,13 +120,16 @@ func TestStarterFinderKeysAreNotReserved(t *testing.T) {
 	}
 }
 
+// Loaded through the shipped starter, so this covers the catalogue as it
+// actually reaches a user.
+//
 // The pane commands are silent by design: no output, no visible window. Run one
 // outside a pane and tmux resolves it against the most recently used session,
 // so ft would move the focus — or resize a pane — in a window the user is not
 // even looking at. The guard is the only thing standing between those commands
 // and that, which makes it exactly the sort of line that gets tidied away.
 func TestStarterPaneCommandsAreGuarded(t *testing.T) {
-	cfg, err := loadTOML(t, starterTOML)
+	cfg, err := loadTOML(t, Starter())
 	if err != nil {
 		t.Fatalf("starter config failed to load: %v", err)
 	}
@@ -146,10 +149,10 @@ func TestStarterPaneCommandsAreGuarded(t *testing.T) {
 // it in the session's working directory, fixed when the session was created. So
 // "cd {dir} && tmux display-popup ..." silently drops the directory, and the
 // popup opens whereever ft happened to be started — which looks right for as
-// long as you only ever start ft in the directory you want. Every popup in the
-// starter has to name {dir} to tmux itself instead.
+// long as you only ever start ft in the directory you want. Every popup ft
+// ships has to name its directory to tmux itself instead.
 func TestStarterPopupsNameTheirDirectoryToTmux(t *testing.T) {
-	cfg, err := loadTOML(t, starterTOML)
+	cfg, err := loadTOML(t, Starter())
 	if err != nil {
 		t.Fatalf("starter config failed to load: %v", err)
 	}
@@ -177,9 +180,9 @@ func TestStarterPopupsNameTheirDirectoryToTmux(t *testing.T) {
 			t.Errorf("commands.%s: run = %q, want -d or -c with %v", name, c.Run, dirTokens)
 		}
 	}
-	// Without this the loop above passes a starter with no popups at all.
+	// Without this the loop above passes a config with no popups at all.
 	if seen == 0 {
-		t.Error("the starter defines no popup command at all")
+		t.Error("no popup command ships at all")
 	}
 }
 
@@ -212,7 +215,7 @@ func TestUnknownSettingsAreCollected(t *testing.T) {
 // The starter has to decode with nothing left over, or every user starts with a
 // warning about the config ft wrote for them.
 func TestStarterHasNoUnknownSettings(t *testing.T) {
-	cfg, err := loadTOML(t, starterTOML)
+	cfg, err := loadTOML(t, Starter())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,9 +397,10 @@ func TestSessionsConfig(t *testing.T) {
 	if cfg.Sessions.Prefix != "ft/" {
 		t.Errorf("default = %+v", cfg.Sessions)
 	}
-	// Unset by default: with no commands defined there is nothing to name.
-	if cfg.Sessions.NewCommand != "" {
-		t.Errorf("default new_command = %q, want empty", cfg.Sessions.NewCommand)
+	// The catalogue guarantees claude-popup exists, so "alt+n" works with
+	// nothing configured at all.
+	if cfg.Sessions.NewCommand != "claude-popup" {
+		t.Errorf("default new_command = %q, want claude-popup", cfg.Sessions.NewCommand)
 	}
 	// It must name a real command, or "alt+n" would silently do nothing.
 	if _, err := loadTOML(t, "[sessions]\nnew_command = \"nope\"\n"); err == nil {
@@ -422,7 +426,7 @@ func TestSessionsConfig(t *testing.T) {
 // asserted here are what make "press c twice and you are back in the same
 // conversation" true.
 func TestStarterAgentCommands(t *testing.T) {
-	cfg, err := loadTOML(t, starterTOML)
+	cfg, err := loadTOML(t, Starter())
 	if err != nil {
 		t.Fatalf("starter config failed to load: %v", err)
 	}
@@ -526,6 +530,145 @@ func TestExpandCommandRepoVars(t *testing.T) {
 	got = ExpandCommand("{session}/claude", Vars{})
 	if want := `''/claude`; got != want {
 		t.Errorf("empty: got %q, want %q", got, want)
+	}
+}
+
+// The invariant that would have caught the bug this refactor exists to fix:
+// a command shipped only in starterTOML reaches nobody whose first run has
+// already happened, because the starter is written once and never again.
+func TestStarterDefinesNoCommands(t *testing.T) {
+	if strings.Contains(starterTOML, "\n[commands.") {
+		t.Error("starterTOML defines a command; commands belong in catalogue.go")
+	}
+	// The commented examples are fine and wanted — this is only about live
+	// tables — so check the parsed result too.
+	cfg, err := loadTOML(t, Starter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	builtin, _ := builtinCommands()
+	if len(cfg.Commands) != len(builtin) {
+		t.Errorf("starter yields %d commands, catalogue has %d", len(cfg.Commands), len(builtin))
+	}
+}
+
+// The bug itself: a config that has a [commands] table for any reason used to
+// lose every command it did not itself list.
+func TestBuiltinsSurviveAConfigWithCommands(t *testing.T) {
+	cfg, err := loadTOML(t, "[commands]\ndefault = \"edit\"\n\n[commands.mine]\nrun = \"true\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"edit", "claude-popup", "copilot-popup", "agent-shell", "lazygit-popup"} {
+		if _, ok := cfg.Commands[name]; !ok {
+			t.Errorf("built-in %q was lost to the config's own [commands] table", name)
+		}
+	}
+	if _, ok := cfg.Commands["mine"]; !ok {
+		t.Error("the config's own command is missing")
+	}
+	// A custom command lands after the built-ins in the help order.
+	if last := cfg.CommandOrder[len(cfg.CommandOrder)-1]; last != "mine" {
+		t.Errorf("CommandOrder ends with %q, want the custom command last", last)
+	}
+}
+
+// Overriding a built-in overlays only the fields named, so a key move keeps
+// the run. Copying the whole block just to change a key is what made configs
+// grow, and what let them drift from the shipped version.
+func TestCommandOverrideIsPartial(t *testing.T) {
+	cfg, err := loadTOML(t, "[commands.claude-popup]\nkey = \"z\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := cfg.Commands["claude-popup"]
+	if c.Key != "z" {
+		t.Errorf("key = %q, want z", c.Key)
+	}
+	builtin, _ := builtinCommands()
+	if c.Run != builtin["claude-popup"].Run {
+		t.Errorf("run was not kept:\n got %q\nwant %q", c.Run, builtin["claude-popup"].Run)
+	}
+	if c.Mode != ModeInteractive {
+		t.Errorf("mode = %q, want the built-in's interactive", c.Mode)
+	}
+	if c.Desc == "" {
+		t.Error("desc was lost")
+	}
+}
+
+// An explicit empty key unbinds a built-in without removing it: it stays in
+// the help and stays runnable from wherever else it is reachable.
+func TestCommandCanBeUnbound(t *testing.T) {
+	cfg, err := loadTOML(t, "[commands.copilot-popup]\nkey = \"\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := cfg.Commands["copilot-popup"]
+	if !ok {
+		t.Fatal("unbinding should not remove the command")
+	}
+	if c.Key != "" {
+		t.Errorf("key = %q, want it unbound", c.Key)
+	}
+	if c.Run == "" {
+		t.Error("run was lost")
+	}
+}
+
+func TestCommandsCanBeDisabled(t *testing.T) {
+	cfg, err := loadTOML(t, "[commands]\ndisabled = [\"copilot-popup\", \"diff\"]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"copilot-popup", "diff"} {
+		if _, ok := cfg.Commands[name]; ok {
+			t.Errorf("%q should be gone", name)
+		}
+		if slices.Contains(cfg.CommandOrder, name) {
+			t.Errorf("%q is still in CommandOrder", name)
+		}
+	}
+	if _, ok := cfg.Commands["claude-popup"]; !ok {
+		t.Error("disabling two commands should not touch the rest")
+	}
+	// A typo here would otherwise be a command that silently never goes away.
+	if _, err := loadTOML(t, "[commands]\ndisabled = [\"nope\"]\n"); err == nil {
+		t.Error("disabling an unknown command should fail")
+	}
+	// commands.default is still validated against what survives.
+	if _, err := loadTOML(t, "[commands]\ndefault = \"diff\"\ndisabled = [\"diff\"]\n"); err == nil {
+		t.Error("a default that was just disabled should fail")
+	}
+}
+
+// Every catalogue entry has to be complete and unambiguous: the help page, the
+// key resolver and sessions.new_command all address them by name.
+func TestCatalogueIsWellFormed(t *testing.T) {
+	seenName := map[string]bool{}
+	seenKey := map[string]string{}
+	for _, c := range Builtin {
+		if c.Name == "" || c.Run == "" || c.Desc == "" {
+			t.Errorf("incomplete catalogue entry: %+v", c)
+			continue
+		}
+		if c.Mode != ModeInteractive && c.Mode != ModeBackground {
+			t.Errorf("%s: mode = %q", c.Name, c.Mode)
+		}
+		if seenName[c.Name] {
+			t.Errorf("%s: duplicate catalogue name", c.Name)
+		}
+		seenName[c.Name] = true
+		if c.Key == "" {
+			continue
+		}
+		if held, taken := seenKey[c.Key]; taken {
+			t.Errorf("%s and %s both want key %q", held, c.Name, c.Key)
+		}
+		seenKey[c.Key] = c.Name
+	}
+	if !seenName[DefaultBuiltinCommand] {
+		t.Errorf("DefaultBuiltinCommand %q is not in the catalogue", DefaultBuiltinCommand)
 	}
 }
 

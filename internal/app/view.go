@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -985,19 +984,29 @@ func (m *Model) helpRows() []helpRow {
 		{key: m.actionKeys["help"], desc: "toggle this help"},
 		{key: m.actionKeys["quit"], desc: "quit"},
 	}
-	var names []string
-	for name, c := range m.cfg.Commands {
-		if c.Key != "" || c.FinderKey != "" {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
+	// Catalogue order, not alphabetical: the commands are grouped by what they
+	// do — editing, hand-off, agent sessions, pane control, git — and that
+	// grouping is worth more on a help page than the alphabet.
+	//
 	// A command that binds both keys is one action, so it gets one row: the
 	// two used to be separate lines whose descriptions differed only by the
 	// prefix, which is the bulk of what made this page long.
-	for _, name := range names {
-		c := m.cfg.Commands[name]
-		rows = append(rows, row{key: c.Key, finderKey: c.FinderKey, desc: "run: " + name})
+	for _, name := range m.cfg.CommandOrder {
+		c, ok := m.cfg.Commands[name]
+		if !ok {
+			continue // disabled in the config
+		}
+		key := m.actionKeys[name]
+		if key == "" && c.FinderKey == "" {
+			continue
+		}
+		// The catalogue describes every built-in; a command from the config
+		// need not, and is listed by name when it does not.
+		desc := c.Desc
+		if desc == "" {
+			desc = "run: " + name
+		}
+		rows = append(rows, row{key: key, finderKey: c.FinderKey, desc: desc})
 	}
 	return rows
 }

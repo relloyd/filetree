@@ -1,10 +1,10 @@
 package app
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/relloyd/filetree/internal/config"
 )
 
 // keyOf is the resolved key for one action, for tests that only care about one.
@@ -121,18 +121,22 @@ func TestResolveActionKeysNeverStrandsAnAction(t *testing.T) {
 	}
 }
 
-// The commented [keys] block in the starter is the only list of action names a
-// user ever sees, so an action missing from it is an action nobody can rebind
-// — they would have to read the source to learn the name. Adding one is two
-// edits in two packages, which is exactly the pair that drifts.
-func TestEveryActionIsDocumentedInTheStarter(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join("..", "config", "starter.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
+// The commented [keys] block is the list of names a user reads to learn what
+// to write in their config, so anything bindable and missing from it is a
+// binding nobody can find. It used to be a hand-written literal that had to be
+// kept in step with this table by hand; it is generated now, so this asserts
+// the generator covers both halves of the namespace rather than guarding
+// against a copy going stale.
+func TestEveryBindableNameIsDocumented(t *testing.T) {
+	starter := config.Starter()
 	for action := range defaultActionKeys {
-		if !strings.Contains(string(src), "\n# "+action+" = ") {
-			t.Errorf("commands.%s is bindable but absent from the starter's [keys] block", action)
+		if !strings.Contains(starter, "# "+action+" ") {
+			t.Errorf("action %q is bindable but absent from the [keys] block", action)
+		}
+	}
+	for _, c := range config.Builtin {
+		if !strings.Contains(starter, "# "+c.Name+" ") {
+			t.Errorf("command %q is bindable but absent from the [keys] block", c.Name)
 		}
 	}
 }

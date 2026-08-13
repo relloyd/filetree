@@ -60,8 +60,14 @@ const (
 // A configured 0 means no limit.
 const DefaultFuzzyGrepMaxPerFile = 5
 
-// Command is a named, user-configured command run against the selection.
+// Command is one command run against the selection: either a built-in from
+// the catalogue in catalogue.go, or one the config defines itself.
 type Command struct {
+	// Name is the command's identity — the catalogue entry's name, or the
+	// [commands.<name>] table it was read from. It is what [keys] and
+	// sessions.new_command refer to, so it never comes from the file's body.
+	Name string `toml:"-"`
+
 	Run  string `toml:"run"`  // template; see ExpandCommand
 	Mode string `toml:"mode"` // "interactive" or "background" (default)
 	Key  string `toml:"key"`  // optional dedicated keybinding
@@ -70,6 +76,11 @@ type Command struct {
 	// highlighted result row rather than the tree selection. Chords only:
 	// a bare key would be swallowed by the finder's text inputs.
 	FinderKey string `toml:"finder_key"`
+
+	// Desc is the one-line description the "?" help shows. The catalogue
+	// fills it in for every built-in; a command defined in the config may set
+	// its own, and is listed by name alone if it does not.
+	Desc string `toml:"desc"`
 }
 
 // finderReservedKeys are the keys the finder handles itself, and so cannot be
@@ -141,7 +152,17 @@ type Config struct {
 	Sessions       Sessions
 	DefaultCommand string // name in Commands that Enter runs
 	Commands       map[string]Command
-	Keys           map[string]string // action name -> key
+
+	// CommandOrder is every command in Commands, catalogue order first and
+	// any the config added after it. The "?" help reads it so the page keeps
+	// a deliberate order rather than an alphabetical one.
+	CommandOrder []string
+
+	// Keys overrides the key of an action or of a command, by name. Both live
+	// in one namespace: a key belongs to one thing, and resolveActionKeys
+	// settles the whole set together so a clash between a command and an
+	// action is reported like any other.
+	Keys map[string]string
 
 	// Unknown is every setting in the file that decoded into nothing, in
 	// dotted form ("commands.diff.worktree-new"). Not an error — the rest of
@@ -150,6 +171,7 @@ type Config struct {
 }
 
 func Default() *Config {
+	commands, order := builtinCommands()
 	return &Config{
 		General: General{
 			ShowHidden:            false,
@@ -174,12 +196,14 @@ func Default() *Config {
 		},
 		Sessions: Sessions{
 			Prefix: tmux.DefaultPrefix,
+			// The catalogue guarantees this exists, so "alt+n" in the session
+			// list works with nothing configured at all.
+			NewCommand: "claude-popup",
 		},
-		DefaultCommand: "edit",
-		Commands: map[string]Command{
-			"edit": {Run: "hx {path}", Mode: ModeInteractive},
-		},
-		Keys: map[string]string{},
+		DefaultCommand: DefaultBuiltinCommand,
+		Commands:       commands,
+		CommandOrder:   order,
+		Keys:           map[string]string{},
 	}
 }
 
@@ -188,6 +212,84 @@ func Default() *Config {
 // from a non-positive duration.
 func (c *Config) RetentionWindow() time.Duration {
 	return time.Duration(c.General.BookmarkRetentionDays) * 24 * time.Hour
+}
+
+// mergeCommands folds the file's [commands] table into the catalogue already
+// sitting in cfg.
+//
+// This is the whole difference between a config that ages well and one that
+// does not. The built-ins are the starting point, and a [commands.<name>]
+// table *overlays* only the fields it actually sets rather than replacing the
+// command — so `key = "C"` moves a binding and keeps the run, and a command
+// added to a later ft appears without the file being touched at all. This used
+// to replace the entire set with whatever the file listed, which meant a newly
+// shipped command was invisible to anyone who had run ft even once.
+//
+// Two keys in the table are not commands: `default` names the command Enter
+// runs, and `disabled` removes built-ins outright, freeing their keys.
+func mergeCommands(cfg *Config, md toml.MetaData, raw map[string]toml.Primitive, path string) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(raw))
+	for name := range raw {
+		names = append(names, name)
+	}
+	// Sorted so that a file with two mistakes in it always reports the same
+	// one first, whatever order Go's map iteration happens to take.
+	slices.Sort(names)
+
+	var disabled []string
+	for _, name := range names {
+		prim := raw[name]
+		switch name {
+		case "default":
+			if err := md.PrimitiveDecode(prim, &cfg.DefaultCommand); err != nil {
+				return fmt.Errorf("%s: commands.default: %w", path, err)
+			}
+			continue
+		case "disabled":
+			if err := md.PrimitiveDecode(prim, &disabled); err != nil {
+				return fmt.Errorf("%s: commands.disabled: %w", path, err)
+			}
+			continue
+		}
+
+		// Starting from the built-in is what makes this an overlay:
+		// PrimitiveDecode assigns only the fields the table mentions and
+		// leaves the rest alone. An explicit `key = ""` still comes through,
+		// which is how a built-in is unbound without being removed.
+		c, known := cfg.Commands[name]
+		if err := md.PrimitiveDecode(prim, &c); err != nil {
+			return fmt.Errorf("%s: commands.%s: %w", path, name, err)
+		}
+		c.Name = name
+		if c.Run == "" {
+			return fmt.Errorf("%s: commands.%s: missing run", path, name)
+		}
+		if c.Mode == "" {
+			c.Mode = ModeBackground
+		}
+		if c.Mode != ModeInteractive && c.Mode != ModeBackground {
+			return fmt.Errorf("%s: commands.%s: mode must be %q or %q", path, name, ModeInteractive, ModeBackground)
+		}
+		if slices.Contains(finderReservedKeys, c.FinderKey) {
+			return fmt.Errorf("%s: commands.%s: finder_key %q is reserved by the finder", path, name, c.FinderKey)
+		}
+		cfg.Commands[name] = c
+		if !known {
+			cfg.CommandOrder = append(cfg.CommandOrder, name)
+		}
+	}
+
+	for _, name := range disabled {
+		if _, ok := cfg.Commands[name]; !ok {
+			return fmt.Errorf("%s: commands.disabled: %q is not a command", path, name)
+		}
+		delete(cfg.Commands, name)
+		cfg.CommandOrder = slices.DeleteFunc(cfg.CommandOrder, func(n string) bool { return n == name })
+	}
+	return nil
 }
 
 // Dir returns ~/.filetree, creating it if needed.
@@ -208,7 +310,7 @@ func Dir() (string, error) {
 func EnsureAndLoad(dir string) (*Config, error) {
 	path := filepath.Join(dir, "config.toml")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.WriteFile(path, []byte(starterTOML), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(Starter()), 0o644); err != nil {
 			return nil, fmt.Errorf("write starter config: %w", err)
 		}
 	}
@@ -285,35 +387,8 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s: sessions.prefix must not be empty", path)
 	}
 
-	// [commands] mixes `default = "name"` with per-command sub-tables, so it
-	// is decoded in two passes via toml.Primitive.
-	if len(raw.Commands) > 0 {
-		cfg.Commands = map[string]Command{}
-		for name, prim := range raw.Commands {
-			if name == "default" {
-				if err := md.PrimitiveDecode(prim, &cfg.DefaultCommand); err != nil {
-					return nil, fmt.Errorf("%s: commands.default: %w", path, err)
-				}
-				continue
-			}
-			var c Command
-			if err := md.PrimitiveDecode(prim, &c); err != nil {
-				return nil, fmt.Errorf("%s: commands.%s: %w", path, name, err)
-			}
-			if c.Run == "" {
-				return nil, fmt.Errorf("%s: commands.%s: missing run", path, name)
-			}
-			if c.Mode == "" {
-				c.Mode = ModeBackground
-			}
-			if c.Mode != ModeInteractive && c.Mode != ModeBackground {
-				return nil, fmt.Errorf("%s: commands.%s: mode must be %q or %q", path, name, ModeInteractive, ModeBackground)
-			}
-			if slices.Contains(finderReservedKeys, c.FinderKey) {
-				return nil, fmt.Errorf("%s: commands.%s: finder_key %q is reserved by the finder", path, name, c.FinderKey)
-			}
-			cfg.Commands[name] = c
-		}
+	if err := mergeCommands(cfg, md, raw.Commands, path); err != nil {
+		return nil, err
 	}
 	if _, ok := cfg.Commands[cfg.DefaultCommand]; !ok {
 		return nil, fmt.Errorf("%s: commands.default %q is not a defined command", path, cfg.DefaultCommand)

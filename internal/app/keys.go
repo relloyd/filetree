@@ -3,58 +3,51 @@ package app
 import (
 	"fmt"
 	"sort"
+
+	"github.com/relloyd/filetree/internal/config"
 )
 
-// defaultActionKeys is every configurable action and the key it answers to out
-// of the box. [keys] in the config overrides an entry by name; a name absent
-// from here is not an action, and resolveActionKeys says so rather than letting
-// the line sit there doing nothing.
+// defaultActionKeys is the action half of the key namespace, under the name
+// the rest of this package has always used for it. The table itself lives in
+// internal/config so that the starter config can generate its [keys] reference
+// from it; config cannot import this package.
+var defaultActionKeys = config.DefaultActionKeys
+
+// mergeCommandKeys puts the commands into the same name→key namespace as the
+// actions, so that [keys] can move a command's key by name.
 //
-// An empty default means "unbound unless [keys] gives it a key" — reload is the
-// only one, since F5 covers it from the fixed navigation set.
-var defaultActionKeys = map[string]string{
-	"quit":           "q",
-	"toggle-hidden":  ".",
-	"toggle-ignored": "i",
-	"reload":         "",
-	"reveal":         "o",
-	"copy-abs":       "y",
-	"copy-rel":       "Y",
-	"fuzzy":          "/",
-	"fuzzy-here":     "F", // the finder, confined to the selected directory
-	// Finder-local: these cycle and edit the "/" input lines. Listed so [keys]
-	// can remap them, but deliberately absent from the actions map in
-	// buildBindings — m.bindings is normal-mode only, which is what leaves a
-	// key like "tab" free for a command to own.
-	"finder-next-field":   "tab",
-	"finder-prev-field":   "shift+tab",
-	"finder-more":         "ctrl+g",
-	"finder-copy-command": "ctrl+y",
-	"finder-clear":        "ctrl+o",
-	// finder-resume is a normal-mode action, so unlike the finder-local keys
-	// above it does belong in the actions map.
-	"finder-resume": "f",
-	"recent":        "b", // the finder over this root's opened-file history
-	"bookmarks":     "B", // the finder over this repo's line bookmarks
-	"tmux-sessions": "T", // the finder over the named agent tmux sessions
-	"new-file":      "a",
-	"new-dir":       "A",
-	"rename":        "R",
-	"delete":        "d",
-	"collapse-all":  "H",
-	"edit-config":   "C",
-	"reload-config": "alt+c",
-	"help":          "?",
-	"mark":          "space",
-	"clear-marks":   "esc",
-	"copy-here":     "p",
-	"move-here":     "m",
-	"scratch":       "s",
-	"scratch-new":   "S",
-	"copy-url":      "u",
-	"open-url":      "U",
-	"worktrees":     "w",
-	"worktree-new":  "W",
+// Before this, a command's key could only be changed by copying its whole
+// definition into the config, which is most of why a config file grew. One
+// namespace also means a command and an action wanting the same key is settled
+// by resolveActionKeys' ordinary rules and reported like any other clash,
+// rather than the command silently never running.
+//
+// A command named after an action is refused instead of merged: one name
+// cannot mean two things, and letting the command win would take a key off an
+// action with nothing said about it.
+func mergeCommandKeys(actions, commands map[string]string) (map[string]string, []keyConflict) {
+	out := make(map[string]string, len(actions)+len(commands))
+	for name, key := range actions {
+		out[name] = key
+	}
+	names := make([]string, 0, len(commands))
+	for name := range commands {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var conflicts []keyConflict
+	for _, name := range names {
+		if _, taken := actions[name]; taken {
+			conflicts = append(conflicts, keyConflict{
+				key: commands[name], kept: "keys." + name, refused: "commands." + name,
+				detail: "a command cannot take an action's name",
+			})
+			continue
+		}
+		out[name] = commands[name]
+	}
+	return out, conflicts
 }
 
 // keyConflict is one key wanted by two things. kept and refused name them the
@@ -123,7 +116,7 @@ func resolveActionKeys(defaults, overrides map[string]string) (map[string]string
 		conflicts = append(conflicts, keyConflict{
 			key:     overrides[name],
 			refused: "keys." + name,
-			detail:  "no such action",
+			detail:  "no such action or command",
 		})
 	}
 

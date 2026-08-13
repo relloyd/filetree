@@ -80,6 +80,14 @@ Design rules that keep this maintainable:
 - Web links (`u`/`U`): `internal/gitx/link.go` owns remote-URL
   normalisation and URL building (pure, table-tested); `platform.OpenURL`
   owns the browser.
+- **Commands ship in `internal/config/catalogue.go`, never in the starter.**
+  `starterTOML` is written to `~/.filetree/config.toml` on first run and never
+  again, and `Load` merges the file *over* the catalogue rather than replacing
+  it — so a command added to the starter reaches nobody who has already run ft
+  once. That is a real bug that shipped once already;
+  `TestStarterDefinesNoCommands` guards it. `[keys]` covers commands as well as
+  actions, resolved together by `resolveActionKeys`, and the commented `[keys]`
+  reference in the starter is generated from both tables so it cannot go stale.
 - `internal/tmux` owns every tmux call, the way `gitx` owns git: the pure half
   (`session.go` — name building, `list-sessions` parsing) is table-tested, and
   the process spawns live alone in `run.go` and `exec.go`. The self-relaunch

@@ -138,21 +138,33 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `?` | help |
 | `q` | quit |
 
-Keys are remappable in the `[keys]` section of the config. A key belongs to one
-action, so moving an action onto a key another one already holds means saying
-where that one goes too — `rename = "f2"` alongside `worktree-new = "R"`, or a
-straight swap of the two. An override that would leave another action with no
-key at all is refused rather than obeyed, so a typo cannot hide `rename`: `ft`
-starts as usual, says how many conflicts it found in the status bar, and lists
-them at the top of `?`. The navigation keys (arrows, `hjkl`, `g`/`G`, `enter`,
-`ctrl+u`/`ctrl+d`, `ctrl+c`, `F5`) are not remappable and cannot be taken by a
-command either; anything that tries is reported the same way.
+Every key above — and every command below — is remappable by name in the
+`[keys]` section of the config, one line each:
+
+```toml
+[keys]
+claude-popup = "C"    # a command
+rename       = "f2"   # an action
+```
+
+A key belongs to one thing, so moving something onto a key another thing
+already holds means saying where that one goes too — `rename = "f2"` alongside
+`worktree-new = "R"`, or a straight swap. An override that would leave
+something with no key at all is refused rather than obeyed, so a typo cannot
+hide `rename`: `ft` starts as usual, says how many conflicts it found in the
+status bar, and lists them at the top of `?`. The navigation keys (arrows,
+`hjkl`, `g`/`G`, `enter`, `ctrl+u`/`ctrl+d`, `ctrl+c`, `F5`) are not remappable
+and cannot be taken; anything that tries is reported the same way.
+
+`?` is the list of names to use, and the commented `[keys]` block written into
+your config on first run has the same list with the defaults beside it.
 
 ## Commands
 
-Commands may bind their own keys; the starter config binds the following set.
-Most need `tmux` (see [Dependencies](#dependencies)); `ft` puts itself in a
-session automatically, so they work out of the box.
+Commands ship with `ft` — they are built into the binary, not written into
+your config — so a new release brings its new commands with it. Most need
+`tmux` (see [Dependencies](#dependencies)); `ft` puts itself in a session
+automatically, so they work out of the box.
 
 | Key | Finder key | Command |
 |---|---|---|
@@ -174,6 +186,34 @@ session automatically, so they work out of the box.
 | `ctrl+j` | `ctrl+j` | narrow `ft`'s pane to 30% of the window |
 | `ctrl+k` | `ctrl+k` | widen `ft`'s pane to 70% of the window |
 | `alt+h` | `alt+h` | give every pane in the window the same width, side by side — tmux's `even-horizontal` layout, for a window that has drifted out of shape |
+
+### Customising
+
+The built-in set needs no configuration at all — `config.toml` is only for
+where you differ from it:
+
+```toml
+[keys]
+claude-popup = "C"                 # move a command's key, one line
+
+[commands]
+disabled = ["copilot-popup"]       # switch one off and free its key
+
+[commands.claude-popup]            # override a built-in: only the fields you
+run = "..."                        # name change, the rest is kept
+
+[commands.notes]                   # or add one of your own
+run  = "hx ~/notes/{name}.md"
+mode = "interactive"               # or "background" (the default)
+key  = "ctrl+b"
+desc = "open this file's notes"    # shown in "?"
+```
+
+Overriding a built-in is a *partial* override: `[commands.claude-popup] key =
+"C"` changes the key and keeps everything else, so you never copy a command
+into your config just to move it. And because the set lives in the binary
+rather than in your file, a command added in a later version arrives when you
+rebuild — an old config does not have to be edited to catch up.
 
 ### Agent sessions
 

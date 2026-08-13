@@ -736,10 +736,23 @@ func (m *Model) buildBindings() {
 		b[key], owner[key] = fn, who
 	}
 
+	// Commands share the action key namespace, so they are resolved before
+	// anything is claimed: a command's key comes out of m.actionKeys, which is
+	// what lets "[keys] claude-popup = ..." move it.
+	cmdKeys := make(map[string]string, len(m.cfg.Commands))
+	for name, c := range m.cfg.Commands {
+		cmdKeys[name] = c.Key
+	}
+	defaults, nameClashes := mergeCommandKeys(defaultActionKeys, cmdKeys)
+	keys, conflicts := resolveActionKeys(defaults, m.cfg.Keys)
+	m.actionKeys = keys
+	m.keyConflicts = append(m.keyConflicts, nameClashes...)
+	m.keyConflicts = append(m.keyConflicts, conflicts...)
+
 	m.finderCmds = map[string]string{}
 	for _, name := range sortedCommands(m.cfg.Commands) {
 		c := m.cfg.Commands[name]
-		claim(c.Key, "commands."+name, func() (tea.Model, tea.Cmd) { return m.runCommand(name) })
+		claim(m.actionKeys[name], "commands."+name, func() (tea.Model, tea.Cmd) { return m.runCommand(name) })
 		if c.FinderKey == "" {
 			continue
 		}
@@ -753,9 +766,6 @@ func (m *Model) buildBindings() {
 		}
 		m.finderCmds[c.FinderKey] = name
 	}
-
-	keys, conflicts := resolveActionKeys(defaultActionKeys, m.cfg.Keys)
-	m.actionKeys, m.keyConflicts = keys, append(m.keyConflicts, conflicts...)
 
 	// A finder_key that lands on a remapped finder-local key: config.Load
 	// checks finderReservedKeys, which is the *default* set, so a [keys] line

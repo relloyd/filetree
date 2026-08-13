@@ -52,20 +52,66 @@ func TestACommandCanOwnTab(t *testing.T) {
 		t.Errorf("command did not run: %v", err)
 	}
 
-	// And the shape of the failure being guarded against: actions are bound
-	// after commands, so anything that lands an action on tab takes it away
-	// silently. Asserting it here keeps the check above honest — it is only
-	// meaningful if a shadowed binding is something this test could detect.
+	// Commands and actions share one key namespace, so an override cannot
+	// quietly take a key something else already holds by default — the same
+	// rule that has always applied between two actions. Asking for quit on tab
+	// is refused, quit keeps "q", and the command keeps running.
 	m.cfg.Keys = map[string]string{"quit": "tab"}
 	m.buildBindings()
-	if _, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab}); cmd != nil {
-		if _, ok := cmd().(cmdDoneMsg); ok {
-			t.Error("an action bound to tab did not shadow the command key")
-		}
+	_, cmd = m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	if cmd == nil {
+		t.Fatal(`"tab" produced no command after the refused override`)
 	}
-	// Shadowing a command is allowed, but no longer quiet about it.
-	if !mentions(m.keyConflicts, "tab", "commands.focus-right") {
-		t.Errorf("shadowing the command on tab went unreported: %v", m.keyConflicts)
+	if msg, ok := cmd().(cmdDoneMsg); !ok || msg.name != "focus-right" {
+		t.Errorf("tab no longer runs the command that holds it: %T %+v", cmd(), msg)
+	}
+	if !mentions(m.keyConflicts, "tab", "keys.quit") {
+		t.Errorf("the refused override went unreported: %v", m.keyConflicts)
+	}
+	if got := m.actionKeys["quit"]; got != "q" {
+		t.Errorf("quit = %q, want it back on its default q", got)
+	}
+}
+
+// A command's key is remappable by name, which is the point of putting
+// commands and actions in one [keys] namespace: before this, moving a
+// command's key meant copying its whole definition into the config.
+func TestKeysCanMoveACommand(t *testing.T) {
+	m := finderModel()
+	m.mode = modeNormal
+	m.cfg.Commands = map[string]config.Command{
+		"claude-popup": {Name: "claude-popup", Run: "true", Mode: config.ModeBackground, Key: "c"},
+	}
+	m.cfg.Keys = map[string]string{"claude-popup": "z"}
+	m.buildBindings()
+
+	if got := m.actionKeys["claude-popup"]; got != "z" {
+		t.Fatalf("claude-popup = %q, want z", got)
+	}
+	if _, ok := m.bindings["z"]; !ok {
+		t.Error(`"z" is not bound after the override`)
+	}
+	if _, ok := m.bindings["c"]; ok {
+		t.Error(`"c" should be free once the command moved off it`)
+	}
+}
+
+// A command sharing a name with an action is refused rather than merged: one
+// name in [keys] cannot mean two things.
+func TestCommandCannotTakeAnActionName(t *testing.T) {
+	m := finderModel()
+	m.mode = modeNormal
+	m.cfg.Commands = map[string]config.Command{
+		"quit": {Name: "quit", Run: "true", Mode: config.ModeBackground, Key: "Q"},
+	}
+	m.buildBindings()
+
+	if !mentions(m.keyConflicts, "Q", "commands.quit") {
+		t.Errorf("the name clash went unreported: %v", m.keyConflicts)
+	}
+	// The action keeps its own key and stays reachable.
+	if got := m.actionKeys["quit"]; got != "q" {
+		t.Errorf("quit = %q, want the action's default q", got)
 	}
 }
 
