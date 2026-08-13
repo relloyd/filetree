@@ -779,6 +779,13 @@ func TestShellQuote(t *testing.T) {
 		"has space":      "'has space'",
 		"a'b":            `'a'\''b'`,
 		"$HOME":          "'$HOME'",
+		// zsh expands a word starting with "=" to the path of the command it
+		// names, so the session picker's "=" exact-match target has to be
+		// quoted. tmux runs popup commands through default-shell, which is zsh
+		// on a stock macOS — every other shell leaves it alone, which is why
+		// this survived a Linux-only test run.
+		"=ft/repo/main/claude": "'=ft/repo/main/claude'",
+		"a=b":                  "a=b", // only a *leading* "=" is dangerous
 	} {
 		if got := ShellQuote(in); got != want {
 			t.Errorf("ShellQuote(%q) = %q, want %q", in, got, want)

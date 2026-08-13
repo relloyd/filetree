@@ -116,8 +116,9 @@ func (m *Model) runSessionCommand(name, run, mode string) (tea.Model, tea.Cmd) {
 // attachSession is enter in this view: reattach in a popup over the tree.
 //
 // Interactive rather than background, for the same reason the lazygit popup
-// is: the agent has probably been editing files, and quitting back to the tree
-// is exactly when its git status is stale.
+// is: display-popup blocks until the popup closes, so ft is suspended for as
+// long as the session is on screen and re-reads the tree and git status when
+// you detach — which is exactly when the agent has been editing files.
 func (m *Model) attachSession() (tea.Model, tea.Cmd) {
 	s, ok := m.tmuxRow(m.fuzzySel)
 	if !ok {

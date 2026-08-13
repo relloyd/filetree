@@ -162,11 +162,19 @@ func noFlag(s string) string {
 var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_,./=:@%+-]+$`)
 
 // ShellQuote single-quotes s for POSIX sh unless it is already safe verbatim.
+//
+// A leading "=" is quoted even though "=" is otherwise safe: zsh expands a
+// word starting with "=" to the path of the command named after it (equals
+// expansion), so a bare =foo becomes something else entirely or fails outright.
+// That is not hypothetical — tmux runs popup commands through default-shell,
+// which is zsh on a stock macOS, and it silently broke the "=" exact-match
+// target the session picker attaches with. Every other shell leaves =foo alone,
+// which is exactly why it survived testing on Linux.
 func ShellQuote(s string) string {
 	if s == "" {
 		return "''"
 	}
-	if shellSafe.MatchString(s) {
+	if shellSafe.MatchString(s) && !strings.HasPrefix(s, "=") {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"

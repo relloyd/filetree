@@ -249,6 +249,31 @@ func TestAttachLeavesThePicker(t *testing.T) {
 	}
 }
 
+// display-popup blocks its caller until the popup closes — measured, not
+// assumed: "display-popup -E 'sleep 4'" takes four seconds to return. So
+// attaching runs interactively, suspending ft for as long as the agent session
+// is on screen and re-reading the tree and git status when you detach, exactly
+// as the lazygit popups do. That refresh is the point: the agent has usually
+// been editing files.
+//
+// This briefly ran in the background, on the theory that display-popup returned
+// immediately and Bubble Tea was redrawing over the popup. It does not, and it
+// was not — the popup was closing because zsh mangled the "=" target, which
+// ShellQuote now quotes.
+func TestAttachRunsInteractively(t *testing.T) {
+	m := tmuxPickerModel(t, session("ft/filetree/main/copilot"))
+
+	_, cmd := m.attachSession()
+	if cmd == nil {
+		t.Fatal("enter produced no command")
+	}
+	// tea.ExecProcess returns its own message type rather than running the
+	// child inline, which is what suspending the TUI looks like from here.
+	if _, ranInline := cmd().(cmdDoneMsg); ranInline {
+		t.Error("attach ran as a background command; it must suspend the TUI")
+	}
+}
+
 // An empty list must not act on a row that is not there.
 func TestPickerActionsOnEmptyList(t *testing.T) {
 	m := tmuxPickerModel(t)

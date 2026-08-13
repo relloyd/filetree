@@ -161,3 +161,20 @@ func TestTargetIsExact(t *testing.T) {
 		t.Errorf("target() = %q", got)
 	}
 }
+
+// The "=" target must reach tmux quoted. tmux runs popup commands through
+// default-shell, and on a stock macOS that is zsh, which expands a word
+// beginning with "=" to the path of the command it names — silently turning
+// the exact-match target into something else and failing the attach. The bug
+// this guards against was invisible on Linux, where no common shell does it.
+func TestAttachPopupQuotesTheTarget(t *testing.T) {
+	quote := func(s string) string { return "'" + s + "'" }
+	for _, got := range []string{
+		AttachPopup("ft/repo/main/claude", quote),
+		SwitchClient("ft/repo/main/claude", quote),
+	} {
+		if !strings.Contains(got, "'=ft/repo/main/claude'") {
+			t.Errorf("target reaches the shell unquoted: %s", got)
+		}
+	}
+}
