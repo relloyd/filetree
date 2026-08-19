@@ -99,6 +99,13 @@ Design rules that keep this maintainable:
 - New keybindings are wired in `buildBindings` (internal/app/app.go); make
   them remappable via the `[keys]` action map and list them in the `?` help
   overlay (view.go) and README.
+- ctrl+c is the only guaranteed way out, and `handleKey` rewrites it to `"esc"`
+  before the mode switch whenever the mode is not `modeNormal`. So a new mode
+  gets "the first press backs out, the next one quits" for free by handling
+  `esc`, and needs no ctrl+c case of its own. `quit` itself ships unbound (like
+  `reload`, which `F5` covers) — the action is still in `DefaultActionKeys` so
+  `[keys]` can give it a letter, but nothing does by default, which is what
+  keeps `q` free for a command.
 
 ## Generated code
 

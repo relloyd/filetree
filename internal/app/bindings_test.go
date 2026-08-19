@@ -54,9 +54,9 @@ func TestACommandCanOwnTab(t *testing.T) {
 
 	// Commands and actions share one key namespace, so an override cannot
 	// quietly take a key something else already holds by default — the same
-	// rule that has always applied between two actions. Asking for quit on tab
-	// is refused, quit keeps "q", and the command keeps running.
-	m.cfg.Keys = map[string]string{"quit": "tab"}
+	// rule that has always applied between two actions. Asking for rename on
+	// tab is refused, rename keeps "R", and the command keeps running.
+	m.cfg.Keys = map[string]string{"rename": "tab"}
 	m.buildBindings()
 	_, cmd = m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	if cmd == nil {
@@ -65,11 +65,11 @@ func TestACommandCanOwnTab(t *testing.T) {
 	if msg, ok := cmd().(cmdDoneMsg); !ok || msg.name != "focus-right" {
 		t.Errorf("tab no longer runs the command that holds it: %T %+v", cmd(), msg)
 	}
-	if !mentions(m.keyConflicts, "tab", "keys.quit") {
+	if !mentions(m.keyConflicts, "tab", "keys.rename") {
 		t.Errorf("the refused override went unreported: %v", m.keyConflicts)
 	}
-	if got := m.actionKeys["quit"]; got != "q" {
-		t.Errorf("quit = %q, want it back on its default q", got)
+	if got := m.actionKeys["rename"]; got != "R" {
+		t.Errorf("rename = %q, want it back on its default R", got)
 	}
 }
 
@@ -102,16 +102,16 @@ func TestCommandCannotTakeAnActionName(t *testing.T) {
 	m := finderModel()
 	m.mode = modeNormal
 	m.cfg.Commands = map[string]config.Command{
-		"quit": {Name: "quit", Run: "true", Mode: config.ModeBackground, Key: "Q"},
+		"rename": {Name: "rename", Run: "true", Mode: config.ModeBackground, Key: "Q"},
 	}
 	m.buildBindings()
 
-	if !mentions(m.keyConflicts, "Q", "commands.quit") {
+	if !mentions(m.keyConflicts, "Q", "commands.rename") {
 		t.Errorf("the name clash went unreported: %v", m.keyConflicts)
 	}
 	// The action keeps its own key and stays reachable.
-	if got := m.actionKeys["quit"]; got != "q" {
-		t.Errorf("quit = %q, want the action's default q", got)
+	if got := m.actionKeys["rename"]; got != "R" {
+		t.Errorf("rename = %q, want the action's default R", got)
 	}
 }
 

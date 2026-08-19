@@ -550,6 +550,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	s := msg.String()
+
+	// ctrl+c backs out of an overlay the way esc does, and only quits once the
+	// tree itself has the keyboard. Every mode below already handles esc and
+	// returns before the m.bindings lookup at the bottom — which is exactly why
+	// ctrl+c used to be inert in them — so a new mode inherits this by handling
+	// esc and nothing else. It matters more now that ctrl+c is the only way out:
+	// a press must never be the one that discards a half-typed rename.
+	if s == "ctrl+c" && m.mode != modeNormal {
+		s = "esc"
+	}
+
 	switch m.mode {
 	case modeHelp:
 		if s == "esc" || s == "q" || s == m.actionKeys["help"] {

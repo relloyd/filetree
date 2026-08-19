@@ -136,7 +136,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `C` | edit `~/.filetree/config.toml` in the default command; an editor that takes over this pane reloads the config when it exits |
 | `alt+c` | re-read the config from disk — for when the editor is somewhere `ft` cannot see it finish, such as the `t` hand-off to another pane |
 | `?` | help |
-| `q` | quit |
+| `ctrl+c` | quit — from the finder, a prompt or a confirmation the first press backs out to the tree, and the next one quits |
 
 Every key above — and every command below — is remappable by name in the
 `[keys]` section of the config, one line each:
@@ -155,6 +155,12 @@ hide `rename`: `ft` starts as usual, says how many conflicts it found in the
 status bar, and lists them at the top of `?`. The navigation keys (arrows,
 `hjkl`, `g`/`G`, `enter`, `ctrl+u`/`ctrl+d`, `ctrl+c`, `F5`) are not remappable
 and cannot be taken; anything that tries is reported the same way.
+
+Two actions ship with no key of their own, because the navigation set already
+covers them: `reload` (`F5`) and `quit` (`ctrl+c`). Both are still bindable, so
+`quit = "q"` puts quitting back on a letter if you want it there — but leaving
+it unbound is what keeps `q` free for something you chose, and stops a mistyped
+key ending the session.
 
 `?` is the list of names to use, and the commented `[keys]` block written into
 your config on first run has the same list with the defaults beside it.

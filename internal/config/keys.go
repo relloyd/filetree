@@ -12,14 +12,16 @@ import (
 // from here and from the command catalogue is not bindable, and the resolver
 // says so rather than letting the line sit there doing nothing.
 //
-// An empty default means "unbound unless [keys] gives it a key" — reload is the
-// only one, since F5 covers it from the fixed navigation set.
+// An empty default means "unbound unless [keys] gives it a key": reload and
+// quit, each of which the fixed navigation set already covers — F5 reloads and
+// ctrl+c quits whatever [keys] says. Shipping them unbound keeps two ordinary
+// letters out of the keymap rather than spending them on a key nobody chose.
 //
 // It lives here rather than beside the resolver in internal/app because the
 // starter config generates its [keys] documentation from it, and this package
 // cannot import that one.
 var DefaultActionKeys = map[string]string{
-	"quit":           "q",
+	"quit":           "",
 	"toggle-hidden":  ".",
 	"toggle-ignored": "i",
 	"reload":         "",
@@ -67,6 +69,7 @@ var DefaultActionKeys = map[string]string{
 // for the actions whose name does not say enough on its own. Commands need no
 // entry here: the catalogue already describes each one.
 var actionNotes = map[string]string{
+	"quit":                `unbound: ctrl+c always quits; set a key to add one`,
 	"reload":              `unbound: F5 always reloads; set a key to add one`,
 	"fuzzy-here":          `the finder, confined to the selected dir`,
 	"finder-next-field":   `move between the "/" finder's input lines`,

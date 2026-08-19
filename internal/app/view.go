@@ -931,6 +931,10 @@ func (m *Model) helpRows() []helpRow {
 	if k := m.actionKeys["reload"]; k != "" {
 		reloadKeys = k + " / F5"
 	}
+	quitKeys := "ctrl+c" // nor does quit, for the same reason
+	if k := m.actionKeys["quit"]; k != "" {
+		quitKeys = k + " / ctrl+c"
+	}
 	// The four finder-local actions take the second key column rather than a
 	// "in the fuzzy finder:" prefix on every description: the column and its
 	// colour say the same thing, and say it in no characters at all.
@@ -982,7 +986,7 @@ func (m *Model) helpRows() []helpRow {
 		{key: m.actionKeys["edit-config"], desc: "edit config in the default command"},
 		{key: m.actionKeys["reload-config"], desc: "re-read the config from disk"},
 		{key: m.actionKeys["help"], desc: "toggle this help"},
-		{key: m.actionKeys["quit"], desc: "quit"},
+		{key: quitKeys, desc: "quit (ctrl+c leaves the finder or a prompt first)"},
 	}
 	// Catalogue order, not alphabetical: the commands are grouped by what they
 	// do — editing, hand-off, agent sessions, pane control, git — and that
