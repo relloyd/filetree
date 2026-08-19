@@ -153,7 +153,7 @@ func TestAFailedViewSwitchLeavesNothingToReturnTo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m.enterView(notADir)
+	m.enterView(notADir, nil)
 
 	atRoot(t, m, project, "after a failed switch")
 	if m.homeRoot != "" {

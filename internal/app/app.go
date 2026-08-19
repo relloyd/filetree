@@ -325,7 +325,7 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 	}
 	m.watcher = w
 
-	if err := m.loadRoot(root); err != nil {
+	if err := m.loadRoot(root, nil); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -334,7 +334,10 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 // loadRoot points the model at a root directory and restores that root's
 // persisted state (expansion, selection, scroll, toggle overrides). On
 // error the model keeps its previous root, so view switches fail safely.
-func (m *Model) loadRoot(root string) error {
+//
+// seed is expansion to open on a root that has none of its own — see the
+// comment where it is applied. Callers with nothing to carry pass nil.
+func (m *Model) loadRoot(root string, seed []string) error {
 	st := state.Load(m.stateDir, root)
 	tr := tree.New(root, fsops.ReadDir)
 	if err := tr.Expand(tr.Root); err != nil {
@@ -361,7 +364,17 @@ func (m *Model) loadRoot(root string) error {
 
 	// Restore remembered expansion (parents come first in the saved list);
 	// dirs deleted since last run are silently skipped.
-	for _, rel := range st.Expanded {
+	//
+	// A root with nothing of its own takes the caller's seed instead, which is
+	// what stops re-rooting into a subtree collapsing the tree you were just
+	// looking at: the dirs you had open are handed down, renamed to the new
+	// root. A root you have been in before keeps its own memory — the seed is
+	// a first impression, not an override.
+	rels := st.Expanded
+	if len(seed) > 0 && !expandsAnything(rels) {
+		rels = seed
+	}
+	for _, rel := range rels {
 		m.tr.ExpandRel(rel)
 	}
 	m.cursor, m.scroll = 0, 0
@@ -380,6 +393,19 @@ func (m *Model) loadRoot(root string) error {
 	m.ensureVisible()
 	m.syncWatches()
 	return nil
+}
+
+// expandsAnything reports whether a saved expansion opens more than the root
+// itself, which is what tells a root visited before from one never seen. A
+// root that really was left with everything collapsed reads as fresh, and
+// taking a seed is the right answer for it either way.
+func expandsAnything(rels []string) bool {
+	for _, rel := range rels {
+		if rel != "." {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -824,6 +850,7 @@ func (m *Model) buildBindings() {
 		"open-url":       func() (tea.Model, tea.Cmd) { return m.linkAction(true) },
 		"worktrees":      m.toggleWorktrees,
 		"worktree-new":   m.worktreeNew,
+		"root-here":      m.rootHere,
 	}
 	names := make([]string, 0, len(actions))
 	for action := range actions {
@@ -848,6 +875,12 @@ func (m *Model) buildBindings() {
 		{[]string{"left", "h"}, m.leftKey},
 		{[]string{"right", "l"}, m.rightKey},
 		{[]string{"enter"}, m.enterKey},
+		// shift+enter reaches ft only where the terminal reports modified keys
+		// — inside tmux that means "set -s extended-keys on", which is off by
+		// default. It is bound here rather than as root-here's default so the
+		// action always has a key that works; where the chord does not arrive
+		// it is a plain enter, handled by the line above.
+		{[]string{"shift+enter"}, m.rootHere},
 		{[]string{"g", "home"}, m.gotoTop},
 		{[]string{"G", "end"}, m.gotoBottom},
 		{[]string{"ctrl+d", "pgdown"}, m.halfPageDown},

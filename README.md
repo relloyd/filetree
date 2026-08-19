@@ -132,6 +132,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `c` / `x` | Claude Code / Copilot in a named tmux session for the selection's repo and branch, in a popup; pressing it again reattaches to the same one |
 | `alt+s` | a plain named shell in the same scheme — for a dev server or a test watcher you want to find again |
 | `T` | list the named sessions: `enter` reattaches in a popup, `ctrl+w` switches the whole window to one, `ctrl+x` kills it (asking first if it is attached elsewhere), `alt+n` starts one for the selection |
+| `>` | re-root the tree to the selection — the directory itself, or a file's parent — so the tree and every search start there; `esc` returns to the project. Rooting deeper replaces the root rather than stacking, so one `esc` always comes home |
 | `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default command; an editor that takes over this pane reloads the config when it exits |
 | `alt+c` | re-read the config from disk — for when the editor is somewhere `ft` cannot see it finish, such as the `t` hand-off to another pane |
@@ -153,8 +154,15 @@ already holds means saying where that one goes too — `rename = "f2"` alongside
 something with no key at all is refused rather than obeyed, so a typo cannot
 hide `rename`: `ft` starts as usual, says how many conflicts it found in the
 status bar, and lists them at the top of `?`. The navigation keys (arrows,
-`hjkl`, `g`/`G`, `enter`, `ctrl+u`/`ctrl+d`, `ctrl+c`, `F5`) are not remappable
-and cannot be taken; anything that tries is reported the same way.
+`hjkl`, `g`/`G`, `enter`, `shift+enter`, `ctrl+u`/`ctrl+d`, `ctrl+c`, `F5`) are
+not remappable and cannot be taken; anything that tries is reported the same
+way.
+
+`shift+enter` does the same as `>`. It only reaches `ft` on terminals that
+report modified keys, and inside tmux that needs `set -s extended-keys on` in
+your `~/.tmux.conf` — it is off by default, and without it tmux hands the chord
+over as a plain `enter`, which expands the directory instead. `>` always works,
+which is why the action ships on it.
 
 Two actions ship with no key of their own, because the navigation set already
 covers them: `reload` (`F5`) and `quit` (`ctrl+c`). Both are still bindable, so

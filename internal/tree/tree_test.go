@@ -142,3 +142,53 @@ func TestExpandRelMissingSegmentIsIgnored(t *testing.T) {
 		t.Error("root should still be expanded")
 	}
 }
+
+// Expansion is stored relative to the root that recorded it, so re-rooting
+// renames every remembered path at once. The case worth pinning is the last
+// one: "sub" is a string prefix of "subdir" but not a path prefix of it, and a
+// plain HasPrefix would carry a stranger's directories into the new root.
+func TestRebaseRels(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		rels   []string
+		prefix string
+		want   []string
+	}{{
+		name:   "entries under the prefix are stripped down to it",
+		rels:   []string{".", "sub", "sub/a", "sub/a/b"},
+		prefix: "sub",
+		want:   []string{"a", "a/b"},
+	}, {
+		name:   "the root and the new root itself drop out",
+		rels:   []string{".", "sub"},
+		prefix: "sub",
+		want:   nil,
+	}, {
+		name:   "siblings and ancestors are discarded",
+		rels:   []string{".", "other", "other/deep", "sub/a"},
+		prefix: "sub",
+		want:   []string{"a"},
+	}, {
+		name:   "a nested prefix rebases the whole way",
+		rels:   []string{"sub", "sub/a", "sub/a/b", "sub/a/b/c"},
+		prefix: "sub/a",
+		want:   []string{"b", "b/c"},
+	}, {
+		name:   "no prefix means no new root to rebase onto",
+		rels:   []string{"sub", "sub/a"},
+		prefix: "",
+		want:   nil,
+	}, {
+		name:   "a string prefix is not a path prefix",
+		rels:   []string{"subdir", "subdir/x", "sub/a"},
+		prefix: "sub",
+		want:   []string{"a"},
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RebaseRels(tc.rels, tc.prefix)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("RebaseRels(%q, %q) = %q, want %q", tc.rels, tc.prefix, got, tc.want)
+			}
+		})
+	}
+}

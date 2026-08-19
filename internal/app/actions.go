@@ -1109,9 +1109,14 @@ func (m *Model) scratchDir() (string, error) {
 
 // switchRoot re-roots the explorer, persisting the current view first. On
 // load failure the current view stays intact.
-func (m *Model) switchRoot(root string) (tea.Model, tea.Cmd) {
+//
+// Saving first is what makes the return trip free: the outgoing root's
+// expansion goes to its own state file, keyed by that root, so the two sides
+// of a switch can never overwrite each other's memory. seed is passed through
+// to loadRoot for callers carrying expansion into the new root.
+func (m *Model) switchRoot(root string, seed []string) (tea.Model, tea.Cmd) {
 	m.saveState()
-	if err := m.loadRoot(root); err != nil {
+	if err := m.loadRoot(root, seed); err != nil {
 		return m, m.note(err.Error(), true)
 	}
 	return m, tea.Batch(m.ensureStatusesForExpanded()...)
@@ -1125,12 +1130,12 @@ func (m *Model) switchRoot(root string) (tea.Model, tea.Cmd) {
 // there is no stack to unwind, and Esc from either goes back to the project.
 // Overwriting instead used to lose the project root entirely on "s" then "w",
 // leaving the two views bouncing off each other with no way home.
-func (m *Model) enterView(dir string) (tea.Model, tea.Cmd) {
+func (m *Model) enterView(dir string, seed []string) (tea.Model, tea.Cmd) {
 	prev := m.homeRoot
 	if prev == "" {
 		m.homeRoot = m.tr.Root.Path
 	}
-	_, cmd := m.switchRoot(dir)
+	_, cmd := m.switchRoot(dir, seed)
 	if m.tr.Root.Path != dir {
 		// The load failed and we are still where we were; keep switchRoot's
 		// error note. Restoring the old value matters because otherwise
@@ -1145,7 +1150,27 @@ func (m *Model) enterView(dir string) (tea.Model, tea.Cmd) {
 func (m *Model) leaveView() (tea.Model, tea.Cmd) {
 	home := m.homeRoot
 	m.homeRoot = ""
-	return m.switchRoot(home)
+	return m.switchRoot(home, nil)
+}
+
+// rootHere re-roots the tree to the selected directory — the selection itself
+// when it is one, its parent otherwise — so the tree, and every walk that
+// starts from it, is confined to that subtree. Esc goes back.
+//
+// It carries the open directories down with it (RebaseRels renames them to the
+// new root) so the tree looks continuous instead of collapsing to a bare root
+// under your cursor.
+//
+// It goes through enterView for the remember-once rule: rooting deeper a
+// second time does not stack, so one Esc always returns to the project you
+// started in rather than unwinding a directory at a time.
+func (m *Model) rootHere() (tea.Model, tea.Cmd) {
+	rel := m.selectionDir()
+	if rel == "" {
+		return m, m.note("Already at the top of this tree", false)
+	}
+	dir := filepath.Join(m.tr.Root.Path, filepath.FromSlash(rel))
+	return m.enterView(dir, tree.RebaseRels(m.tr.ExpandedRels(), rel))
 }
 
 // toggleScratch switches to the scratch tree, or back to where you were.
@@ -1160,11 +1185,11 @@ func (m *Model) toggleScratch() (tea.Model, tea.Cmd) {
 		}
 		return m.leaveView()
 	}
-	return m.enterView(sdir)
+	return m.enterView(sdir, nil)
 }
 
-// escKey layers Esc: clear marks first; otherwise leave the scratch or
-// worktrees view.
+// escKey layers Esc: clear marks first; otherwise return to the project root
+// from the scratch view, the worktrees view, or a subtree rooted with ">".
 func (m *Model) escKey() (tea.Model, tea.Cmd) {
 	if len(m.marked) > 0 {
 		return m.clearMarks()
@@ -1200,7 +1225,7 @@ func (m *Model) scratchNew() (tea.Model, tea.Cmd) {
 
 	var cmds []tea.Cmd
 	if m.tr.Root.Path != sdir {
-		_, cmd := m.enterView(sdir)
+		_, cmd := m.enterView(sdir, nil)
 		cmds = append(cmds, cmd)
 	} else {
 		_ = m.tr.Refresh(m.tr.Root)
@@ -1269,7 +1294,7 @@ func (m *Model) toggleWorktrees() (tea.Model, tea.Cmd) {
 		}
 		return m.leaveView()
 	}
-	return m.enterView(wdir)
+	return m.enterView(wdir, nil)
 }
 
 // worktreeNew asks for a branch name or PR number; commitPrompt creates the
@@ -1386,7 +1411,7 @@ func (m *Model) switchToWorktree(dest, text string) (tea.Model, tea.Cmd) {
 	}
 	var cmds []tea.Cmd
 	if m.tr.Root.Path != wdir {
-		_, cmd := m.enterView(wdir)
+		_, cmd := m.enterView(wdir, nil)
 		if m.tr.Root.Path != wdir {
 			return m, cmd // the load failed; enterView kept the error note
 		}

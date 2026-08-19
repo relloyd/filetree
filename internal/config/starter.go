@@ -84,7 +84,9 @@ watch_debounce_ms = 150
 # leave something with no key at all is refused rather than obeyed: ft starts
 # as usual, says how many clashes it found in the status bar, and lists them at
 # the top of "?". The keys the tree navigates with (arrows, hjkl, g/G, enter,
-# ctrl+u/ctrl+d, ctrl+c, F5) cannot be taken.
+# ctrl+u/ctrl+d, ctrl+c, F5) cannot be taken, nor can shift+enter, which
+# re-roots the tree the way ">" does where the terminal reports it (inside
+# tmux that needs "set -s extended-keys on").
 #
 # This header has to be uncommented for anything under it to count: a
 # "name = key" line with no [keys] above it belongs to whichever table came

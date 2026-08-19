@@ -130,8 +130,25 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   "background".
 - The scratch view (`s`/`S`) is plain re-rooting: `loadRoot` (internal/app)
   swaps tree+state; per-root state files make each root remember its own
-  expansion. `prevRoot` (session-only) powers the Esc/toggle-key return; Esc
+  expansion. `homeRoot` (session-only) powers the Esc/toggle-key return; Esc
   is layered — marks clear first, then the view returns.
+- Every re-root goes through `switchRoot` (internal/app/actions.go): saveState
+  on the way out, `loadRoot` on the way in. Saving *first* is why the return
+  trip needs no work — each root's expansion lives in its own state file, keyed
+  by that root, so the two sides of a switch cannot overwrite each other.
+  `enterView` remembers the project root **once**; a second view does not
+  overwrite it. That rule is what makes `>` (`root-here`) replace the root
+  rather than stack, so one Esc comes home from any depth — and it is why
+  `homeRoot` is a slot and not a stack. `>` carries the open dirs in via
+  `tree.RebaseRels`, which renames them for the new root (expansion is stored
+  root-relative, so "sub/a/b" up here is "a/b" down there); the seed applies
+  only to a root with no expansion of its own, so a subtree you have been in
+  before opens the way you left it. `shift+enter` is bound to the same action
+  in the fixed navigation set, but only arrives where the terminal reports
+  modified keys — inside tmux that needs `set -s extended-keys on`, a *server*
+  option that is off by default, so never rely on it in a test. Bubble Tea
+  already requests Kitty level 1 and modifyOtherKeys=2 unconditionally; there
+  is no program option to add.
 - Worktrees (`w`/`W`) reuse the same re-rooting: `<[worktrees] dir>/<repo
   basename>/<branch or pr-N>`. `internal/gitx/worktree.go` owns every git
   invocation (add/remove/fetch, linked-worktree detection, input parsing);

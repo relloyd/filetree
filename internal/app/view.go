@@ -92,12 +92,19 @@ func (m *Model) renderHeader() string {
 	rightStart := max(0, m.width-len(rightPlain))
 
 	title := " ft "
+	// Keep the chip ASCII: len(chip) does the width arithmetic below, and the
+	// button zones are placed from the same running total.
 	chip, chipStyle := "", styleMark
-	if m.tr.Root.Path == m.scratchDirPath() {
-		chip = "scratch "
-	}
-	if m.inWorktreesDir(m.tr.Root.Path) {
+	switch {
+	case m.inWorktreesDir(m.tr.Root.Path):
 		chip, chipStyle = "worktrees ", styleTitle
+	case m.tr.Root.Path == m.scratchDirPath():
+		chip = "scratch "
+	case m.homeRoot != "":
+		// Any other root we can get back out of: ">" put us here. Without this
+		// the header is indistinguishable from having started ft in this
+		// directory, and nothing says Esc goes somewhere.
+		chip, chipStyle = "subtree ", styleTitle
 	}
 	root := " " + abbrevHome(m.tr.Root.Path)
 	leftW := len(title) + len(chip) + lipgloss.Width(root)
@@ -949,11 +956,15 @@ func (m *Model) helpRows() []helpRow {
 		{key: "g G", desc: "top / bottom"},
 		{key: "ctrl+u ctrl+d", desc: "half page up / down"},
 		{key: m.actionKeys["mark"], desc: "mark/unmark selection (and move down)"},
-		{key: m.actionKeys["clear-marks"], desc: "clear marks, else leave scratch/worktrees view"},
+		{key: m.actionKeys["clear-marks"], desc: "clear marks, else return to the project root"},
 		{key: m.actionKeys["scratch"], desc: "toggle scratch view"},
 		{key: m.actionKeys["scratch-new"], desc: "new scratch file, opened in editor"},
 		{key: m.actionKeys["worktrees"], desc: "toggle worktrees view"},
 		{key: m.actionKeys["worktree-new"], desc: "new git worktree (branch name or PR#)"},
+		// shift+enter goes in the description rather than the key column: the
+		// column is sized to its widest entry, and " / shift+enter" alone cost
+		// the table its second column at 150 columns wide.
+		{key: m.actionKeys["root-here"], desc: "re-root to the selection (or shift+enter)"},
 		{key: m.actionKeys["copy-here"] + " / " + m.actionKeys["move-here"], desc: "copy / move marked items here"},
 		{key: m.actionKeys["copy-abs"] + " / " + m.actionKeys["copy-rel"], desc: "copy absolute / git-relative path"},
 		{key: m.actionKeys["copy-url"] + " / " + m.actionKeys["open-url"], desc: "copy web URL / open in browser (+copy)"},

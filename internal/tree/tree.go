@@ -237,6 +237,30 @@ func (t *Tree) ExpandedRels() []string {
 	return rels
 }
 
+// RebaseRels reinterprets root-relative expansion paths against a new root
+// below the old one: "sub/a/b", seen from the parent, is "a/b" once "sub" is
+// itself the root. Entries outside the new root drop out, as do "." and the
+// new root's own path — a root is expanded by definition.
+//
+// It exists because expansion is recorded relative to whichever root recorded
+// it (see ExpandedRels), so one directory has two different names either side
+// of a re-root. Carrying an open tree across one is therefore a matter of
+// renaming what is already known, not of walking the disk again.
+func RebaseRels(rels []string, prefix string) []string {
+	if prefix == "" || prefix == "." {
+		return nil
+	}
+	prefix = strings.TrimSuffix(prefix, "/") + "/"
+	var out []string
+	for _, rel := range rels {
+		// The trailing slash is what keeps "sub" from claiming "subdir/x".
+		if after, ok := strings.CutPrefix(rel, prefix); ok && after != "" {
+			out = append(out, after)
+		}
+	}
+	return out
+}
+
 // CollapseAll collapses everything below the root and forgets remembered
 // expansion of descendants.
 func (t *Tree) CollapseAll() {

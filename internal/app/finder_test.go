@@ -1744,7 +1744,7 @@ func TestLoadRootClearsScopeAndResumeState(t *testing.T) {
 	m.lastPick = finderPick{rel: "README.md", line: 3}
 	m.resumeWant = finderPick{rel: "README.md"}
 
-	if err := m.loadRoot(t.TempDir()); err != nil {
+	if err := m.loadRoot(t.TempDir(), nil); err != nil {
 		t.Fatal(err)
 	}
 
