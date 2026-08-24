@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -15,13 +16,14 @@ import (
 
 	"github.com/relloyd/filetree/internal/app"
 	"github.com/relloyd/filetree/internal/config"
+	"github.com/relloyd/filetree/internal/ipc"
 	"github.com/relloyd/filetree/internal/platform"
 	"github.com/relloyd/filetree/internal/tmux"
 )
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: ft [-no-tmux] [dir]\n       ft bookmark <file> <line> [label]\n\nOpens a file tree for dir (default: current directory).\nThe bookmark form records a place for the \"B\" view and exits; it is meant to\nbe bound in an editor, e.g. helix:\n  :sh ft bookmark %%{buffer_name} %%{cursor_line}\nConfig: ~/.filetree/config.toml   State: ~/.filetree/state/\n")
+		fmt.Fprintf(os.Stderr, "usage: ft [-no-tmux] [dir]\n       ft bookmark <file> <line> [label]\n       ft jump <file>\n\nOpens a file tree for dir (default: current directory).\nThe other two forms act on this one and exit; both are meant to be bound in an\neditor, e.g. helix:\n  :sh ft bookmark %%{buffer_name} %%{cursor_line}   record a place for the \"B\" view\n  :sh ft jump %%{buffer_name}                      move a running tree's cursor\nConfig: ~/.filetree/config.toml   State: ~/.filetree/state/\n")
 		flag.PrintDefaults()
 	}
 	noTmux := flag.Bool("no-tmux", false, "do not relaunch inside a new tmux session")
@@ -33,6 +35,14 @@ func main() {
 		dir, err := config.Dir()
 		fatalIf(err)
 		fatalIf(runBookmark(dir, flag.Args()[1:]))
+		return
+	}
+	// Same guard, same reason: two arguments, so "ft jump" on its own still
+	// opens a directory called "jump".
+	if flag.NArg() == 2 && flag.Arg(0) == "jump" {
+		dir, err := config.Dir()
+		fatalIf(err)
+		fatalIf(runJump(dir, flag.Args()[1:]))
 		return
 	}
 
@@ -75,8 +85,63 @@ func main() {
 	m, err := app.New(cfg, cfgDir, abs, platform.New())
 	fatalIf(err)
 
-	_, err = tea.NewProgram(m).Run()
+	p := tea.NewProgram(m)
+	// After the tmux wrap on purpose. Wrap is a syscall.Exec, so a socket
+	// opened before it would belong to a process that no longer exists — and
+	// only the process on the far side has the $TMUX_PANE that says where this
+	// tree is on screen.
+	//
+	// A listener that will not start costs the jump feature and nothing else,
+	// which is how every other optional integration here behaves: ft still
+	// opens without tmux, without git, without ripgrep.
+	var stopIPC func()
+	if srv, serr := ipc.Serve(ipc.Dir(cfgDir), os.Getenv("TMUX_PANE"), ipc.Handlers{
+		Reveal: revealVia(p),
+	}); serr == nil {
+		m.SetRootObserver(srv.SetRoot)
+		stopIPC = func() { _ = srv.Close() }
+	}
+
+	_, err = p.Run()
+	// Not deferred: fatalIf exits, and os.Exit does not run deferred calls, so
+	// a failing run would leave the socket behind on every crash.
+	if stopIPC != nil {
+		stopIPC()
+	}
 	fatalIf(err)
+}
+
+// revealTimeout is how long a jump waits for the model to answer. Long enough
+// to cover a busy Update loop, short enough that an ft suspended in an
+// interactive command (pressing "e" runs hx through tea.ExecProcess, which
+// blocks the loop until it exits) does not hold the editor's keystroke.
+const revealTimeout = 2 * time.Second
+
+// revealVia turns a socket request into a message for the model and waits for
+// the verdict. Program.Send is the goroutine-safe door in; the reply channel
+// is the way back out.
+func revealVia(p *tea.Program) func(string) ipc.RevealReply {
+	return func(path string) ipc.RevealReply {
+		// Buffered, so the delivery below cannot wedge the Update loop after
+		// this function has given up and stopped receiving.
+		reply := make(chan app.RevealResult, 1)
+		// In a goroutine because Send itself blocks: it writes to the
+		// program's message channel, and nothing is draining that while the
+		// Update loop is suspended running an interactive command. Waiting on
+		// the reply alone would not have covered that — the deadline has to
+		// cover getting the message *in* as well as getting an answer back.
+		go p.Send(app.RevealMsg{Path: path, Reply: reply})
+		select {
+		case r := <-reply:
+			return ipc.RevealReply{OK: r.OK, Reason: r.Reason}
+		case <-time.After(revealTimeout):
+			// The send is still queued and will land when the loop comes back,
+			// so the jump really does happen — there is just nobody left to
+			// confirm it. Reporting failure would be a lie the editor shows
+			// the user.
+			return ipc.RevealReply{OK: true}
+		}
+	}
 }
 
 func fatalIf(err error) {

@@ -52,6 +52,11 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   ringing a bell on top — `enter` reattaches in a popup, `ctrl+w` gives one the
   whole window, `ctrl+x` kills it, `alt+n` starts one for the selection. The
   sessions ft opens for itself are unnamed, so they never clutter the list.
+- The tree follows your editor: bind `:sh ft jump %{buffer_name}` in helix and
+  the pane beside it moves its cursor to the buffer you are in. With several
+  trees open the one that answers is the one whose root holds the file, and of
+  those, the one in your own tmux window — see
+  [Following the editor](#following-the-editor).
 - The status bar shows `⎇ <branch>` for the repo containing the highlighted
   item (short commit hash when detached). It refreshes with git status, so a
   bare `git checkout` elsewhere that touches no watched file needs F5.
@@ -566,6 +571,49 @@ that has it simply restarts the clock. `ctrl+x` forgets one immediately.
 Bookmarks live in `~/.filetree/bookmarks/`, capped at `bookmark_max` (500) per
 repository. Note that the anchor means a few lines of your source are written
 there.
+
+### Following the editor
+
+The tree hands files to your editor. `ft jump` sends them back the other way:
+bind a key in helix and the tree pane beside it moves its cursor to whatever
+buffer you are in, so the sidebar keeps telling you where you are even when you
+navigated there with goto-definition or the file picker.
+
+```toml
+# ~/.config/helix/config.toml
+[keys.normal.space]
+e = ":sh ft jump %{buffer_name}"
+```
+
+Like `ft bookmark`, this is a subcommand of `ft` itself, and a failure exits
+non-zero so helix shows *"Shell command failed"* with the reason behind it.
+Nothing is focused: you stay in the editor, and the tree just follows.
+
+**Several trees can be open, and the right one answers.** Each running `ft`
+listens on its own socket in `~/.filetree/run/`; `ft jump` asks all of them
+where they are rooted and then chooses:
+
+1. Trees whose root **contains the file** — the rest cannot show it, so they are
+   out regardless of where they are on screen.
+2. Of those, the one in **your own tmux window**, then your own session. helix
+   runs `:sh` with `$TMUX_PANE` set, so the request knows which pane it came
+   from; the pane next to your editor is the one you are looking at.
+3. Still tied — two trees on the same project — the **deepest root** wins, then
+   the oldest.
+
+If no tree covers the file, nothing moves and the command fails. That is the
+deliberate choice: a jump never re-roots a pane out from under you, so the
+`esc`-comes-home behaviour of `>`, `s` and `w` keeps meaning what it meant.
+
+Outside tmux there is no layout to reason about and the root decides alone.
+With no tmux, no sockets, or nothing running, the command fails and the tree is
+untouched — like every other integration here, it is optional.
+
+Two refusals are worth recognising. *"`.cache/` is hidden — press `.` to show"*
+means the file is there but filtered out of the rows, and names the key that
+would reveal it; the toggles are per-root and persisted, so a jump will not
+flip them for you. *"filetree is mid-prompt"* means that tree has a rename or
+new-file prompt open, and moving its cursor would retarget it.
 
 ### Picking up where you left off
 

@@ -54,8 +54,11 @@ internal/config/    TOML config, command templates + shell quoting, starter
 internal/state/     per-root JSON persistence (expansion, selection, toggles)
 internal/icons/     Nerd Font glyphs; table.go is GENERATED — see below
 internal/platform/  OS interface; darwin impl (pbcopy, open -R, Finder trash)
-internal/tmux/      every tmux invocation: the self-relaunch decision, and
-                    the named agent sessions (name building, list parsing, kill)
+internal/tmux/      every tmux invocation: the self-relaunch decision, the
+                    named agent sessions (name building, list parsing, kill),
+                    and the server-wide pane list that jump routing needs
+internal/ipc/       the "ft jump <file>" socket: one listener per instance,
+                    plus the pure routing that picks which instance answers
 ```
 
 Design rules that keep this maintainable:
@@ -96,6 +99,46 @@ Design rules that keep this maintainable:
   `internal/tmux/exec.go`. It runs in `main` *after* root validation and config
   load, so startup errors print in the user's terminal instead of dying with
   the session they would have created.
+- `ft jump <file>` (internal/ipc) is the one way into a *running* ft from
+  outside the process, and the only IPC there is. Each instance listens on
+  `~/.filetree/run/<pid>.sock`; the jump command dials all of them, asks each
+  which root it is on, picks one, and sends the path, which `main` turns into
+  an `app.RevealMsg` through `Program.Send`. Four rules hold it together:
+  - **Routing filters on containment, then scores locality** (`ipc.Pick`, pure
+    and table-tested). An instance whose root does not cover the path cannot
+    show it, so scoring "same tmux window" additively would let the pane beside
+    the editor win every time and then fail, while an instance that *could*
+    have shown the file was never reached. Filter first; among the survivors,
+    the caller's window beats its session beats neither, and the deepest root
+    wins. Terms are compared in order rather than summed so no amount of path
+    depth outranks being in the right window.
+  - **Status is answered off the Bubble Tea event loop**, from an
+    `atomic.Pointer` the model publishes to through `SetRootObserver` (hooked
+    into `loadRoot`, the single funnel every re-root passes through). An ft
+    suspended in an interactive command has a blocked `Update`, and an instance
+    that cannot answer cannot be routed *around* either — it would time out and
+    stall the editor's keystroke.
+  - **`Program.Send` blocks when the loop is suspended**, so `revealVia`
+    (cmd/ft/main.go) sends from a goroutine: the deadline has to cover getting
+    the message *in*, not just getting an answer back. Measured, not reasoned
+    about — waiting on the reply alone hung for the client's full timeout. The
+    reply channel is buffered for the mirror case, a client that has already
+    given up.
+  - **A reveal reports whether it actually happened.** `selectPath` no-ops on a
+    path with no row and `ExpandRel` gives up at a missing segment, so
+    `revealRequest` re-checks the selection afterwards and blames the *ancestor*
+    the row filter is hiding (Flatten skips a filtered directory's whole
+    subtree, so an ordinary file inside a dot-directory has no row either). It
+    never flips `show_hidden`/`show_ignored` itself — those are persisted per
+    root. It also refuses outright during `modePrompt`: `commitPrompt` and
+    `createTargetDir` resolve their target from `m.selected()` when the prompt
+    is *committed*, so a jump landing in between would rename or create against
+    a file the user never chose.
+  Sockets are 0600 in a 0700 directory, and are swept by the next jump rather
+  than on a timer — a killed instance leaves a file, and a file nothing answers
+  on is unlinked when it refuses a connect. macOS caps a socket path at 104
+  bytes, which `Serve` checks so the failure is a sentence rather than the
+  kernel's "invalid argument".
 - New keybindings are wired in `buildBindings` (internal/app/app.go); make
   them remappable via the `[keys]` action map and list them in the `?` help
   overlay (view.go) and README.
@@ -121,6 +164,7 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   first run from `internal/config/starter.go` — keep starter and README in
   sync with behaviour changes).
 - State: `~/.filetree/state/<basename>-<hash8>.json`, one per tree root.
+- Jump sockets: `~/.filetree/run/<pid>.sock`, one per running instance.
 - Command templates: `{path} {relpath} {dir} {root} {name}` plus mark vars
   `{marked} {marked1} {marked2}` are substituted shell-quoted; unknown
   `{tokens}` pass through untouched (tmux formats like `"{last}"` depend on
@@ -187,6 +231,14 @@ drive the real binary:
 - tmux integration (hand-off commands, splits): create a detached session
   (`tmux new-session -d -s t -x 200 -y 50 './ft <dir>'`), drive with
   `tmux send-keys`, assert with `tmux list-panes` / `tmux capture-pane -p`.
+- Jump routing needs two sessions plus a shell pane to call from, and the
+  assertion is *which* tree moved. `capture-pane -p` drops colour, so the
+  cursor is invisible in it — use `capture-pane -p -e` and look for the
+  selection background (`^[[48;5;24m`) on the row you expected. The two cases
+  worth the setup are an instance in the caller's window losing to one
+  elsewhere that actually contains the path, and a jump aimed at an instance
+  suspended in `hx` (which must not stall the caller, and must land when the
+  instance comes back).
 - When asserting "file opened in helix", grep the statusline (`NOR` +
   filename), not just the filename — pasted-garbage bugs also contain the
   filename in the buffer.

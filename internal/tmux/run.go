@@ -108,3 +108,24 @@ func tmuxError(err error, stderr string) error {
 	}
 	return err
 }
+
+// ListPanes returns every pane on the server, across all sessions.
+//
+// "-a" is what makes this server-wide: without it tmux lists the panes of the
+// current window only, and outside a pane there is no current window at all.
+// No server running is an empty list rather than an error, exactly as in List.
+func ListPanes() ([]Pane, error) {
+	if !Available() {
+		return nil, ErrNotInstalled
+	}
+	var stdout, stderr bytes.Buffer
+	c := exec.Command("tmux", "list-panes", "-a", "-F", PaneFormat)
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		if noServer(stderr.String()) {
+			return nil, nil
+		}
+		return nil, tmuxError(err, stderr.String())
+	}
+	return ParsePanes(stdout.String()), nil
+}

@@ -110,6 +110,28 @@ type (
 	}
 )
 
+// RevealMsg asks the tree to put its cursor on Path. It arrives from outside
+// the process — an editor bound to "ft jump <file>" — by way of
+// Program.Send, which is the only goroutine-safe door into the model.
+//
+// These two are exported because main builds them: the socket listener lives
+// there, next to the Program handle it needs.
+type RevealMsg struct {
+	Path string
+	// Reply carries the outcome back to the waiting client, and MUST be
+	// buffered. The sender gives up after a timeout, and an unbuffered channel
+	// would then wedge the Update loop forever on a receive nobody is left to
+	// make.
+	Reply chan<- RevealResult
+}
+
+// RevealResult is what the jump command exits on. Reason is written for a
+// person: it ends up in the editor's status line.
+type RevealResult struct {
+	OK     bool
+	Reason string
+}
+
 type opKind int
 
 const (
@@ -194,6 +216,11 @@ type Model struct {
 	// not overwritten by the second: the two views are siblings, so there is no
 	// stack of them to unwind — Esc goes home from either.
 	homeRoot string
+
+	// onRoot is told the new root every time it changes, so the jump listener
+	// can say which tree this instance is showing without a trip through
+	// Update. nil unless something asked for it.
+	onRoot func(root string)
 
 	repoRoots     map[string]string           // dir -> repo root ("" = none)
 	statuses      map[string]*gitx.RepoStatus // repo root -> parsed status
@@ -332,6 +359,16 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 }
 
 // loadRoot points the model at a root directory and restores that root's
+// SetRootObserver registers f to be told the tree's root, now and on every
+// change. It is a setter rather than another parameter to New because the only
+// caller is main and every test would otherwise have to thread a nil through.
+func (m *Model) SetRootObserver(f func(root string)) {
+	m.onRoot = f
+	if f != nil && m.tr != nil {
+		f(m.tr.Root.Path)
+	}
+}
+
 // persisted state (expansion, selection, scroll, toggle overrides). On
 // error the model keeps its previous root, so view switches fail safely.
 //
@@ -392,6 +429,12 @@ func (m *Model) loadRoot(root string, seed []string) error {
 	m.scroll = clamp(st.ScrollOffset, 0, max(0, len(m.rows)-1))
 	m.ensureVisible()
 	m.syncWatches()
+	// Announced here rather than at each caller because every re-root — ">",
+	// the scratch and worktree views, Esc home — funnels through this one
+	// function, and only after it has certainly succeeded.
+	if m.onRoot != nil {
+		m.onRoot(root)
+	}
 	return nil
 }
 
@@ -478,6 +521,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.reflatten() // ignored-file visibility may have changed
 		return m, nil
+
+	case RevealMsg:
+		return m.handleReveal(msg)
 
 	case fsBatchMsg:
 		return m.handleFsBatch(msg)

@@ -1447,6 +1447,123 @@ func (m *Model) revealPath(path string) []tea.Cmd {
 	return cmds
 }
 
+// --- jump requests from another process ---
+
+// handleReveal answers an "ft jump <file>" request that arrived over the
+// socket. See internal/ipc for how it got here.
+func (m *Model) handleReveal(msg RevealMsg) (tea.Model, tea.Cmd) {
+	res, cmds := m.revealRequest(msg.Path)
+	if msg.Reply != nil {
+		// Never block: the channel is buffered so a waiting client always gets
+		// this, and the default covers the one that has already timed out and
+		// gone away.
+		select {
+		case msg.Reply <- res:
+		default:
+		}
+	}
+	// Success is silent. The cursor moving is the whole message, and the
+	// editor sends one of these on every buffer change — a note each time
+	// would strobe the status bar. A refusal is worth showing in both places,
+	// because its reason usually names a key to press.
+	if !res.OK && res.Reason != "" {
+		cmds = append(cmds, m.note(res.Reason, true))
+	}
+	return m, tea.Batch(cmds...)
+}
+
+// revealRequest moves the cursor onto path and says whether it got there.
+//
+// Saying so is the point. Every step here can fail quietly — selectPath
+// no-ops on a path with no row, and ExpandRel gives up at a missing segment —
+// so a reveal that reported success by reaching the end of the function would
+// claim to have worked in exactly the cases where nothing moved.
+func (m *Model) revealRequest(path string) (RevealResult, []tea.Cmd) {
+	if path == "" {
+		return RevealResult{Reason: "no path given"}, nil
+	}
+	abs := filepath.Clean(path)
+	if !filepath.IsAbs(abs) {
+		return RevealResult{Reason: fmt.Sprintf("%s is not an absolute path", path)}, nil
+	}
+	// A rename or new-file prompt resolves its target from m.selected() when
+	// it is committed, not when it is opened (commitPrompt, createTargetDir).
+	// Moving the cursor underneath one would rename or create against a file
+	// the user never chose, so a jump waits rather than risk that.
+	if m.mode == modePrompt {
+		return RevealResult{Reason: "filetree is mid-prompt"}, nil
+	}
+	// Routing already matched this path against the root we reported, but the
+	// two are separate round trips and the tree can re-root in between.
+	if rel := m.tr.Rel(abs); rel == ".." || strings.HasPrefix(rel, "../") {
+		return RevealResult{Reason: fmt.Sprintf("%s is outside %s", abbrevHome(abs), abbrevHome(m.tr.Root.Path))}, nil
+	}
+	if _, err := os.Lstat(abs); err != nil {
+		return RevealResult{Reason: fmt.Sprintf("cannot see %s", abbrevHome(abs))}, nil
+	}
+
+	cmds := m.revealPath(abs)
+
+	n := m.tr.FindByPath(abs)
+	if n == nil {
+		// The file is on disk but ExpandRel could not walk to it — a segment
+		// that is not a directory, or one it could not read.
+		return RevealResult{Reason: fmt.Sprintf("cannot reach %s in this tree", abbrevHome(abs))}, cmds
+	}
+	if sel := m.selected(); sel == n {
+		return RevealResult{OK: true}, cmds
+	}
+	if b, why := m.revealBlocker(n); b != nil {
+		return RevealResult{Reason: m.unhideHint(b, n, why)}, cmds
+	}
+	return RevealResult{Reason: fmt.Sprintf("%s has no row in the tree", abbrevHome(abs))}, cmds
+}
+
+// revealBlocker finds what the row filter is hiding on the way down to n.
+//
+// Ancestors first, and that ordering is the reason this is not a single call
+// to visible(n): Flatten skips a filtered directory's whole subtree, so a
+// perfectly ordinary file inside a dot-directory has no row either, and
+// naming the file would send the user looking for a property it does not
+// have.
+func (m *Model) revealBlocker(n *tree.Node) (*tree.Node, string) {
+	var chain []*tree.Node
+	for c := n; c != nil && c != m.tr.Root; c = c.Parent {
+		chain = append(chain, c)
+	}
+	for i := len(chain) - 1; i >= 0; i-- {
+		c := chain[i]
+		if m.visible(c) {
+			continue
+		}
+		if !m.showHidden && strings.HasPrefix(c.Name, ".") {
+			return c, "hidden"
+		}
+		return c, "gitignored"
+	}
+	return nil, ""
+}
+
+// unhideHint explains a blocked reveal and names the key that would fix it.
+//
+// The toggle is never flipped automatically: showHidden and showIgnored are
+// persisted per root, so a jump would silently rewrite how that tree looks
+// from now on.
+func (m *Model) unhideHint(blocker, target *tree.Node, why string) string {
+	name := blocker.Name
+	if blocker != target {
+		name += "/" // an ancestor directory, not the file asked for
+	}
+	action := "toggle-hidden"
+	if why == "gitignored" {
+		action = "toggle-ignored"
+	}
+	if key := m.actionKeys[action]; key != "" {
+		return fmt.Sprintf("%s is %s — press %s to show", name, why, key)
+	}
+	return fmt.Sprintf("%s is %s", name, why)
+}
+
 // confirmWorktreeRemove stages a `git worktree remove` for a worktree root,
 // which must not be trashed like an ordinary directory.
 func (m *Model) confirmWorktreeRemove(dest string) (tea.Model, tea.Cmd) {
