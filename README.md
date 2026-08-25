@@ -5,7 +5,15 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
 
 - Remembers expanded/collapsed dirs, selection, and scroll **per root
   directory** across restarts (`~/.filetree/state/`).
+- Sticky parents: scroll into a deep subtree and the directories it sits in
+  stay pinned above the tree, the way an editor pins the enclosing scopes.
+  They track the top of the pane, so they always describe what is on screen;
+  the block takes its own space rather than covering a row, is capped at a
+  third of the pane (a `…` marks parents dropped to fit), and a click on a
+  pinned directory jumps to it. `sticky_parents = false` under `[general]`
+  turns it off.
 - Git aware: status colours (modified, staged, untracked, conflict), greyed
+
   gitignored entries, and a `•` marker on dirs containing changes.
 - Hot reload: expanded directories are watched (fsnotify); external changes
   appear automatically. F5 forces a full reload.
@@ -678,7 +686,9 @@ The parts that surprise people:
 ## Config
 
 See `~/.filetree/config.toml` (created on first run) for command templates,
-toggle defaults, and keybinding overrides. The placeholders are `{path}`,
+toggle defaults, and keybinding overrides. `alt+c` re-reads it without a
+restart.
+ The placeholders are `{path}`,
 `{paths}`, `{relpath}`, `{dir}`, `{root}`, `{name}`, `{line}`, `{marked}`,
 `{marked1}` and `{marked2}`. They are shell-quoted on substitution; unknown
 `{tokens}` pass through untouched so tmux formats like `"{last}"` work.

@@ -192,3 +192,90 @@ func TestRebaseRels(t *testing.T) {
 		})
 	}
 }
+
+// Ancestors is what the sticky-parent block is built from, so the two things
+// it promises are load-bearing: the chain comes back root-first, and a row at
+// depth D yields exactly D-1 of them. The off-by-one is the easy mistake —
+// Flatten puts the root's children at depth 1, so a depth-1 row's only
+// ancestor is the root, which the block deliberately leaves to the header.
+func TestAncestors(t *testing.T) {
+	tr := New("/root", fakeLister(testFS()))
+	tr.ExpandRel("internal/app")
+	rows := tr.Flatten(nil)
+
+	byName := map[string]Row{}
+	for _, r := range rows {
+		byName[r.Node.Name] = r
+	}
+	for _, tc := range []struct {
+		row   string
+		want  []string
+		depth []int
+	}{
+		{"root", []string{}, nil}, // the root pins nothing
+		{"cmd", []string{}, nil},  // depth 1: only ancestor is the root
+
+		{"app", []string{"internal"}, []int{1}},                // depth 2
+		{"model.go", []string{"internal", "app"}, []int{1, 2}}, // depth 3, root first
+	} {
+		r, ok := byName[tc.row]
+		if !ok {
+			t.Fatalf("%s missing from the flattened rows", tc.row)
+		}
+		got := Ancestors(r)
+		if !reflect.DeepEqual(names(got), tc.want) {
+			t.Errorf("Ancestors(%s) = %v, want %v", tc.row, names(got), tc.want)
+		}
+		for i, d := range tc.depth {
+			if got[i].Depth != d {
+				t.Errorf("Ancestors(%s)[%d].Depth = %d, want %d", tc.row, i, got[i].Depth, d)
+			}
+		}
+	}
+
+	// A zero Row must not panic: the app calls this with whatever row sits at
+	// the scroll offset, and that list is rebuilt under it.
+	if got := Ancestors(Row{}); got != nil {
+		t.Errorf("Ancestors(zero) = %v, want nil", got)
+	}
+	// Nor must a chain shorter than the depth claims.
+	orphan := Row{Node: &Node{Name: "x"}, Depth: 4}
+	if got := Ancestors(orphan); len(got) != 0 {
+		t.Errorf("Ancestors(orphan) = %v, want empty", names(got))
+	}
+}
+
+// The frame arithmetic in internal/app reserves Depth-1 lines for the pinned
+// parents and gives the rest to the tree, so the two must agree for every row
+// a real flatten can produce — including under a filter, since Flatten skips a
+// hidden directory's whole subtree and every ancestor of a surviving row is
+// therefore itself a row.
+func TestAncestorsMatchesFlattenDepth(t *testing.T) {
+	tr := New("/root", fakeLister(testFS()))
+	tr.ExpandRel("internal/app")
+	for _, filter := range []func(*Node) bool{
+		nil,
+		func(n *Node) bool { return n.Name[0] != '.' },
+	} {
+		rows := tr.Flatten(filter)
+		present := map[*Node]bool{}
+		for _, r := range rows {
+			present[r.Node] = true
+		}
+		for _, r := range rows {
+			anc := Ancestors(r)
+			if want := max(0, r.Depth-1); len(anc) != want {
+				t.Errorf("%s at depth %d has %d ancestors, want %d",
+					r.Node.Name, r.Depth, len(anc), want)
+			}
+			for i, a := range anc {
+				if !present[a.Node] {
+					t.Errorf("%s: pinned ancestor %s is not itself a row", r.Node.Name, a.Node.Name)
+				}
+				if i > 0 && a.Node.Parent != anc[i-1].Node {
+					t.Errorf("%s: ancestors are not a chain at %d", r.Node.Name, i)
+				}
+			}
+		}
+	}
+}

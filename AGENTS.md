@@ -139,7 +139,22 @@ Design rules that keep this maintainable:
   on is unlinked when it refuses a connect. macOS caps a socket path at 104
   bytes, which `Serve` checks so the failure is a sentence rather than the
   kernel's "invalid argument".
+- **`treeHeight()` is the body; `treeVisibleRows()` is the tree.** The sticky
+  parents (`sticky_parents`) pin the ancestor chain of `m.rows[m.scroll]` above
+  the tree and are paid for out of the body, so anything counting *selectable
+  rows* — `ensureVisible`, `clampScroll`, half-page paging, the finder's
+  centring jump — must use `treeVisibleRows()`, while the help and finder
+  screens keep filling all of `treeHeight()`. Two consequences are easy to get
+  wrong. The count is `Depth-1`, not `Depth`: `Flatten` puts the root's
+  children at depth 1, and the root is left to the header line. And the window
+  height and the scroll offset now decide each other, so `ensureVisible` and
+  `clampScroll` both settle by iteration rather than clamping once — they are
+  compatible at rest (at an `ensureVisible` fixed point `clampScroll` is a
+  no-op), which is what stops `G` on a deep tree oscillating. Clicks go through
+  `rowAtY`, which returns the *real* row index for a pinned line, so selection,
+  double-click and the chevron hit test need no case of their own.
 - New keybindings are wired in `buildBindings` (internal/app/app.go); make
+
   them remappable via the `[keys]` action map and list them in the `?` help
   overlay (view.go) and README.
 - ctrl+c is the only guaranteed way out, and `handleKey` rewrites it to `"esc"`

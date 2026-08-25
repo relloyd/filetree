@@ -20,6 +20,9 @@ const starterTOML = `# filetree configuration
 [general]
 show_hidden = false
 show_ignored = true        # gitignored entries are shown greyed-out; "i" toggles
+sticky_parents = true      # pin the parents of the top row above the tree, so a
+#                          # deeply nested file still shows what it sits inside
+
 icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 watch_debounce_ms = 150
 # link_ref = "commit"      # ref for u/U web links: "commit" (permanent) or "branch"

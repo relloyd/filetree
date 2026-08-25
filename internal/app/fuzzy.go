@@ -866,9 +866,14 @@ func (m *Model) fuzzyJump() (tea.Model, tea.Cmd) {
 		for i, r := range m.rows {
 			if r.Node == n {
 				m.cursor = i
-				m.scroll = clamp(i-m.treeHeight()/2, 0, max(0, len(m.rows)-m.treeHeight()))
+				// Centred, then settled: how far down the list the offset may
+				// sit depends on how many parents that row pins, so the bound
+				// can no longer be written in closed form here.
+				m.scroll = max(0, i-m.treeVisibleRows()/2)
+				m.ensureVisible()
 				break
 			}
+
 		}
 	}
 	m.syncWatches()

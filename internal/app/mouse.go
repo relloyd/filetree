@@ -49,11 +49,16 @@ func (m *Model) handleClick(mo tea.Mouse) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	idx := m.scroll + mo.Y - 1
-	if idx < 0 || idx >= len(m.rows) || mo.Y > m.treeHeight() {
+	// rowAtY, not scroll+Y-1: the sticky parents occupy the top of the body,
+	// and they report the real rows they are, so everything below here — the
+	// double-click bookkeeping, the chevron hit test — works on a pinned
+	// parent exactly as it does on any other row.
+	idx, ok := m.rowAtY(mo.Y)
+	if !ok {
 		return m, nil
 	}
 	now := time.Now()
+
 	double := idx == m.lastClickRow && now.Sub(m.lastClickTime) < doubleClickWindow
 	m.lastClickTime, m.lastClickRow = now, idx
 	m.cursor = idx

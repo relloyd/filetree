@@ -1002,23 +1002,144 @@ func (m *Model) reflatten() {
 	m.ensureVisible()
 }
 
+// treeHeight is the whole body region between the header and the status bar.
+// It keeps that meaning — the help and finder screens fill all of it — and the
+// tree's own row budget is treeVisibleRows, which is this minus whatever the
+// sticky parents pin above it.
 func (m *Model) treeHeight() int {
 	return max(1, m.height-2) // header + status bar
 }
 
-func (m *Model) clampScroll() {
-	m.scroll = clamp(m.scroll, 0, max(0, len(m.rows)-m.treeHeight()))
+// stickyCap is the most lines the pinned parents may take: a third of the
+// body, so the deep end of a tree can never crowd out the tree. Plain division
+// is doing real work here — it lands on 0 for a body of one or two lines,
+// which is what keeps stickyLines strictly below treeHeight without a second
+// clamp, and so what makes treeVisibleRows provably at least 1. A max(1, …)
+// would reserve the only line there and push the frame a row over m.height.
+func (m *Model) stickyCap() int { return m.treeHeight() / 3 }
+
+// stickyRows is the ancestor chain of the topmost visible row, root first and
+// without the tree root, which the header line already names.
+//
+// It is anchored on the scroll offset rather than on the cursor because these
+// lines exist to say what is above the top of the pane. Anchoring on the
+// cursor would keep naming its parents after the wheel had scrolled it away,
+// labelling rows with a directory none of them are in. Nothing is lost by the
+// choice: rows are a depth-first flatten, so an ancestor of the cursor that
+// has scrolled off the top is necessarily an ancestor of the top row too.
+//
+// Read straight off cfg at the point of use, the way clearMarksAfter is: no
+// model mirror and no per-root state, so "alt+c" picks up an edit live. A nil
+// config is off, which is what leaves the bare-Model test fixtures alone.
+func (m *Model) stickyRows() []tree.Row {
+	if m.cfg == nil || !m.cfg.General.StickyParents {
+		return nil
+	}
+	// reflatten can shrink the list a moment before clampScroll catches up.
+	if m.scroll < 0 || m.scroll >= len(m.rows) {
+		return nil
+	}
+	rows := tree.Ancestors(m.rows[m.scroll])
+	if n := m.stickyCap(); len(rows) > n {
+		rows = rows[len(rows)-n:] // keep the nearest: they name the immediate containers
+	}
+	return rows
 }
 
+// stickyLines is how many body lines the pinned block occupies. It is the
+// length of what renderStickyRows will draw and nothing else: an independent
+// formula could disagree with the render by a line and push the bottom tree
+// row off the frame.
+func (m *Model) stickyLines() int { return len(m.stickyRows()) }
+
+// treeVisibleRows is how many tree rows fit under the pinned parents — the
+// tree's answer to fuzzyVisibleRows. No max(1, …): stickyCap guarantees the
+// subtraction leaves at least one row, and guarantees the two halves add back
+// up to treeHeight exactly, which is what the frame invariant rests on.
+func (m *Model) treeVisibleRows() int { return m.treeHeight() - m.stickyLines() }
+
+// clampScroll keeps the scroll offset inside the list. Both ends move now:
+// how far down the last row may sit depends on how many parents that row
+// pins, so this settles rather than clamping once.
+//
+// It terminates. A pass that changes anything has found a window taller than
+// the one before it, and there are only stickyCap()+1 possible heights.
+func (m *Model) clampScroll() {
+	for range m.stickyCap() + 2 {
+		s := clamp(m.scroll, 0, max(0, len(m.rows)-m.treeVisibleRows()))
+		if s == m.scroll {
+			return
+		}
+		m.scroll = s
+	}
+}
+
+// ensureVisible scrolls until the cursor sits inside the content window, which
+// is the body minus whatever the top row pins above it. The two decide each
+// other — the window's height comes from the row scrolled to, and the row
+// scrolled to comes from the window's height — so this settles by iteration.
+//
+// It terminates. The "cursor above" branch puts the cursor at the top and is
+// done, since no window is shorter than one line. The "cursor below" branch
+// moves the offset strictly down the list and never past the cursor, and only
+// runs again when the new window is *shorter* than the last, which can happen
+// at most stickyCap() times before there is no shorter height left. The bound
+// is doubled because a clamp may land between two such passes.
+//
+// The two settle points cannot fight, which is what makes "G" work on a deep
+// tree: at a fixed point scroll == cursor-h+1, so len(rows)-h >= scroll for any
+// cursor inside the list, and clampScroll has nothing left to do. The trailing
+// fallback is unreachable, and is there so an arithmetic mistake shows up as a
+// jump rather than as a hang.
 func (m *Model) ensureVisible() {
-	h := m.treeHeight()
-	if m.cursor < m.scroll {
-		m.scroll = m.cursor
+	for range 2*m.stickyCap() + 2 {
+		h := m.treeVisibleRows()
+		switch {
+		case m.cursor < m.scroll:
+			m.scroll = m.cursor
+		case m.cursor >= m.scroll+h:
+			m.scroll = m.cursor - h + 1
+		default:
+			s := m.scroll
+			m.clampScroll()
+			if m.scroll == s {
+				return
+			}
+		}
 	}
-	if m.cursor >= m.scroll+h {
-		m.scroll = m.cursor - h + 1
-	}
+	m.scroll = m.cursor // correct for any window: the cursor becomes row 0 of it
 	m.clampScroll()
+}
+
+// rowAtY maps a body line to the row of m.rows drawn on it: the pinned parents
+// first, then the scrolling window.
+//
+// Pinned lines report the row they really are — they are rows above the scroll
+// offset, not copies of them — so selection, the double-click bookkeeping and
+// the chevron hit test need no case of their own, and clicking a pinned parent
+// takes the cursor to it exactly the way clicking any other row does.
+func (m *Model) rowAtY(y int) (int, bool) {
+	if y < 1 || y > m.treeHeight() {
+		return 0, false
+	}
+	sticky := m.stickyRows()
+	if y <= len(sticky) {
+		// Ancestors are not contiguous above the scroll offset, so their
+		// indices are found rather than computed. Bounded by the offset, and
+		// run once per click.
+		n := sticky[y-1].Node
+		for i := m.scroll - 1; i >= 0; i-- {
+			if m.rows[i].Node == n {
+				return i, true
+			}
+		}
+		return 0, false
+	}
+	idx := m.scroll + (y - 1 - len(sticky))
+	if idx < 0 || idx >= len(m.rows) {
+		return 0, false
+	}
+	return idx, true
 }
 
 // syncWatches points the fs watcher at every visible expanded directory.

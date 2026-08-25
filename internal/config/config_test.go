@@ -78,9 +78,10 @@ func TestLoadStarter(t *testing.T) {
 			t.Errorf("%s = %+v, want key and finder_key %q, background", tc.name, c, tc.key)
 		}
 	}
-	if cfg.General.ShowHidden || !cfg.General.ShowIgnored {
+	if cfg.General.ShowHidden || !cfg.General.ShowIgnored || !cfg.General.StickyParents {
 		t.Errorf("general toggles = %+v", cfg.General)
 	}
+
 	// The starter leaves tmux commented out, so the default must be the one
 	// that makes the tmux commands above work out of the box.
 	if cfg.General.Tmux != tmux.ModeAuto {
@@ -277,6 +278,21 @@ func TestLoadPartialOverridesKeepDefaults(t *testing.T) {
 	if cfg.General.WatchDebounceMs != 150 || cfg.General.Icons != "nerd" {
 		t.Errorf("defaults not preserved: %+v", cfg.General)
 	}
+	if !cfg.General.StickyParents {
+		t.Error("sticky_parents defaults to true, and nothing here turned it off")
+	}
+
+	// A bool that defaults to true is the case Go's zero value gets wrong on
+	// its own: Load decodes over the populated defaults, which is what lets an
+	// explicit false through without a *bool.
+	off, err := loadTOML(t, "[general]\nsticky_parents = false\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off.General.StickyParents {
+		t.Error("sticky_parents = false was not honoured")
+	}
+
 	if _, ok := cfg.Commands["edit"]; !ok {
 		t.Error("default edit command missing when [commands] absent")
 	}

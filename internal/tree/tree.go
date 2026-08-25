@@ -155,7 +155,36 @@ func (t *Tree) Flatten(visible func(*Node) bool) []Row {
 	return rows
 }
 
+// Ancestors returns the rows for r's ancestor directories, root first and
+// excluding the tree root itself. It is what a renderer needs in order to say
+// where a row sits once its parents have scrolled off the top of the pane.
+//
+// Depths are derived from r's rather than looked up, so the rows carry the
+// same indentation Flatten gave them: Flatten puts the root's children at
+// depth 1 and adds one per level, so an ancestor's depth is exactly its
+// child's minus one — and a row at depth D has D-1 ancestors above the root.
+// That is why depth 1 pins nothing: its only ancestor is the root.
+//
+// Flatten skips a filtered directory's whole subtree, so every ancestor of a
+// row it produced is itself a row. The short-chain return is defensive only.
+func Ancestors(r Row) []Row {
+	if r.Node == nil || r.Depth < 2 {
+		return nil // the root, and its children, have nothing to pin
+	}
+	out := make([]Row, r.Depth-1)
+	n := r.Node.Parent
+	for d := r.Depth - 1; d >= 1; d-- {
+		if n == nil {
+			return out[d:]
+		}
+		out[d-1] = Row{Node: n, Depth: d}
+		n = n.Parent
+	}
+	return out
+}
+
 // Rel returns path relative to the tree root ("." for the root itself),
+
 // always slash-separated.
 func (t *Tree) Rel(path string) string {
 	r, err := filepath.Rel(t.Root.Path, path)

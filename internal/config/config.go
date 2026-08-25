@@ -95,8 +95,17 @@ var finderReservedKeys = []string{
 }
 
 type General struct {
-	ShowHidden          bool   `toml:"show_hidden"`
-	ShowIgnored         bool   `toml:"show_ignored"`
+	ShowHidden  bool `toml:"show_hidden"`
+	ShowIgnored bool `toml:"show_ignored"`
+
+	// StickyParents pins the parent directories of the topmost visible row
+	// above the tree, the way an editor's sticky scroll pins the enclosing
+	// scopes. On by default: a subtree scrolled away from its parents is the
+	// case a narrow pane is worst at. The block takes its own space rather
+	// than covering a row, so nothing is ever hidden underneath it, and it is
+	// capped at a third of the pane so a deep tree cannot crowd itself out.
+	StickyParents bool `toml:"sticky_parents"`
+
 	Icons               string `toml:"icons"`    // "nerd" or "plain"
 	LinkRef             string `toml:"link_ref"` // web links pin to "commit" or "branch"
 	Tmux                string `toml:"tmux"`     // "auto" (relaunch inside tmux) or "never"
@@ -174,8 +183,10 @@ func Default() *Config {
 	commands, order := builtinCommands()
 	return &Config{
 		General: General{
-			ShowHidden:            false,
-			ShowIgnored:           true,
+			ShowHidden:    false,
+			ShowIgnored:   true,
+			StickyParents: true,
+
 			Icons:                 "nerd",
 			LinkRef:               "commit",
 			Tmux:                  tmux.ModeAuto,

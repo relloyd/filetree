@@ -21,15 +21,17 @@ import (
 )
 
 var (
-	colSelBg   = lipgloss.Color("#264F78")
-	colDim     = lipgloss.Color("#6D7A85")
-	colError   = lipgloss.Color("#F14C4C")
-	colOK      = lipgloss.Color("#73C991")
-	colChanged = lipgloss.Color("#E2C08D")
-	colTitle   = lipgloss.Color("#569CD6")
-	colMark    = lipgloss.Color("#C586C0") // marks: magenta, distinct from git colours
-	colType    = lipgloss.Color("#D7BA7D") // finder: what the Type filter matched
-	colFinder  = lipgloss.Color("#9CDCFE") // help: a key the finder answers, not the tree
+	colSelBg    = lipgloss.Color("#264F78")
+	colStickyBg = lipgloss.Color("#1B2B3A") // pinned parents: the selection blue, dimmed until it reads as a band and not a second cursor
+	colDim      = lipgloss.Color("#6D7A85")
+	colError    = lipgloss.Color("#F14C4C")
+	colOK       = lipgloss.Color("#73C991")
+	colChanged  = lipgloss.Color("#E2C08D")
+	colTitle    = lipgloss.Color("#569CD6")
+
+	colMark   = lipgloss.Color("#C586C0") // marks: magenta, distinct from git colours
+	colType   = lipgloss.Color("#D7BA7D") // finder: what the Type filter matched
+	colFinder = lipgloss.Color("#9CDCFE") // help: a key the finder answers, not the tree
 
 	styleBase    = lipgloss.NewStyle()
 	styleDim     = lipgloss.NewStyle().Foreground(colDim)
@@ -149,11 +151,44 @@ func checkboxStyle(on bool) lipgloss.Style {
 	return styleDim
 }
 
+// rowStyle is how a tree row is painted: the cursor row, a pinned parent, the
+// first pinned parent when shallower ones were dropped, or nothing special.
+// One value rather than a set of bools because the cases are exclusive.
+type rowStyle int
+
+const (
+	rowNormal rowStyle = iota
+	rowSelected
+	rowSticky
+	rowStickyElided
+)
+
+// fill is the background a row is painted with, and whether it is painted at
+// all. Painting the pinned block across the full width is what makes it read
+// as one unit and part company with the scrolling rows below it, without
+// spending a separator line on saying so.
+func (s rowStyle) fill() (color.Color, bool) {
+	switch s {
+	case rowSelected:
+		return colSelBg, true
+	case rowSticky, rowStickyElided:
+		return colStickyBg, true
+	}
+	return nil, false
+}
+
 func (m *Model) renderTree() string {
 	h := m.treeHeight()
 	lines := make([]string, 0, h)
-	for i := m.scroll; i < min(len(m.rows), m.scroll+h); i++ {
-		lines = append(lines, m.renderRow(m.rows[i], i == m.cursor))
+	lines = append(lines, m.renderStickyRows()...)
+	// The len(lines) guard mirrors renderFuzzy: an arithmetic slip anywhere
+	// upstream then costs a row rather than the status bar.
+	for i := m.scroll; i < min(len(m.rows), m.scroll+m.treeVisibleRows()) && len(lines) < h; i++ {
+		style := rowNormal
+		if i == m.cursor {
+			style = rowSelected
+		}
+		lines = append(lines, m.renderRow(m.rows[i], style))
 	}
 	for len(lines) < h {
 		lines = append(lines, "")
@@ -161,11 +196,40 @@ func (m *Model) renderTree() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m *Model) renderRow(r tree.Row, selected bool) string {
+// renderStickyRows draws the pinned parents of the top visible row, root
+// first. It returns exactly stickyLines() lines — the same contract
+// renderFinderHeader keeps with finderHeaderLines, and for the same reason:
+// renderTree reserves that many, and a disagreement costs the last tree row.
+func (m *Model) renderStickyRows() []string {
+	rows := m.stickyRows()
+	if len(rows) == 0 {
+		return nil
+	}
+	// The chain always starts at depth 1, so a first line deeper than that is
+	// proof that shallower parents were dropped by the cap.
+	elided := rows[0].Depth > 1
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		style := rowSticky
+		switch {
+		case r.Node == m.selected():
+			// The wheel scrolls without moving the cursor, so the cursor can
+			// end up on a pinned parent. Say so rather than lose it.
+			style = rowSelected
+		case i == 0 && elided:
+			style = rowStickyElided
+		}
+		out[i] = m.renderRow(r, style)
+	}
+	return out
+}
+
+func (m *Model) renderRow(r tree.Row, style rowStyle) string {
 	n := r.Node
+	fill, filled := style.fill()
 	bg := func(st lipgloss.Style) lipgloss.Style {
-		if selected {
-			return st.Background(colSelBg)
+		if filled {
+			return st.Background(fill)
 		}
 		return st
 	}
@@ -174,13 +238,22 @@ func (m *Model) renderRow(r tree.Row, selected bool) string {
 	if r.Depth > 0 {
 		// Marked rows draw a bar over the first indent cell — markable rows
 		// always have depth ≥ 1, so nothing shifts.
-		if marked {
+		switch {
+		case style == rowStickyElided:
+			// Same trick as the mark bar, and it outranks it on this one line:
+			// structure before state. Safe by construction — dropping anything
+			// means this line is at depth ≥ 2, so there are ≥ 3 indent columns
+			// after the marker.
+			b.WriteString(bg(styleDim).Render("…"))
+			b.WriteString(bg(styleBase).Render(strings.Repeat(" ", 2*r.Depth-1)))
+		case marked:
 			b.WriteString(bg(styleMark).Render("▍"))
 			b.WriteString(bg(styleBase).Render(strings.Repeat(" ", 2*r.Depth-1)))
-		} else {
+		default:
 			b.WriteString(bg(styleBase).Render(strings.Repeat("  ", r.Depth)))
 		}
 	}
+
 	chev := "  "
 	if n.IsDir {
 		if n.Expanded {
@@ -220,8 +293,9 @@ func (m *Model) renderRow(r tree.Row, selected bool) string {
 	}
 
 	line := b.String()
-	if selected {
+	if filled {
 		if pad := m.width - lipgloss.Width(line); pad > 0 {
+
 			line += bg(styleBase).Render(strings.Repeat(" ", pad))
 		}
 	}

@@ -44,14 +44,16 @@ func (m *Model) gotoBottom() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) halfPageDown() (tea.Model, tea.Cmd) {
-	m.cursor = min(len(m.rows)-1, m.cursor+m.treeHeight()/2)
+	m.cursor = min(len(m.rows)-1, m.cursor+m.treeVisibleRows()/2)
 	m.ensureVisible()
+
 	return m, nil
 }
 
 func (m *Model) halfPageUp() (tea.Model, tea.Cmd) {
-	m.cursor = max(0, m.cursor-m.treeHeight()/2)
+	m.cursor = max(0, m.cursor-m.treeVisibleRows()/2)
 	m.ensureVisible()
+
 	return m, nil
 }
 
