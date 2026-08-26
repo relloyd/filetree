@@ -247,7 +247,11 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
     stored, so it is still right after an ft restart, or for a pane opened by
     hand. It is also what makes `ctrl+w` focus an already-open pane instead of
     attaching a second client to it.
-  A full-width split (`-f`) takes its columns from *every* pane in the window,
+  The split is `-fdh`, like the pane commands in the catalogue: `-d` leaves the
+  focus in ft, since opening an agent is not the same as wanting to type at it,
+  and a second `ctrl+w` on a session already on screen is what moves you into
+  its pane. A full-width split (`-f`) takes its columns from *every* pane in the window,
+
   so a 40-column ft beside an editor comes back at 18 and the tree stops being
   readable. Both `ctrl+w` and `X` therefore read ft's width immediately before
   the disruptive call and re-apply it after — reading rather than remembering,

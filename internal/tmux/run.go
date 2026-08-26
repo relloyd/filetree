@@ -149,7 +149,10 @@ func ListClients() ([]Client, error) {
 // shipped once. quote is injected for that, as it is for AttachPopup.
 //
 // -f makes the pane span the window rather than carving up ft's own column,
-// which on a sidebar would leave both halves too narrow to read.
+// which on a sidebar would leave both halves too narrow to read. -d leaves the
+// focus in ft: opening an agent is not the same as wanting to type at it, and
+// the tree is where you were. A second ctrl+w on a session already on screen
+// is what moves you into it — see paneSession.
 //
 // "TMUX=" is what gets past tmux's refusal to nest, and -S is what stops that
 // from meaning "the default socket": see SocketPath.
@@ -157,7 +160,7 @@ func SplitAttach(self, socket, name string, quote func(string) string) error {
 	if !Available() {
 		return ErrNotInstalled
 	}
-	return run("split-window", "-h", "-f", "-t", self, AttachCommand(socket, name, quote))
+	return run("split-window", "-h", "-f", "-d", "-t", self, AttachCommand(socket, name, quote))
 }
 
 // AttachCommand is the shell command a split pane runs to become a nested
