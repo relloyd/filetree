@@ -65,7 +65,7 @@ case "$target" in
     tmux send-keys -t "{last}" C-u "hx {paths}" Enter
     ;;
   *)
-    tmux split-window -fdh -c {root} "hx {paths}"
+    tmux split-window -fdh -l 70% -c {root} "hx {paths}"
     ;;
 esac
 `,
@@ -117,7 +117,7 @@ esac
 		Desc: "shell in a popup over the window",
 		Run:  `tmux display-popup -E -w 92% -h 92% "tmux new-session -c {dir}"`,
 		Mode: ModeBackground,
-		Key:  "P",
+		Key:  "alt+n",
 	},
 
 	// Agent sessions: a coding agent parked in a *named* tmux session, one per

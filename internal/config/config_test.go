@@ -42,7 +42,7 @@ func TestLoadStarter(t *testing.T) {
 	if g := cfg.Commands["grep-here"]; g.Key != "r" {
 		t.Errorf("grep-here key = %q, want r", g.Key)
 	}
-	if s := cfg.Commands["shell-popup"]; s.Key != "P" || s.Mode != ModeBackground {
+	if s := cfg.Commands["shell-popup"]; s.Key != "alt+n" || s.Mode != ModeBackground {
 		t.Errorf("shell-popup = %+v, want key P, background", s)
 	}
 	if s := cfg.Commands["shell-vsplit"]; s.Key != "n" || s.Mode != ModeBackground {
