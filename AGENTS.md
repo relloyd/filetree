@@ -224,6 +224,42 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   `finderSource` (`srcTmux`), not a new mode — see the bookmark view for the
   pattern; its ctrl+w/ctrl+x/alt+n are hardcoded in the modeFuzzy switch and
   listed in `finderReservedKeys`.
+- **A session shown in a pane is a nested client, and that costs two things.**
+  `ctrl+w` splits the window and runs `tmux attach-session` in the new pane
+  (`tmux.SplitAttach`); `X` (`detach-pane`) sends it away again. tmux has no
+  primitive for putting a session in a pane, and the two alternatives are
+  worse: `join-pane` *moves* the agent's only pane, which destroys its window
+  and therefore its session, so it stops being listable by `T` exactly while
+  you are using it; `link-window` gives you a whole window, which is what the
+  popup already does. Nesting keeps the name, which is the identity everything
+  else routes on. Two rules hold it together:
+  - **Unsetting `$TMUX` is required *and* insufficient.** tmux refuses to nest
+    ("sessions should be nested with care"), and unsetting `$TMUX` alone sends
+    the nested tmux to the *default* socket, where the session does not exist
+    ("set $TMUX to force"). `AttachCommand` therefore passes the socket back
+    with `-S`, recovered from `$TMUX` by `tmux.SocketPath` — `$TMUX` is
+    `<socket>,<pid>,<session index>`. This is the same hazard `AttachPopup`
+    avoids by never unsetting `$TMUX` at all, so the two must not be merged.
+  - **Which pane is showing what is read from tmux, never remembered.** A
+    session attached in a pane is a client on that pane's tty, so
+    `tmux.PaneShowing` matches `list-clients` against `list-panes` in ft's own
+    window (`$TMUX_PANE`, captured once into `Model.selfPane`). Nothing is
+    stored, so it is still right after an ft restart, or for a pane opened by
+    hand. It is also what makes `ctrl+w` focus an already-open pane instead of
+    attaching a second client to it.
+  A full-width split (`-f`) takes its columns from *every* pane in the window,
+  so a 40-column ft beside an editor comes back at 18 and the tree stops being
+  readable. Both `ctrl+w` and `X` therefore read ft's width immediately before
+  the disruptive call and re-apply it after — reading rather than remembering,
+  so a user resize is honoured. It is skipped when ft filled more than half the
+  window, where there was no sidebar to preserve and restoring the old width
+  would squeeze the pane just opened down to a single column.
+- **Not every tmux subcommand takes the `=` exact-match prefix `target()` adds.**
+  `attach-session`, `kill-session`, `detach-client`, `join-pane` and
+  `resize-pane` do; `set-option`, `display-message` and `capture-pane` resolve
+  `-t` differently and fail with `no such session: =...`. `PaneWidths` passes a
+  bare pane id for exactly this reason.
+
 - The status-bar branch (`⎇ …`) is cached per repo in `m.branches`, filled
   by the same async cmds that read git status — so it refreshes wherever
   status does, and nowhere else.

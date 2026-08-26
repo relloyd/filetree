@@ -1061,7 +1061,10 @@ func (m *Model) helpRows() []helpRow {
 		{finderKey: "ctrl+s", desc: "bookmarks: widen to every project"},
 		{finderKey: "ctrl+x", desc: "bookmarks: forget the highlighted one"},
 		{key: m.actionKeys["tmux-sessions"], desc: "named agent tmux sessions; enter reattaches"},
-		{finderKey: "ctrl+w", desc: "sessions: switch the window to it"},
+		{key: m.actionKeys["detach-pane"], desc: "detach the agent session sharing this window"},
+
+		{finderKey: "ctrl+w", desc: "sessions: open beside the tree (X detaches)"},
+
 		{finderKey: "ctrl+x", desc: "sessions: kill the highlighted one"},
 		{finderKey: "alt+n", desc: "sessions: start one for the selection"},
 		{key: m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], desc: "new file / directory"},

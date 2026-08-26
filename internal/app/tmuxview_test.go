@@ -280,9 +280,10 @@ func TestPickerActionsOnEmptyList(t *testing.T) {
 	if _, cmd := m.attachSession(); cmd != nil {
 		t.Error("enter on an empty list should do nothing")
 	}
-	if _, cmd := m.switchSession(); cmd != nil {
+	if _, cmd := m.paneSession(); cmd != nil {
 		t.Error("ctrl+w on an empty list should do nothing")
 	}
+
 	if _, cmd := m.killSession(); cmd != nil {
 		t.Error("ctrl+x on an empty list should do nothing")
 	}
@@ -409,5 +410,37 @@ func mustGit(t *testing.T, dir string, args ...string) {
 	)
 	if out, err := c.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+// Outside tmux there is no window to look in, so both keys have to say so
+// rather than shell out and fail. ft runs outside tmux whenever "tmux = never"
+// is set or "--no-tmux" was passed, so this is an ordinary state, not an edge.
+func TestPaneKeysRefuseOutsideTmux(t *testing.T) {
+	m := tmuxPickerModel(t)
+	m.selfPane = ""
+
+	m.mode = modeNormal
+	if _, cmd := m.detachAgentPane(); cmd == nil {
+		t.Error("X outside tmux should report, not stay silent")
+	}
+	// It must not have gone looking for panes either: with no self there is
+	// nothing to compare against, and PaneShowing says so without calling tmux.
+	if _, _, ok := m.paneShowing(func(string) bool { return true }); ok {
+		t.Error("found a pane while outside tmux")
+	}
+}
+
+// A tree with no agent beside it is the normal case, not a failure: X should
+// note it and change nothing.
+func TestDetachWithNoAgentPaneIsQuiet(t *testing.T) {
+	m := tmuxPickerModel(t)
+	m.mode = modeNormal
+	m.selfPane = "%11" // a pane tmux will not know about on this server
+	if _, cmd := m.detachAgentPane(); cmd == nil {
+		t.Error("X with nothing attached should still say so")
+	}
+	if m.mode != modeNormal {
+		t.Errorf("mode = %v, want normal", m.mode)
 	}
 }

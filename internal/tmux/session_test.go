@@ -171,7 +171,7 @@ func TestAttachPopupQuotesTheTarget(t *testing.T) {
 	quote := func(s string) string { return "'" + s + "'" }
 	for _, got := range []string{
 		AttachPopup("ft/repo/main/claude", quote),
-		SwitchClient("ft/repo/main/claude", quote),
+		AttachCommand("/tmp/tmux-501/default", "ft/repo/main/claude", quote),
 	} {
 		if !strings.Contains(got, "'=ft/repo/main/claude'") {
 			t.Errorf("target reaches the shell unquoted: %s", got)

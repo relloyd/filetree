@@ -57,9 +57,13 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   (`ft/<repo>/<branch>/<tool>`), in a popup over the tree. Detach and it keeps
   running; press the same key again and you are back in it. `T` lists every
   such session across all your repos and worktrees, newest first with the ones
-  ringing a bell on top — `enter` reattaches in a popup, `ctrl+w` gives one the
-  whole window, `ctrl+x` kills it, `alt+n` starts one for the selection. The
-  sessions ft opens for itself are unnamed, so they never clutter the list.
+  ringing a bell on top — `enter` reattaches in a popup, `ctrl+w` opens one in a
+  pane beside the tree, `ctrl+x` kills it, `alt+n` starts one for the selection.
+  A session opened in a pane keeps its name and stays in the list, so `X` in the
+  tree detaches it again — the agent carries on running, and the tree gets its
+  space back. The sessions ft opens for itself are unnamed, so they never
+  clutter the list.
+
 - The tree follows your editor: bind `:sh ft jump %{buffer_name}` in helix and
   the pane beside it moves its cursor to the buffer you are in. With several
   trees open the one that answers is the one whose root holds the file, and of
@@ -144,7 +148,9 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `W` | new git worktree for the repo containing the selection, from a branch name or PR number — lands in the worktrees view with it selected |
 | `c` / `x` | Claude Code / Copilot in a named tmux session for the selection's repo and branch, in a popup; pressing it again reattaches to the same one |
 | `alt+s` | a plain named shell in the same scheme — for a dev server or a test watcher you want to find again |
-| `T` | list the named sessions: `enter` reattaches in a popup, `ctrl+w` switches the whole window to one, `ctrl+x` kills it (asking first if it is attached elsewhere), `alt+n` starts one for the selection |
+| `T` | list the named sessions: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree (focusing it if already there), `ctrl+x` kills it (asking first if it is attached elsewhere), `alt+n` starts one for the selection |
+| `X` | detach the agent session sharing this window, handing its space back to the tree |
+
 | `>` | re-root the tree to the selection — the directory itself, or a file's parent — so the tree and every search start there; `esc` returns to the project. Rooting deeper replaces the root rather than stacking, so one `esc` always comes home |
 | `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default command; an editor that takes over this pane reloads the config when it exits |

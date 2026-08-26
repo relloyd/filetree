@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -84,16 +85,6 @@ func AttachPopup(name string, quote func(string) string) string {
 	return `tmux display-popup -E ` + popupSize + ` "tmux attach-session -t ` + quote(target(name)) + `"`
 }
 
-// SwitchClient is the shell command that moves this tmux client to the
-// session, giving it the whole window instead of a popup.
-//
-// It takes the same "$TMUX" guard as the pane commands in the starter: run
-// outside a pane, tmux resolves the client against the most recently used
-// session and would move a window the user is not even looking at.
-func SwitchClient(name string, quote func(string) string) string {
-	return `[ -z "$TMUX" ] || tmux switch-client -t ` + quote(target(name))
-}
-
 // noServer recognises the one failure that means "nothing is running yet".
 func noServer(stderr string) bool {
 	return strings.Contains(stderr, "no server running") ||
@@ -128,4 +119,133 @@ func ListPanes() ([]Pane, error) {
 		return nil, tmuxError(err, stderr.String())
 	}
 	return ParsePanes(stdout.String()), nil
+}
+
+// ListClients returns every attached client on the server, across all
+// sessions. No server running is an empty list rather than an error, as in
+// List and ListPanes.
+func ListClients() ([]Client, error) {
+	if !Available() {
+		return nil, ErrNotInstalled
+	}
+	var stdout, stderr bytes.Buffer
+	c := exec.Command("tmux", "list-clients", "-F", ClientFormat)
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		if noServer(stderr.String()) {
+			return nil, nil
+		}
+		return nil, tmuxError(err, stderr.String())
+	}
+	return ParseClients(stdout.String()), nil
+}
+
+// SplitAttach opens name in a new pane beside self, as a nested client.
+//
+// Everything but the attach runs as direct argv, so no tmux target is ever
+// exposed to a shell. The attach cannot: tmux hands a split's shell-command to
+// default-shell, which is zsh on a stock macOS, so the "=" exact-match target
+// has to be quoted or zsh's equals expansion eats it — the bug that already
+// shipped once. quote is injected for that, as it is for AttachPopup.
+//
+// -f makes the pane span the window rather than carving up ft's own column,
+// which on a sidebar would leave both halves too narrow to read.
+//
+// "TMUX=" is what gets past tmux's refusal to nest, and -S is what stops that
+// from meaning "the default socket": see SocketPath.
+func SplitAttach(self, socket, name string, quote func(string) string) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	return run("split-window", "-h", "-f", "-t", self, AttachCommand(socket, name, quote))
+}
+
+// AttachCommand is the shell command a split pane runs to become a nested
+// client on name. Pure, so the quoting it depends on can be table-tested: it
+// is handed to tmux as a shell-command and therefore reaches default-shell,
+// which is zsh on a stock macOS.
+func AttachCommand(socket, name string, quote func(string) string) string {
+	cmd := "TMUX= tmux "
+	if socket != "" {
+		cmd += "-S " + quote(socket) + " "
+	}
+	return cmd + "attach-session -t " + quote(target(name))
+}
+
+// DetachClient detaches whatever is attached to name, which for a session
+// shown in a pane closes that pane and hands its space back. The agent keeps
+// running: that is the whole point of a session it was started in.
+//
+// It exists so detaching needs no nested prefix. A client inside a pane owns
+// the prefix key, so detaching from the inside is "prefix prefix d"; ft is
+// sitting next to it and can simply say so instead.
+func DetachClient(name string) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	return run("detach-client", "-s", target(name))
+}
+
+// SelectPane moves the focus to a pane, by id.
+func SelectPane(id string) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	return run("select-pane", "-t", id)
+}
+
+// ResizePaneWidth sets a pane's width in columns, taking the difference from
+// its neighbours.
+func ResizePaneWidth(id string, cols int) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	return run("resize-pane", "-t", id, "-x", strconv.Itoa(cols))
+}
+
+// PaneWidths reports a pane's own width and that of the window holding it.
+//
+// The two go together because the caller wants the ratio: ft restores its
+// width after a split only when it was a *sidebar* to begin with. Restoring it
+// unconditionally would be wrong for an ft that had the window to itself,
+// where it would squeeze the pane it had just opened down to one column.
+//
+// Note display-message resolves -t as a *pane*, and unlike attach-session or
+// kill-session it does not accept the "=" exact-match prefix, so this is one
+// of the few places target() must not be used. A pane id is unambiguous
+// anyway.
+func PaneWidths(id string) (pane, window int, err error) {
+	if !Available() {
+		return 0, 0, ErrNotInstalled
+	}
+	var stdout, stderr bytes.Buffer
+	c := exec.Command("tmux", "display-message", "-p", "-t", id, "#{pane_width}\t#{window_width}")
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		return 0, 0, tmuxError(err, stderr.String())
+	}
+	f := strings.Split(strings.TrimSpace(stdout.String()), "\t")
+	if len(f) != 2 {
+		return 0, 0, errors.New("tmux: unreadable pane size")
+	}
+	pane, err = strconv.Atoi(f[0])
+	if err != nil {
+		return 0, 0, err
+	}
+	window, err = strconv.Atoi(f[1])
+	if err != nil {
+		return 0, 0, err
+	}
+	return pane, window, nil
+}
+
+// run is the plain-argv tmux call the commands above share.
+func run(args ...string) error {
+	var stderr bytes.Buffer
+	c := exec.Command("tmux", args...)
+	c.Stderr = &stderr
+	if err := c.Run(); err != nil {
+		return tmuxError(err, stderr.String())
+	}
+	return nil
 }

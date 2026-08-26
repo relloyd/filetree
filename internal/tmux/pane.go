@@ -13,6 +13,12 @@ type Pane struct {
 	SessionID string // #{session_id}, "$8"
 	WindowID  string // #{window_id}, "@8"
 	Command   string // #{pane_current_command}
+
+	// TTY is #{pane_tty}. It is what ties a pane to a *client*: a session
+	// attached inside a pane is a client on that pane's tty, and matching the
+	// two is the only way to ask "which of my panes is showing that session?"
+	// without keeping a note of what we opened.
+	TTY string
 }
 
 // paneFields are the properties ListPanes asks tmux for, in order. Tab-joined
@@ -23,6 +29,7 @@ var paneFields = []string{
 	"#{session_id}",
 	"#{window_id}",
 	"#{pane_current_command}",
+	"#{pane_tty}",
 }
 
 // PaneFormat is the -F argument for list-panes.
@@ -49,7 +56,9 @@ func ParsePanes(out string) []Pane {
 			SessionID: f[1],
 			WindowID:  f[2],
 			Command:   f[3],
+			TTY:       f[4],
 		})
+
 	}
 	return panes
 }

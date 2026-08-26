@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+
 	"sort"
 	"strings"
 
@@ -16,7 +18,6 @@ import (
 // messages with whatever they are handed.
 const (
 	cmdAttachSession = "attach-session"
-	cmdSwitchSession = "switch-session"
 )
 
 // startTmuxSessions opens the finder over the named tmux sessions. It is the
@@ -129,17 +130,81 @@ func (m *Model) attachSession() (tea.Model, tea.Cmd) {
 		tmux.AttachPopup(s.Name, config.ShellQuote), config.ModeInteractive)
 }
 
-// switchSession is "ctrl+w": hand the whole window to the session rather than
-// a popup, for a transcript worth reading at full width. tmux's own "prefix L"
-// comes back.
-func (m *Model) switchSession() (tea.Model, tea.Cmd) {
+// paneSession is "ctrl+w": put the session in a pane beside the tree, rather
+// than a popup over it, so the agent and the files it is editing are on screen
+// together. "X" detaches it again.
+//
+// It replaced switch-client, which handed this client to the session outright:
+// that left no way back to ft short of detaching and re-attaching by hand,
+// which is not a thing a key in a picker should do to you.
+//
+// A session already showing beside us is focused rather than opened twice.
+// Attaching a second client would work — tmux allows it — but it would sit
+// there as a duplicate of the pane you already had, and "window-size latest"
+// would then reflow the agent between the two.
+func (m *Model) paneSession() (tea.Model, tea.Cmd) {
 	s, ok := m.tmuxRow(m.fuzzySel)
 	if !ok {
 		return m, nil
 	}
 	m.mode = modeNormal
-	return m.runSessionCommand(cmdSwitchSession,
-		tmux.SwitchClient(s.Name, config.ShellQuote), config.ModeBackground)
+	if m.selfPane == "" {
+		return m, m.note("not running inside tmux", true)
+	}
+	if p, _, found := m.paneShowing(func(name string) bool { return name == s.Name }); found {
+		if err := tmux.SelectPane(p.ID); err != nil {
+			return m, m.note(err.Error(), true)
+		}
+		return m, nil
+	}
+	if err := m.openSessionPane(s.Name); err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	return m, nil
+}
+
+// paneShowing finds the pane beside ft displaying a session match accepts.
+// Nothing is remembered between calls: the answer is read from tmux each time,
+// so it survives an ft restart and is right even for a pane opened by hand.
+func (m *Model) paneShowing(match func(string) bool) (tmux.Pane, string, bool) {
+	if m.selfPane == "" {
+		return tmux.Pane{}, "", false
+	}
+	panes, err := tmux.ListPanes()
+	if err != nil {
+		return tmux.Pane{}, "", false
+	}
+	clients, err := tmux.ListClients()
+	if err != nil {
+		return tmux.Pane{}, "", false
+	}
+	return tmux.PaneShowing(panes, clients, m.selfPane, match)
+}
+
+// openSessionPane splits the window and attaches the session in the new pane,
+// then puts ft back to the width it had.
+//
+// The restore is what makes this usable on a sidebar: a full-width split takes
+// its space from *every* pane in the window, so a 30-column ft beside an
+// editor comes out at 18 and the tree stops being readable. Reading the width
+// immediately beforehand rather than remembering one keeps it honest when the
+// user has resized ft themselves.
+//
+// It is skipped for an ft that filled the window, where there was no sidebar
+// to preserve and restoring the old width would crush the pane just opened
+// down to a single column.
+func (m *Model) openSessionPane(name string) error {
+	before, window, err := tmux.PaneWidths(m.selfPane)
+	if err != nil {
+		before, window = 0, 0 // not fatal: the split is still worth doing
+	}
+	if err := tmux.SplitAttach(m.selfPane, tmux.SocketPath(os.Getenv("TMUX")), name, config.ShellQuote); err != nil {
+		return err
+	}
+	if before > 0 && before < window/2 {
+		_ = tmux.ResizePaneWidth(m.selfPane, before)
+	}
+	return nil
 }
 
 // killSession is "ctrl+x". A detached session goes straight away — it is the
@@ -225,4 +290,37 @@ func (m *Model) tmuxStatusNote() string {
 		return styleDim.Render("  none yet")
 	}
 	return ""
+}
+
+// detachAgentPane is "X": send away whatever agent session is sharing this
+// window, handing its space back to the tree. The agent keeps running and the
+// picker will still list it — a detached session is exactly what "T" is for.
+//
+// Detaching from outside is what spares the nested prefix. A session attached
+// inside a pane owns the prefix key there, so detaching from within is "prefix
+// prefix d"; ft is next to it and can just say detach-client instead.
+//
+// The width is read *before* detaching, while the sidebar still has the shape
+// the user gave it, and re-applied afterwards: tmux hands a closing pane's
+// columns to its neighbour, so an untouched ft would balloon to fill them.
+func (m *Model) detachAgentPane() (tea.Model, tea.Cmd) {
+	if m.selfPane == "" {
+		return m, m.note("not running inside tmux", true)
+	}
+	prefix := m.sessionPrefix()
+	_, name, found := m.paneShowing(func(s string) bool { return strings.HasPrefix(s, prefix) })
+	if !found {
+		return m, m.note("no agent session in this window", false)
+	}
+	before, window, err := tmux.PaneWidths(m.selfPane)
+	if err != nil {
+		before, window = 0, 0
+	}
+	if err := tmux.DetachClient(name); err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	if before > 0 && before < window/2 {
+		_ = tmux.ResizePaneWidth(m.selfPane, before)
+	}
+	return m, m.note("detached "+name, false)
 }

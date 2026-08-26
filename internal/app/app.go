@@ -5,8 +5,10 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
+
 	"strings"
 	"time"
 
@@ -171,6 +173,12 @@ type Model struct {
 	showHidden  bool
 	showIgnored bool
 
+	// selfPane is ft's own $TMUX_PANE, empty outside tmux. It is what "beside
+	// me" is measured from when an agent session is opened in a pane, and it
+	// is captured once at startup for the same reason ipc.Serve captures it:
+	// only this process knows where it is running.
+	selfPane string
+
 	// scopeDir confines the finder to one root-relative directory; "" is the
 	// whole tree. Session-only, and set at entry: "F" captures it from the
 	// selection, "/" clears it, and resuming leaves it alone.
@@ -327,6 +335,7 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 		width:         80,
 		height:        24,
 		lastClickRow:  -1,
+		selfPane:      os.Getenv("TMUX_PANE"),
 	}
 
 	m.input = textinput.New()
@@ -688,7 +697,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// Only the session list claims this; everywhere else it stays
 			// textinput's delete-word-backward.
 			if m.finderSrc == srcTmux {
-				return m.switchSession()
+				return m.paneSession()
 			}
 		case "alt+n":
 			if m.finderSrc == srcTmux {
@@ -878,6 +887,7 @@ func (m *Model) buildBindings() {
 		"recent":         m.startRecent,
 		"bookmarks":      m.startBookmarks,
 		"tmux-sessions":  m.startTmuxSessions,
+		"detach-pane":    m.detachAgentPane,
 		"new-file":       func() (tea.Model, tea.Cmd) { return m.startPrompt(promptNewFile) },
 		"new-dir":        func() (tea.Model, tea.Cmd) { return m.startPrompt(promptNewDir) },
 		"rename":         func() (tea.Model, tea.Cmd) { return m.startPrompt(promptRename) },
