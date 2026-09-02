@@ -460,15 +460,6 @@ func TestSessionsConfig(t *testing.T) {
 	if cfg.Sessions.Prefix != "ft/" {
 		t.Errorf("default = %+v", cfg.Sessions)
 	}
-	// The catalogue guarantees claude-popup exists, so "alt+n" works with
-	// nothing configured at all.
-	if cfg.Sessions.NewCommand != "claude-popup" {
-		t.Errorf("default new_command = %q, want claude-popup", cfg.Sessions.NewCommand)
-	}
-	// It must name a real command, or "alt+n" would silently do nothing.
-	if _, err := loadTOML(t, "[sessions]\nnew_command = \"nope\"\n"); err == nil {
-		t.Error("an unknown sessions.new_command should fail")
-	}
 
 	cfg, err = loadTOML(t, "[sessions]\nprefix = \"agent/\"\n")
 	if err != nil {
@@ -525,10 +516,6 @@ func TestStarterAgentCommands(t *testing.T) {
 	}
 	// The two tool popups keep the session alive once the tool stops; the
 	// plain shell has nothing to outlive.
-	// "alt+n" in the picker has to mean something definite.
-	if cfg.Sessions.NewCommand != "claude-popup" {
-		t.Errorf("starter new_command = %q, want claude-popup", cfg.Sessions.NewCommand)
-	}
 	for _, name := range []string{"claude-popup", "copilot-popup"} {
 		c := cfg.Commands[name]
 		if !strings.Contains(c.Run, "exec \\${SHELL:-sh}") {
@@ -747,8 +734,8 @@ func TestCommandsCanBeDisabled(t *testing.T) {
 	}
 }
 
-// Every catalogue entry has to be complete and unambiguous: the help page, the
-// key resolver and sessions.new_command all address them by name.
+// Every catalogue entry has to be complete and unambiguous: the help page and
+// the key resolver both address them by name.
 func TestCatalogueIsWellFormed(t *testing.T) {
 	seenName := map[string]bool{}
 	seenKey := map[string]string{}

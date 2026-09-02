@@ -64,8 +64,8 @@ const DefaultFuzzyGrepMaxPerFile = 5
 // the catalogue in catalogue.go, or one the config defines itself.
 type Command struct {
 	// Name is the command's identity — the catalogue entry's name, or the
-	// [commands.<name>] table it was read from. It is what [keys] and
-	// sessions.new_command refer to, so it never comes from the file's body.
+	// [commands.<name>] table it was read from. It is what [keys] refers to,
+	// so it never comes from the file's body.
 	Name string `toml:"-"`
 
 	Run  string `toml:"run"`  // template; see ExpandCommand
@@ -91,7 +91,7 @@ var finderReservedKeys = []string{
 	"ctrl+p", "ctrl+n", "ctrl+u", "ctrl+d",
 	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+o",
 	"ctrl+s", "ctrl+x", // the bookmark view's scope and forget keys
-	"ctrl+w", "alt+n", // the session list's switch-client and new-session keys
+	"ctrl+w", // the session list's switch-client key
 }
 
 type General struct {
@@ -156,13 +156,6 @@ type Sessions struct {
 	// self-relaunch, the splits, the popups — is unnamed, so the prefix is what
 	// keeps the picker to sessions worth coming back to.
 	Prefix string `toml:"prefix"`
-
-	// NewCommand is the command "alt+n" runs from inside the picker to start a
-	// session for the current selection. Naming it is what makes that key
-	// predictable: several commands create sessions, and picking between them
-	// by any rule of ft's own would be a guess. Empty falls back to whichever
-	// session-creating command sorts first, so the key still does something.
-	NewCommand string `toml:"new_command"`
 }
 
 type Config struct {
@@ -219,9 +212,6 @@ func Default() *Config {
 		},
 		Sessions: Sessions{
 			Prefix: tmux.DefaultPrefix,
-			// The catalogue guarantees this exists, so "alt+n" in the session
-			// list works with nothing configured at all.
-			NewCommand: "claude-popup",
 		},
 		DefaultCommand: DefaultBuiltinCommand,
 		Commands:       commands,
@@ -419,14 +409,6 @@ func Load(path string) (*Config, error) {
 	if _, ok := cfg.Commands[cfg.DefaultCommand]; !ok {
 		return nil, fmt.Errorf("%s: commands.default %q is not a defined command", path, cfg.DefaultCommand)
 	}
-	// Checked here rather than at the [sessions] block above because it names
-	// a command, and the commands are only known once the pass above has run.
-	if n := cfg.Sessions.NewCommand; n != "" {
-		if _, ok := cfg.Commands[n]; !ok {
-			return nil, fmt.Errorf("%s: sessions.new_command %q is not a defined command", path, n)
-		}
-	}
-
 	// Whatever the decode above never reached. A mistyped setting is one way to
 	// get here; the commoner one is a keybinding written under a [keys] header
 	// that is still commented out, which TOML files under whichever table came

@@ -76,11 +76,9 @@ watch_debounce_ms = 150
 # Agent tmux sessions ("T"), named "<prefix><repo>/<branch>/<tool>". The prefix
 # is the only thing the list filters on, so everything else ft opens stays out
 # of it; it cannot be empty, since that would match every session on the
-# server. new_command is what "alt+n" runs from inside the list. Defaults
-# shown.
+# server. Default shown.
 # [sessions]
 # prefix = "ft/"
-# new_command = "claude-popup"
 
 # Keys. Every action *and* every command can be moved by name — "?" lists the
 # names — and one line is enough:

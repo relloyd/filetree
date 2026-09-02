@@ -365,24 +365,6 @@ func TestPickerActionsOnEmptyList(t *testing.T) {
 	}
 }
 
-func TestFirstAgentCommand(t *testing.T) {
-	m := finderModel()
-	m.cfg.Commands = map[string]config.Command{
-		"zulu":    {Run: "tmux new-session -s {session}/z"},
-		"alpha":   {Run: "tmux new-session -s {session}/a"},
-		"edit":    {Run: "hx {path}"},
-		"default": {Run: "echo {dir}"},
-	}
-	// Sorted rather than map order, so the key does the same thing every press.
-	if got := m.firstAgentCommand(); got != "alpha" {
-		t.Errorf("firstAgentCommand = %q, want alpha", got)
-	}
-	m.cfg.Commands = map[string]config.Command{"edit": {Run: "hx {path}"}}
-	if got := m.firstAgentCommand(); got != "" {
-		t.Errorf("with no session command, got %q, want empty", got)
-	}
-}
-
 // The session variables come off the repo containing the selection, and the
 // repo component is the *main* repo so every worktree of a project files under
 // one name.

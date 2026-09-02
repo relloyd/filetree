@@ -735,10 +735,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.finderSrc == srcTmux {
 				return m.paneSession()
 			}
-		case "alt+n":
-			if m.finderSrc == srcTmux {
-				return m.newSessionHere()
-			}
 		case "up", "ctrl+p":
 			m.moveFuzzySel(-1)
 			return m, nil

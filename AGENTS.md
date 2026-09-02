@@ -237,7 +237,7 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
     free name with `tmux.UniqueName` before `Wrap` execs — after the exec there
     is no process left to recover in.
   - The picker is a fourth `finderSource` (`srcTmux`), not a new mode — see the
-    bookmark view for the pattern; its ctrl+w/ctrl+x/alt+n are hardcoded in the
+    bookmark view for the pattern; its ctrl+w/ctrl+x are hardcoded in the
     modeFuzzy switch and listed in `finderReservedKeys`. It lists this tree
     too, from `tmux.SelfSession($TMUX_PANE)`: `attachSession`, `paneSession`
     and `killSession` all refuse that row, because attaching shows the tree

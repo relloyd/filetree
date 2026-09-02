@@ -264,45 +264,6 @@ func (m *Model) killSessionNamed(name string) tea.Cmd {
 	return m.note("Killed "+strings.TrimPrefix(name, m.sessionPrefix()), false)
 }
 
-// newSessionHere is "alt+n": start a session for the *tree's* selection
-// without leaving the picker's train of thought. The rows are existing
-// sessions, so there is nothing here to create one from — what is wanted is
-// the one that is missing, which is the repo and branch you were browsing.
-//
-// "alt+n" rather than "ctrl+n" because the finder already spends ctrl+n on
-// moving down, and an alt chord steps around the text input's own ctrl keys.
-func (m *Model) newSessionHere() (tea.Model, tea.Cmd) {
-	// [sessions] new_command names it. Note this is deliberately not
-	// commands.default: that one is an editor in the shipped config, and
-	// running an editor would be a surprising answer to "new session".
-	name := m.cfg.Sessions.NewCommand
-	if _, ok := m.cfg.Commands[name]; !ok {
-		name = m.firstAgentCommand()
-	}
-	if name == "" {
-		return m, m.note("set [sessions] new_command to the command this key should run", true)
-	}
-	m.mode = modeNormal
-	return m.runCommand(name)
-}
-
-// firstAgentCommand is the alphabetically first configured command that builds
-// a session name — the fallback when new_command is unset. Sorted rather than
-// map order so the key does the same thing every time it is pressed.
-func (m *Model) firstAgentCommand() string {
-	var names []string
-	for name, c := range m.cfg.Commands {
-		if config.NeedsRepo(c.Run) {
-			names = append(names, name)
-		}
-	}
-	if len(names) == 0 {
-		return ""
-	}
-	sort.Strings(names)
-	return names[0]
-}
-
 // tmuxStatusNote is the trailing note on the picker's input line: what went
 // wrong, or how to read an empty list. An empty list is the ordinary state
 // before the first agent session exists, and saying nothing at all there looks

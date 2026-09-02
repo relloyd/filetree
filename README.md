@@ -58,8 +58,7 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   keeps running; press the same key again and you are back in it. `T` lists
   them across all your repos and worktrees, newest first with the ones ringing
   a bell on top — `enter` reattaches in a popup, `ctrl+w` opens one in a pane
-  beside the tree without leaving the tree, `ctrl+x` kills it, `alt+n` starts
-  one for the selection.
+  beside the tree without leaving the tree, and `ctrl+x` kills it.
 
   A session opened in a pane keeps its name and stays in the list, so `X` in the
   tree detaches it again — whatever is in it carries on running, and the tree
@@ -158,7 +157,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `W` | new git worktree for the repo containing the selection, from a branch name or PR number — lands in the worktrees view with it selected |
 | `c` / `x` | Claude Code / Copilot in a named tmux session for the selection's repo and branch, in a popup; pressing it again reattaches to the same one |
 | `alt+s` | a plain named shell in the same scheme — for a dev server or a test watcher you want to find again |
-| `T` | list the tmux sessions `ft` owns — agents, shells, popups and trees: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+x` kills it (asking first if it is attached elsewhere), `alt+n` starts one for the selection. Type a kind (`agent`, `shell`) to narrow the list; this tree is marked and refuses all four |
+| `T` | list the tmux sessions `ft` owns — agents, shells, popups and trees: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+x` kills it (asking first if it is attached elsewhere). Type a kind (`agent`, `shell`) to narrow the list; this tree is marked and refuses all three |
 
 | `X` | detach the agent session sharing this window, handing its space back to the tree |
 

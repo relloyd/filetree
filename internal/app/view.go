@@ -1190,7 +1190,6 @@ func (m *Model) helpRows() []helpRow {
 		{finderKey: "ctrl+w", desc: "sessions: open beside the tree (X detaches)"},
 
 		{finderKey: "ctrl+x", desc: "sessions: kill the highlighted one"},
-		{finderKey: "alt+n", desc: "sessions: start one for the selection"},
 		{key: m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], desc: "new file / directory"},
 		{key: m.actionKeys["rename"], desc: "rename"},
 		{key: m.actionKeys["delete"], desc: "delete to Trash; on a worktree: git remove"},
