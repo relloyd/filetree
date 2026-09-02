@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/relloyd/filetree/internal/config"
+)
 
 // display-popup floats over the window without taking a column from anything,
 // so it must not be measured around: there is no width to keep and no pane to
@@ -34,16 +38,34 @@ func TestPaneOpeningCommand(t *testing.T) {
 	}
 }
 
-// The hand-off tries the pane beside it first and splits only as a fallback,
-// so it is suspected: paying two tmux calls for a command that turns out not
-// to split is much cheaper than missing the one that does.
-func TestHandoffIsSuspected(t *testing.T) {
-	const handoff = `case "$target" in
-  hx) tmux send-keys -t "{last}" ":open {paths}" Enter ;;
-  *) tmux split-window -fdh -l 70% -c {root} "hx {paths}" ;;
-esac`
-	if !paneOpeningCommand(handoff) {
-		t.Fatal("the hand-off can split, so it must be measured around")
+// The built-ins that can open a pane must be spotted as such, read from the
+// catalogue rather than from a copy of it here: a template that grows or loses
+// its split is exactly the change this would otherwise stop noticing.
+//
+// The hand-off splits only as a fallback and often does not, which is fine —
+// paying two tmux calls for a command that turns out not to split is much
+// cheaper than missing the one that does.
+func TestBuiltinsThatOpenPanesAreSpotted(t *testing.T) {
+	cmds := config.Default().Commands
+	for _, name := range []string{"tmux-handoff", "helix-vsplit", "shell-vsplit", "shell-vsplit-adjacent", "diff"} {
+		c, ok := cmds[name]
+		if !ok {
+			t.Fatalf("%s is not in the catalogue", name)
+		}
+		if !paneOpeningCommand(c.Run) {
+			t.Errorf("%s opens a pane but is not measured around:\n%s", name, c.Run)
+		}
+	}
+	// A popup floats over the window and takes no columns, so measuring
+	// around one would be two tmux calls to restore a width nothing moved.
+	for _, name := range []string{"claude-popup", "copilot-popup", "agent-shell", "lazygit-popup", "shell-popup", "edit"} {
+		c, ok := cmds[name]
+		if !ok {
+			t.Fatalf("%s is not in the catalogue", name)
+		}
+		if paneOpeningCommand(c.Run) {
+			t.Errorf("%s takes no columns but is measured around:\n%s", name, c.Run)
+		}
 	}
 }
 

@@ -37,12 +37,24 @@ var Builtin = []Command{
 		Key:  "e", FinderKey: "ctrl+e",
 	},
 
-	// Smart hand-off to the previously-active tmux pane ("{last}"): if helix
-	// is running there, open the file in that session (:open); if a shell is
-	// waiting, type the hx command; otherwise (including no last pane) create
-	// a split. send-keys types into whatever runs in the pane, so blindly
-	// sending "hx ..." a second time would land inside helix as editor
-	// keystrokes.
+	// Smart hand-off to a pane beside ft: if helix is running in one, open the
+	// file there (:open); if a shell is waiting, type the hx command;
+	// otherwise create a split. send-keys types into whatever runs in the
+	// pane, so blindly sending "hx ..." a second time would land inside helix
+	// as editor keystrokes.
+	//
+	// The target is chosen by scanning the window rather than by asking tmux
+	// for "{last}". A pane opened by the branch below is created with -d and
+	// never becomes active, so it never becomes the *last active* pane either
+	// — leaving "{last}" pointing back at ft's own pane, whose command is
+	// "ft", matching no branch and splitting again. That is one new helix per
+	// press until you visit one by hand, which is what made the pane "last"
+	// and what made the next press finally work.
+	//
+	// Helix beats a shell: sending to an editor already open reuses it, where
+	// typing "hx" at a shell starts a second one. Being the last-active pane
+	// only breaks the tie within a class, so going to a shell and back does
+	// not stop the open helix from winning.
 	//
 	// "ctrl+t" runs it from inside the "/" finder without closing it, so
 	// several results can be pushed into panes in one visit. All three
@@ -51,18 +63,30 @@ var Builtin = []Command{
 	// "path:line" argument, so the same expansion works whichever branch runs.
 	{
 		Name: "tmux-handoff",
-		Desc: "hand off to the last tmux pane",
-		Run: `target=$(tmux display-message -p -t "{last}" "#{pane_current_command}" 2>/dev/null)
-case "$target" in
+		Desc: "hand off to a pane beside ft",
+		Run: `[ -n "$TMUX" ] || { echo "not running inside tmux"; exit 1; }
+pick=$(tmux list-panes -F "#{pane_last} #{pane_id} #{pane_current_command}" |
+  awk -v self="$TMUX_PANE" '
+    $2 == self { next }
+    {
+      p = 0
+      if ($3 == "hx") p = 3
+      else if ($3 ~ /^(sh|dash|bash|zsh|fish|ksh|nu)$/) p = 1
+      if (p == 0) next
+      if ($1 == 1) p++
+      if (p > best) { best = p; sel = $2 " " $3 }
+    }
+    END { if (best) print sel }')
+case "${pick##* }" in
   hx)
     # Escape must arrive in its own read: coalesced with ":" it parses as
     # Alt+: and the command text gets typed into the buffer instead.
-    tmux send-keys -t "{last}" Escape
+    tmux send-keys -t "${pick%% *}" Escape
     sleep 0.15
-    tmux send-keys -t "{last}" ":open {paths}" Enter
+    tmux send-keys -t "${pick%% *}" ":open {paths}" Enter
     ;;
   sh|dash|bash|zsh|fish|ksh|nu)
-    tmux send-keys -t "{last}" C-u "hx {paths}" Enter
+    tmux send-keys -t "${pick%% *}" C-u "hx {paths}" Enter
     ;;
   *)
     tmux split-window -fdh -l 70% -c {root} "hx {paths}"
@@ -181,13 +205,37 @@ esac
 		Key:  "alt+s",
 	},
 
-	// Prime a ripgrep at the selection's directory in the other tmux pane: the
+	// Prime a ripgrep at the selection's directory in a shell beside ft: the
 	// search path is filled in and the cursor waits where the pattern goes.
 	// Falls back to a fresh shell split at that directory.
+	//
+	// A *shell*, specifically, and never whatever pane happens to be last.
+	// send-keys types into whatever is running there, so aiming this at the
+	// previously-active pane meant a helix sitting in it took "rg -n ... -e "
+	// as editor keystrokes and came away with a modified buffer. Nothing
+	// matched the shell list, nothing is typed — the split below is the safe
+	// answer, and the only one that cannot corrupt what is already open.
+	//
+	// C-u first, so a half-typed line in that shell does not end up with the
+	// rg command appended to it.
 	{
 		Name: "grep-here",
-		Desc: "prime an rg in the other pane",
-		Run:  `tmux send-keys -t "{last}" "rg -n {dir} -e " 2>/dev/null || tmux split-window -h -c {dir}`,
+		Desc: "prime an rg in a shell beside ft",
+		Run: `[ -n "$TMUX" ] || { echo "not running inside tmux"; exit 1; }
+pane=$(tmux list-panes -F "#{pane_last} #{pane_id} #{pane_current_command}" |
+  awk -v self="$TMUX_PANE" '
+    $2 == self { next }
+    $3 !~ /^(sh|dash|bash|zsh|fish|ksh|nu)$/ { next }
+    {
+      p = ($1 == 1) ? 2 : 1
+      if (p > best) { best = p; sel = $2 }
+    }
+    END { if (best) print sel }')
+if [ -n "$pane" ]; then
+  tmux send-keys -t "$pane" C-u "rg -n {dir} -e "
+else
+  tmux split-window -h -c {dir}
+fi`,
 		Mode: ModeBackground,
 		Key:  "r",
 	},

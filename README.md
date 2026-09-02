@@ -205,7 +205,7 @@ automatically, so they work out of the box.
 | Key | Finder key | Command |
 |---|---|---|
 | `e` | `ctrl+e` | open the selection — or everything marked — in helix; works on directories too (helix shows its file picker) |
-| `t` | `ctrl+t` | smart hand-off to the previously-active tmux pane: opens the files in the helix already running there (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
+| `t` | `ctrl+t` | smart hand-off to a pane beside `ft`: opens the files in a helix already running in the window (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
 | `v` | | open the selection, or everything marked, in helix in a new full-height split at the right edge — repeatable, one pane per press |
 | `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
 | `N` | | the same shell in a split beside the tree, dividing the current pane rather than the window |
@@ -213,7 +213,7 @@ automatically, so they work out of the box.
 | `c` | | Claude Code in a named tmux session for the selection's repo and branch, in a popup — created on the first press, reattached on every one after |
 | `x` | | the same for the Copilot CLI |
 | `alt+s` | | the same for a plain shell, so long-running work is reachable from the `T` list too |
-| `r` | | prime an `rg` in the other tmux pane at the selection's directory |
+| `r` | | prime an `rg` at the selection's directory in a shell beside `ft`, or a new split if there is no shell to type into |
 | `L` | | open lazygit for the repo containing the selection, in a popup |
 | `M` | | open lazygit focused on the selected file's blame / log view, in a popup |
 | `alt+d` | | diff the selection — or everything marked — against `HEAD` in a popup; through git's pager if one is configured, and readable without one |
@@ -222,6 +222,16 @@ automatically, so they work out of the box.
 | `ctrl+j` | `ctrl+j` | narrow `ft`'s pane to 30% of the window |
 | `ctrl+k` | `ctrl+k` | widen `ft`'s pane to 70% of the window |
 | `alt+h` | `alt+h` | give every pane in the window the same width, side by side — tmux's `even-horizontal` layout, for a window that has drifted out of shape |
+
+`t` and `r` choose their target by looking at what is running in the window
+rather than by asking tmux for the previously-active pane. A pane `ft` opens is
+created detached, so it never becomes active and never becomes the "last" pane
+either — which left `{last}` pointing back at `ft` itself, and every press after
+the first opening yet another helix until you visited one by hand. `t` prefers a
+running helix over a waiting shell, since sending to an editor already open
+reuses it where typing `hx` at a shell starts a second one. `r` only ever types
+into a *shell*: aimed at whatever was last, it fed `rg -n … -e ` to a helix
+sitting there as editor keystrokes and left the buffer modified.
 
 A command that opens a pane — `t`'s fallback split, `v`, `n`, `N`, `D` — takes
 its columns from *every* pane in the window, so a 30-column tree beside an
