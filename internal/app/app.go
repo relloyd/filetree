@@ -179,6 +179,10 @@ type Model struct {
 	// only this process knows where it is running.
 	selfPane string
 
+	// finderPane is the resize ft made to its own pane for the finder, held
+	// only while the finder is open. See syncFinderPaneWidth.
+	finderPane finderPane
+
 	// scopeDir confines the finder to one root-relative directory; "" is the
 	// whole tree. Session-only, and set at entry: "F" captures it from the
 	// selection, "/" clears it, and resuming leaves it alone.
@@ -489,7 +493,37 @@ func (m *Model) configNote() string {
 	}
 }
 
+// Update is a thin wrapper around update that watches the one mode transition
+// with a side effect outside ft: entering and leaving the finder resizes ft's
+// own tmux pane.
+//
+// It is done here, by comparing the mode before and after, rather than at the
+// transitions themselves. There are three ways into the finder and sixteen
+// assignments of modeNormal scattered across six files, so hooking the
+// transitions would mean sixteen chances to forget one — and the seventeenth
+// would be silent, leaving a pane stuck wide. Derived from the mode, it cannot
+// drift.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	before := m.mode
+	next, cmd := m.update(msg)
+	if entering, crossed := finderBoundary(before, m.mode); crossed {
+		m.syncFinderPaneWidth(entering)
+	}
+	return next, cmd
+}
+
+// finderBoundary reports whether a mode change crossed into or out of the
+// finder, and which way. Moving between two modes that are both the finder, or
+// neither, crosses nothing: "/" to "F" is one finder session reopened, not a
+// close and a reopen, and must not resize the pane twice.
+func finderBoundary(before, after mode) (entering, crossed bool) {
+	if (before == modeFuzzy) == (after == modeFuzzy) {
+		return false, false
+	}
+	return after == modeFuzzy, true
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height

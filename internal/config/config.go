@@ -106,6 +106,17 @@ type General struct {
 	// capped at a third of the pane so a deep tree cannot crowd itself out.
 	StickyParents bool `toml:"sticky_parents"`
 
+	// FinderWidth is how wide ft's own tmux pane should be while the "/"
+	// finder is open. The tree reads happily in a sidebar; the finder does
+	// not, because every result row carries a second column — the matched
+	// line, the age, the session status — that a narrow pane has no room for.
+	//
+	// Accepts "60%" of the window, a plain column count, or "off". ft only
+	// ever widens: a pane already at or beyond the target is left alone, so
+	// this can never shrink a window ft has to itself. The width is restored
+	// on the way out, and only if nothing else moved it in the meantime.
+	FinderWidth string `toml:"finder_width"`
+
 	Icons               string `toml:"icons"`    // "nerd" or "plain"
 	LinkRef             string `toml:"link_ref"` // web links pin to "commit" or "branch"
 	Tmux                string `toml:"tmux"`     // "auto" (relaunch inside tmux) or "never"
@@ -186,6 +197,7 @@ func Default() *Config {
 			ShowHidden:    false,
 			ShowIgnored:   true,
 			StickyParents: true,
+			FinderWidth:   DefaultFinderWidth,
 
 			Icons:                 "nerd",
 			LinkRef:               "commit",
@@ -357,6 +369,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.General.Tmux != tmux.ModeAuto && cfg.General.Tmux != tmux.ModeNever {
 		return nil, fmt.Errorf("%s: general.tmux must be %q or %q", path, tmux.ModeAuto, tmux.ModeNever)
+	}
+	if !ValidFinderWidth(cfg.General.FinderWidth) {
+		return nil, fmt.Errorf("%s: general.finder_width must be a percentage like \"60%%\", a column count, or \"off\"", path)
 	}
 	// A non-positive cap would mean the finder can never show a result, which
 	// is always a mistake rather than an intent worth honouring.

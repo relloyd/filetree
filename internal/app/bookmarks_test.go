@@ -360,8 +360,8 @@ func TestBookmarkRowsHighlightWhatTheQueryMatched(t *testing.T) {
 	draw := func() render {
 		b := m.bmAll[m.bmRows[0]]
 		return render{
-			withMatch: m.renderBookmarkRow(b, m.bmMatched[0], false),
-			without:   m.renderBookmarkRow(b, nil, false),
+			withMatch: strings.Join(m.renderBookmarkRow(b, m.bmMatched[0], false), "\n"),
+			without:   strings.Join(m.renderBookmarkRow(b, nil, false), "\n"),
 		}
 	}
 	typeQuery := func(q string) {

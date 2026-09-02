@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 var ansiCodes = regexp.MustCompile("\x1b\\[[0-9;]*m")
@@ -14,6 +16,26 @@ var ansiCodes = regexp.MustCompile("\x1b\\[[0-9;]*m")
 // plainText strips styling, so a test can reason about what actually lands in
 // which column.
 func plainText(s string) string { return ansiCodes.ReplaceAllString(s, "") }
+
+// rowText is plainText over a finder row, which is one or two lines depending
+// on how much room the pane has. The lines are joined with a space so a
+// Contains check reads across the pair.
+func rowText(lines []string) string {
+	parts := make([]string, len(lines))
+	for i, l := range lines {
+		parts[i] = plainText(l)
+	}
+	return strings.Join(parts, " ")
+}
+
+// rowWidth is the widest line in a finder row.
+func rowWidth(lines []string) int {
+	w := 0
+	for _, l := range lines {
+		w = max(w, lipgloss.Width(l))
+	}
+	return w
+}
 
 // The header's toggle buttons are click targets, so the x-ranges recorded for
 // hit-testing have to be where the buttons really are. The interesting case is

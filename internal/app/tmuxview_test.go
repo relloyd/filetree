@@ -8,7 +8,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/relloyd/filetree/internal/config"
 	"github.com/relloyd/filetree/internal/tmux"
@@ -123,10 +122,10 @@ func TestRenderTmuxRow(t *testing.T) {
 	for i := range m.tmuxRows {
 		s := m.tmuxAll[m.tmuxRows[i]]
 		line := m.renderTmuxRow(s, nil, i == 0, now)
-		if w := lipgloss.Width(line); w > m.width {
-			t.Errorf("row %d is %d cells wide, want <= %d: %q", i, w, m.width, plainText(line))
+		if w := rowWidth(line); w > m.width {
+			t.Errorf("row %d is %d cells wide, want <= %d: %q", i, w, m.width, rowText(line))
 		}
-		plain := plainText(line)
+		plain := rowText(line)
 		if !strings.Contains(plain, s.Label(tmux.DefaultPrefix)) {
 			t.Errorf("row %d = %q, want the label in it", i, plain)
 		}
@@ -135,22 +134,33 @@ func TestRenderTmuxRow(t *testing.T) {
 		}
 	}
 	// The markers are the whole point of the status column.
-	if got := plainText(m.renderTmuxRow(m.tmuxAll[m.tmuxRows[0]], nil, false, now)); !strings.Contains(got, "!") {
+	if got := rowText(m.renderTmuxRow(m.tmuxAll[m.tmuxRows[0]], nil, false, now)); !strings.Contains(got, "!") {
 		t.Errorf("an alerting session should be marked: %q", got)
 	}
-	rest := plainText(m.renderTmuxRow(m.tmuxAll[m.tmuxRows[1]], nil, false, now))
+	rest := rowText(m.renderTmuxRow(m.tmuxAll[m.tmuxRows[1]], nil, false, now))
 	if !strings.Contains(rest, "●") {
 		t.Errorf("an attached session should be marked: %q", rest)
 	}
 }
 
-// A narrow pane must not wrap: the name keeps the line and the status goes.
+// A narrow pane must not wrap. The session list keeps one line per row — its
+// status block is short, and a second line to hold it would halve a list whose
+// whole job is to be scanned — so the label gives up its head and the status
+// gives up its tail, and both stay on screen.
 func TestRenderTmuxRowNarrow(t *testing.T) {
 	m := tmuxPickerModel(t, session("ft/filetree/some-very-long-branch-name/claude"))
 	m.width = 24
 	line := m.renderTmuxRow(m.tmuxAll[0], nil, true, time.Unix(1700000060, 0))
-	if w := lipgloss.Width(line); w > m.width {
-		t.Errorf("width = %d, want <= %d: %q", w, m.width, plainText(line))
+	if len(line) != 1 {
+		t.Fatalf("row is %d lines, want 1: %q", len(line), rowText(line))
+	}
+	if w := rowWidth(line); w > m.width {
+		t.Errorf("width = %d, want <= %d: %q", w, m.width, rowText(line))
+	}
+	// The label loses its head, not its tail: the tool and the branch are what
+	// tell two sessions apart.
+	if got := rowText(line); !strings.Contains(got, "claude") {
+		t.Errorf("row = %q, want the tool name kept", got)
 	}
 }
 

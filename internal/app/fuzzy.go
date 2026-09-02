@@ -720,9 +720,13 @@ func (m *Model) finderInput() *textinput.Model {
 	}
 }
 
-// fuzzyVisibleRows is how many match lines fit under the finder's input lines.
+// fuzzyVisibleRows is how many results fit under the finder's input lines.
+//
+// Results, not lines: a narrow pane stacks each one over two rows, and every
+// caller of this — the scroll clamp, ensureFuzzyVisible, pgup/pgdn — counts in
+// results. Dividing here is what keeps the one conversion in one place.
 func (m *Model) fuzzyVisibleRows() int {
-	return max(1, m.treeHeight()-m.finderHeaderLines())
+	return max(1, (m.treeHeight()-m.finderHeaderLines())/m.finderRowHeight())
 }
 
 // finderHeaderLines is how many rows the input area occupies. The type and

@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/sahilm/fuzzy"
 
 	"github.com/relloyd/filetree/internal/bookmark"
 	"github.com/relloyd/filetree/internal/gitx"
@@ -526,31 +527,45 @@ func (m *Model) renderBookmarkStatus() string {
 // matched holds byte offsets into searchText, which is built from these same
 // pieces in this same order — so the location's offsets are its own, and the
 // text's are shifted past the location and the space that joins them.
-func (m *Model) renderBookmarkRow(b resolvedBookmark, matched []int, selected bool) string {
+func (m *Model) renderBookmarkRow(b resolvedBookmark, matched []int, selected bool) []string {
 	prefix := "   "
 	if selected {
 		prefix = styleTitle.Render(" > ")
 	}
 	loc := b.location(m.bmAllRepos)
-	line := prefix + highlightIn(loc, matched, 0, styleBase)
-	used := 3 + lipgloss.Width(loc)
 
 	// A marker for anything the anchor had to work for, so a line number you
-	// are about to act on is never silently approximate.
-	if mark := bookmarkMark(b.State); mark != "" {
-		line += markStyle(b.State).Render(" " + mark)
-		used += 1 + lipgloss.Width(mark)
+	// are about to act on is never silently approximate. Measured before the
+	// location is fitted, because it is the location that gives way.
+	mark, markW := bookmarkMark(b.State), 0
+	if mark != "" {
+		markW = 1 + lipgloss.Width(mark)
 	}
 
-	text := strings.TrimSpace(b.Text)
-	if room := m.width - used - 2; room > 0 && text != "" {
+	shown, shownIdx := truncatePathLeft(loc, matched, max(1, m.width-3-markW))
+	line := prefix + highlightIn(shown, shownIdx, 0, styleBase)
+	used := 3 + lipgloss.Width(shown)
+	if mark != "" {
+		line += markStyle(b.State).Render(" " + mark)
+		used += markW
+	}
+
+	// The text's offsets are measured against the untruncated location, since
+	// that is what searchText was built from — fitting the location on screen
+	// does not move the text behind it.
+	textAt := len(loc) + 1
+	return m.finderRow(line, used, false, 2, func(room int) (string, int) {
+		text := strings.TrimSpace(b.Text)
+		if text == "" {
+			return "", 0
+		}
 		style := styleDim
 		if !b.State.Found() {
 			style = style.Italic(true)
 		}
-		line += "  " + highlightIn(truncate(text, room), matched, len(loc)+1, style)
-	}
-	return styleBase.MaxWidth(m.width).Render(line)
+		t := truncate(text, room)
+		return highlightIn(t, matched, textAt, style), lipgloss.Width(t)
+	})
 }
 
 // highlightIn renders s in base, picking out the runes the query matched.
@@ -652,59 +667,151 @@ func (m *Model) renderFinderCounter() string {
 	return styleDim.Render(s)
 }
 
+// minFinderWide is the width at which a finder result still has room for both
+// of its columns on one line. Below it the two are stacked instead — see
+// finderRow.
+//
+// Eighty is where a repo-relative path plus a readable slice of the line it
+// matched stops fitting. It sits with the other width thresholds in this file:
+// minPathWidth for the status bar, and the 60 below which the help legend
+// drops to one column.
+const minFinderWide = 80
+
+// finderIndent is the second line of a stacked result, indented past the " > "
+// selection marker so the pair reads as one row.
+const finderIndent = "     "
+
+// finderNarrow reports whether the finder is too cramped for side-by-side
+// columns.
+func (m *Model) finderNarrow() bool { return m.width < minFinderWide }
+
+// finderStacks reports whether this source's second column is worth a line of
+// its own when the pane is narrow.
+//
+// Only the two that carry real content: the line a grep hit matched, and the
+// text of a bookmark. Both are the reason you ran the search, and both are
+// long. The history's age and a session's status are neither — a second line
+// to hold "3d ago" would halve the list to say very little — so those stay on
+// one line and truncate instead.
+func (m *Model) finderStacks() bool {
+	return m.grepping() || m.finderSrc == srcBookmark
+}
+
+// finderRowHeight is how many screen lines one result occupies. It is uniform
+// across the list by design: a per-row height would make the scroll offset and
+// the visible count depend on which rows happen to be on screen, and both are
+// arithmetic this app already settles by iteration in one place too many.
+func (m *Model) finderRowHeight() int {
+	if m.finderNarrow() && m.finderStacks() {
+		return 2
+	}
+	return 1
+}
+
+// finderRow lays out one result from its location — the part enter acts on,
+// which is never dropped — and its second column.
+//
+// sec is a callback rather than a string because what fits is not known until
+// the layout is chosen: it is handed the room available and returns the column
+// styled, with its printable width (which ANSI makes expensive to re-measure),
+// or "" for nothing to show.
+//
+// right pushes the second column to the right edge, the way the history's ages
+// and the session list's status blocks line up under each other; otherwise it
+// follows the location after gap blanks. gap doubles as the margin kept at the
+// right edge in the right-aligned form.
+func (m *Model) finderRow(loc string, locWidth int, right bool, gap int, sec func(room int) (string, int)) []string {
+	clip := func(s string) string { return styleBase.MaxWidth(m.width).Render(s) }
+
+	if m.finderNarrow() && m.finderStacks() {
+		// Always two lines, even with nothing to put on the second: the row
+		// heights have to agree with finderRowHeight or the list scrolls by
+		// one amount and draws by another.
+		if room := m.width - len(finderIndent); room > 0 {
+			if text, _ := sec(room); text != "" {
+				return []string{clip(loc), clip(finderIndent + text)}
+			}
+		}
+		return []string{clip(loc), ""}
+	}
+
+	if right {
+		// One blank minimum after the location, or the two read as one word.
+		if avail := m.width - locWidth - gap - 1; avail > 0 {
+			if text, w := sec(avail); text != "" {
+				pad := max(1, m.width-gap-locWidth-w)
+				return []string{clip(loc + strings.Repeat(" ", pad) + text)}
+			}
+		}
+		return []string{clip(loc)}
+	}
+
+	if room := m.width - locWidth - gap; room > 0 {
+		if text, _ := sec(room); text != "" {
+			return []string{clip(loc + strings.Repeat(" ", gap) + text)}
+		}
+	}
+	return []string{clip(loc)}
+}
+
 func (m *Model) renderFuzzy() string {
 	h := m.treeHeight()
 	lines := make([]string, 0, h)
 	lines = append(lines, m.renderFinderHeader()...)
-	if m.finderSrc == srcBookmark {
-		for i := m.fuzzyScroll; i < len(m.bmRows) && len(lines) < h; i++ {
-			lines = append(lines, m.renderBookmarkRow(m.bmAll[m.bmRows[i]], m.bmMatched[i], i == m.fuzzySel))
+
+	// One row at a time, and only while a whole one still fits: a stacked row
+	// half-drawn at the bottom of the list would put its location on screen
+	// with the line it matched cut off below the status bar.
+	rh := m.finderRowHeight()
+	room := func() bool { return len(lines)+rh <= h }
+
+	switch {
+	case m.finderSrc == srcBookmark:
+		for i := m.fuzzyScroll; i < len(m.bmRows) && room(); i++ {
+			lines = append(lines, m.renderBookmarkRow(m.bmAll[m.bmRows[i]], m.bmMatched[i], i == m.fuzzySel)...)
 		}
-		for len(lines) < h {
-			lines = append(lines, "")
-		}
-		return strings.Join(lines, "\n")
-	}
-	if m.finderSrc == srcTmux {
+	case m.finderSrc == srcTmux:
 		now := time.Now()
-		for i := m.fuzzyScroll; i < len(m.tmuxRows) && len(lines) < h; i++ {
-			lines = append(lines, m.renderTmuxRow(m.tmuxAll[m.tmuxRows[i]], m.tmuxMatched[i], i == m.fuzzySel, now))
+		for i := m.fuzzyScroll; i < len(m.tmuxRows) && room(); i++ {
+			lines = append(lines, m.renderTmuxRow(m.tmuxAll[m.tmuxRows[i]], m.tmuxMatched[i], i == m.fuzzySel, now)...)
 		}
-		for len(lines) < h {
-			lines = append(lines, "")
+	case m.grepping():
+		for i := m.fuzzyScroll; i < len(m.grepRows) && room(); i++ {
+			lines = append(lines, m.renderGrepRow(m.grepHits[m.grepRows[i]], i == m.fuzzySel)...)
 		}
-		return strings.Join(lines, "\n")
+	default:
+		now := time.Now()
+		for i := m.fuzzyScroll; i < len(m.fuzzyMatches) && room(); i++ {
+			lines = append(lines, m.renderMatchRow(m.fuzzyMatches[i], i == m.fuzzySel, now)...)
+		}
 	}
-	if m.grepping() {
-		for i := m.fuzzyScroll; i < len(m.grepRows) && len(lines) < h; i++ {
-			lines = append(lines, m.renderGrepRow(m.grepHits[m.grepRows[i]], i == m.fuzzySel))
-		}
-		for len(lines) < h {
-			lines = append(lines, "")
-		}
-		return strings.Join(lines, "\n")
-	}
-	for i := m.fuzzyScroll; i < len(m.fuzzyMatches) && len(lines) < h; i++ {
-		mt := m.fuzzyMatches[i]
-		prefix := "   "
-		if i == m.fuzzySel {
-			prefix = styleTitle.Render(" > ")
-		}
-		line := prefix + m.highlightPath(mt.Str, mt.MatchedIndexes)
-		if m.finderSrc == srcRecent {
-			// How long ago, right where the eye already is after reading the
-			// name: the list is ordered by it, so the ages explain the order.
-			age := relativeAge(m.recentAt(mt.Str), time.Now())
-			if pad := m.width - 3 - lipgloss.Width(mt.Str) - len(age) - 2; pad > 0 {
-				line += strings.Repeat(" ", pad) + styleDim.Render(age)
-			}
-		}
-		lines = append(lines, styleBase.MaxWidth(m.width).Render(line))
-	}
+
 	for len(lines) < h {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderMatchRow draws one name match: the path, and for the history the age
+// that explains its place in the order.
+func (m *Model) renderMatchRow(mt fuzzy.Match, selected bool, now time.Time) []string {
+	prefix := "   "
+	if selected {
+		prefix = styleTitle.Render(" > ")
+	}
+	shown, shownIdx := truncatePathLeft(mt.Str, mt.MatchedIndexes, max(1, m.width-3))
+	line := prefix + m.highlightPath(shown, shownIdx)
+	used := 3 + lipgloss.Width(shown)
+
+	if m.finderSrc != srcRecent {
+		return []string{styleBase.MaxWidth(m.width).Render(line)}
+	}
+	// How long ago, right where the eye already is after reading the name: the
+	// list is ordered by it, so the ages explain the order.
+	return m.finderRow(line, used, true, 2, func(room int) (string, int) {
+		age := truncate(relativeAge(m.recentAt(mt.Str), now), room)
+		return styleDim.Render(age), lipgloss.Width(age)
+	})
 }
 
 // renderTmuxRow draws one named tmux session as its repo/branch/tool label,
@@ -714,23 +821,27 @@ func (m *Model) renderFuzzy() string {
 // The label is the only thing the query matches, so the offsets start at zero
 // and the status block carries no highlighting — it changes on its own, and
 // highlighting a column the query cannot reach would only mislead.
-func (m *Model) renderTmuxRow(s tmux.Session, matched []int, selected bool, now time.Time) string {
+func (m *Model) renderTmuxRow(s tmux.Session, matched []int, selected bool, now time.Time) []string {
 	prefix := "   "
 	if selected {
 		prefix = styleTitle.Render(" > ")
 	}
 	label := s.Label(m.sessionPrefix())
-	line := prefix + highlightIn(label, matched, 0, styleBase)
-	used := 3 + lipgloss.Width(label)
+	shown, shownIdx := truncatePathLeft(label, matched, max(1, m.width-3))
+	line := prefix + highlightIn(shown, shownIdx, 0, styleBase)
+	used := 3 + lipgloss.Width(shown)
 
-	plain, styled := tmuxRowStatus(s, now)
-	// One space minimum between the name and the status, or the two read as
-	// one word on a narrow pane. Below that there is no room for the status at
-	// all and the name gets the line to itself.
-	if pad := m.width - used - lipgloss.Width(plain) - 1; pad > 0 {
-		line += strings.Repeat(" ", pad) + styled
-	}
-	return styleBase.MaxWidth(m.width).Render(line)
+	return m.finderRow(line, used, true, 1, func(room int) (string, int) {
+		// The status keeps its tail when it will not fit: the marker and the
+		// age are the two columns worth spotting from across the room, and the
+		// command in front of them is the one the label already implies.
+		plain, styled := tmuxRowStatus(s, now)
+		w := lipgloss.Width(plain)
+		if w > room {
+			return styleDim.Render(truncateLeft(plain, room)), room
+		}
+		return styled, w
+	})
 }
 
 // tmuxRowStatus is the right-hand block of a session row, returned both as
@@ -800,19 +911,24 @@ func (m *Model) highlightPath(s string, matched []int) string {
 // renderGrepRow draws one content match as "path:line  matched text". The
 // location is what enter acts on, so it is never truncated: the matched line
 // takes whatever width is left over.
-func (m *Model) renderGrepRow(h search.Hit, selected bool) string {
+func (m *Model) renderGrepRow(h search.Hit, selected bool) []string {
 	prefix := "   "
 	if selected {
 		prefix = styleTitle.Render(" > ")
 	}
 	at := ":" + strconv.Itoa(h.Line)
-	line := prefix + m.highlightPath(h.Path, nil) + styleDim.Render(at)
-	if room := m.width - 3 - lipgloss.Width(h.Path) - len(at) - 2; room > 0 {
-		if text := strings.TrimSpace(h.Text); text != "" {
-			line += "  " + styleDim.Render(truncate(text, room))
+	shown, _ := truncatePathLeft(h.Path, nil, max(1, m.width-3-len(at)))
+	line := prefix + m.highlightPath(shown, nil) + styleDim.Render(at)
+	used := 3 + lipgloss.Width(shown) + len(at)
+
+	return m.finderRow(line, used, false, 2, func(room int) (string, int) {
+		text := strings.TrimSpace(h.Text)
+		if text == "" {
+			return "", 0
 		}
-	}
-	return styleBase.MaxWidth(m.width).Render(line)
+		t := truncate(text, room)
+		return styleDim.Render(t), lipgloss.Width(t)
+	})
 }
 
 // helpRow is one action and the keys that reach it: key in the tree,
@@ -1143,6 +1259,37 @@ func truncate(s string, w int) string {
 	}
 	return string(r[:w-1]) + "…"
 }
+
+// truncatePathLeft keeps the tail of s within w cells, prefixing an ellipsis,
+// and shifts matched along with it. A path loses its head rather than its
+// basename, which is the half you are reading.
+//
+// matched is in byte offsets — highlightPath and highlightIn both say so, and
+// sahilm/fuzzy produces them that way — so the shift is a byte count, not a
+// rune count. Offsets that fall in the dropped head are discarded; the rest
+// are rebased past the ellipsis.
+func truncatePathLeft(s string, matched []int, w int) (string, []int) {
+	r := []rune(s)
+	if len(r) <= w {
+		return s, matched
+	}
+	if w <= 1 {
+		return truncateLeft(s, w), nil
+	}
+	tail := string(r[len(r)-w+1:])
+	drop := len(s) - len(tail)
+	var idx []int
+	for _, i := range matched {
+		if i >= drop {
+			idx = append(idx, i-drop+len(ellipsis))
+		}
+	}
+	return ellipsis + tail, idx
+}
+
+// ellipsis marks a truncation. Named because truncatePathLeft has to know how
+// many bytes it costs to rebase match offsets past it.
+const ellipsis = "…"
 
 // truncateLeft keeps the tail of s within w cells, prefixing an ellipsis.
 func truncateLeft(s string, w int) string {

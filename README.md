@@ -102,7 +102,7 @@ one surfaces as an error in the status bar rather than a failure to start.
 | Tool | Enables | Optional? |
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees, `alt+d` diffs | optional, but most of the git awareness is dark without it |
-| `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `P`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, and the auto-relaunch above | optional |
+| `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `P`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L` (repo view) and `M` (file blame/log view), in popups over the window | optional |
@@ -355,6 +355,24 @@ Fuzzy find (`/`) has three input lines — `Find`, `Grep`, `Type` — and `tab`
 (`shift+tab`) cycles them in that order, so one `tab` from `Find` reaches
 `Grep`. Above them, a `Dir` line shows where it is searching — see
 [Scoping to a directory](#scoping-to-a-directory).
+
+The tree reads happily in a sidebar; the finder does not, because every result
+carries a second column — the line a `Grep` hit matched, a bookmark's text, a
+session's status — that a narrow pane has nowhere to put. So opening the finder
+**widens `ft`'s own tmux pane** to `finder_width` (`[general]`, default `60%`,
+also a plain column count or `"off"`), and closing it puts the width back.
+
+`ft` only ever widens: a pane already that wide, or wider, is left exactly as it
+is. And it only restores a width it actually set — resize the pane yourself
+while the finder is up, with `ctrl+j`/`ctrl+k` or by dragging the border, and
+`ft` leaves your width alone on the way out rather than overruling it.
+
+Where the width is not available — `finder_width = "off"`, outside tmux, or a
+genuinely small terminal — results below 80 columns **stack** instead: the
+location on one line, the text it matched indented underneath. Long paths lose
+their head rather than their basename, marked with a `…`. The two sources with
+no second column worth the space — the tree search and the recently-opened list
+— stay one line per result at any width.
 
 ### Find
 

@@ -23,6 +23,13 @@ show_ignored = true        # gitignored entries are shown greyed-out; "i" toggle
 sticky_parents = true      # pin the parents of the top row above the tree, so a
 #                          # deeply nested file still shows what it sits inside
 
+# finder_width = "60%"     # while "/" is open, widen ft's pane to this much of
+#                          # the window and put it back on the way out. The
+#                          # tree reads fine in a sidebar; the finder needs the
+#                          # room to show what each result matched. Takes a
+#                          # percentage, a column count, or "off". ft only ever
+#                          # widens, and never undoes a resize you made yourself
+
 icons = "nerd"             # "nerd" needs a Nerd Font; use "plain" otherwise
 watch_debounce_ms = 150
 # link_ref = "commit"      # ref for u/U web links: "commit" (permanent) or "branch"
