@@ -42,14 +42,14 @@ func TestLoadStarter(t *testing.T) {
 	if g := cfg.Commands["grep-here"]; g.Key != "r" {
 		t.Errorf("grep-here key = %q, want r", g.Key)
 	}
-	if s := cfg.Commands["shell-popup"]; s.Key != "alt+n" || s.Mode != ModeBackground {
-		t.Errorf("shell-popup = %+v, want key P, background", s)
+	if s := cfg.Commands["shell-popup"]; s.Key != "N" || s.Mode != ModeBackground {
+		t.Errorf("shell-popup = %+v, want key N, background", s)
 	}
 	if s := cfg.Commands["shell-vsplit"]; s.Key != "n" || s.Mode != ModeBackground {
 		t.Errorf("shell-vsplit = %+v, want key n, background", s)
 	}
-	if s := cfg.Commands["shell-vsplit-adjacent"]; s.Key != "N" || s.Mode != ModeBackground {
-		t.Errorf("shell-vsplit-adjacent = %+v, want key N, background", s)
+	if s := cfg.Commands["shell-vsplit-adjacent"]; s.Key != "alt+n" || s.Mode != ModeBackground {
+		t.Errorf("shell-vsplit-adjacent = %+v, want key alt+n, background", s)
 	}
 	// lazygit is the one popup that is interactive: only an interactive command
 	// refreshes git status when it returns, and a lazygit that has just been

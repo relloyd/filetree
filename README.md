@@ -102,7 +102,7 @@ one surfaces as an error in the status bar rather than a failure to start.
 | Tool | Enables | Optional? |
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees, `alt+d` diffs | optional, but most of the git awareness is dark without it |
-| `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `P`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
+| `tmux` | the `t`/`v`/`n`/`alt+n`/`r` split and hand-off commands, the `N`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L` (repo view) and `M` (file blame/log view), in popups over the window | optional |
@@ -208,8 +208,8 @@ automatically, so they work out of the box.
 | `t` | `ctrl+t` | smart hand-off to a pane beside `ft`: opens the files in a helix already running in the window (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
 | `v` | | open the selection, or everything marked, in helix in a new full-height split at the right edge — repeatable, one pane per press |
 | `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
-| `N` | | the same shell in a split beside the tree, dividing the current pane rather than the window |
-| `P` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree |
+| `alt+n` | | the same shell in a split beside the tree, dividing the current pane rather than the window |
+| `N` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree |
 | `c` | | Claude Code in a named tmux session for the selection's repo and branch, in a popup — created on the first press, reattached on every one after |
 | `x` | | the same for the Copilot CLI |
 | `alt+s` | | the same for a plain shell, so long-running work is reachable from the `T` list too |
@@ -233,7 +233,7 @@ reuses it where typing `hx` at a shell starts a second one. `r` only ever types
 into a *shell*: aimed at whatever was last, it fed `rg -n … -e ` to a helix
 sitting there as editor keystrokes and left the buffer modified.
 
-A command that opens a pane — `t`'s fallback split, `v`, `n`, `N`, `D` — takes
+A command that opens a pane — `t`'s fallback split, `v`, `n`, `alt+n`, `D` — takes
 its columns from *every* pane in the window, so a 30-column tree beside an
 editor used to come back at 18. `ft` now measures its own width immediately
 before the split and puts it back afterwards, the way `ctrl+w` always has, so
@@ -550,7 +550,7 @@ What gets recorded is decided by the command, not the key: a command counts as
 opening a file when its template names it with `{paths}`, `{path}` or
 `{relpath}` — a marked set records every file in it. So
 `enter`, `e`, `t`, `v` and `alt+d` are remembered — reading a file's diff counts
-as having had it open — while `n`/`N`/`P` (a shell in `{dir}`), `r` (an `rg`
+as having had it open — while `n`/`alt+n`/`N` (a shell in `{dir}`), `r` (an `rg`
 primed at `{dir}`), `L` (lazygit in `{dir}`), `D` (a diff of marked paths) and
 the `ctrl+l`/`ctrl+j`/`ctrl+k`/`alt+h` pane commands are not.
 Directories are never recorded, and neither is `C` — its file lives outside the

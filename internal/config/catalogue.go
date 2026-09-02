@@ -118,7 +118,7 @@ esac
 		Desc: "shell in a split beside the tree",
 		Run:  `tmux split-window -h -c {dir}`,
 		Mode: ModeBackground,
-		Key:  "N",
+		Key:  "alt+n",
 	},
 
 	// Open a shell in a new full-height split at the right edge of the window,
@@ -141,7 +141,7 @@ esac
 		Desc: "shell in a popup over the window",
 		Run:  `tmux display-popup -E -w 92% -h 92% "tmux new-session -c {dir}"`,
 		Mode: ModeBackground,
-		Key:  "alt+n",
+		Key:  "N",
 	},
 
 	// Agent sessions: a coding agent parked in a *named* tmux session, one per
