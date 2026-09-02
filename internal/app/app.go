@@ -210,9 +210,10 @@ type Model struct {
 	bmAllRepos bool // ctrl+s: every project's store, not just this one
 	bmHidden   int  // bookmarks in other stores, when narrowed to this one
 
-	// The named tmux sessions agent tools run in ("T"). Like the bookmark
-	// view this keeps its own query field, so "T" comes back to the sessions
-	// you were filtering rather than to the tree search.
+	// The tmux sessions ft owns ("T") — the agents, the shells and popups,
+	// and the trees themselves. Like the bookmark view this keeps its own
+	// query field, so "T" comes back to the sessions you were filtering
+	// rather than to the tree search.
 	//
 	// tmuxAll is re-read on entry and after every kill: the sessions belong to
 	// the tmux server, and any other ft — or the user, at a shell — can change
@@ -222,6 +223,7 @@ type Model struct {
 	tmuxRows    []int
 	tmuxMatched [][]int
 	tmuxErr     string // what List had to say, if anything
+	tmuxSelf    string // this tree's own session name; "" outside tmux
 
 	// homeRoot is the project root to return to from the scratch or worktrees
 	// view (session-only). Remembered once, on entering the first of them, and
@@ -355,7 +357,7 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 	m.bmInput.Placeholder = "path or line contents"
 	m.tmuxInput = textinput.New()
 	m.tmuxInput.SetVirtualCursor(true)
-	m.tmuxInput.Placeholder = "repo, branch or tool"
+	m.tmuxInput.Placeholder = "kind, repo, branch or tool"
 
 	m.buildBindings()
 

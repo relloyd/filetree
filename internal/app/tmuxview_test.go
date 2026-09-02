@@ -33,7 +33,8 @@ func tmuxPickerModel(t *testing.T, sessions ...tmux.Session) *Model {
 
 func session(name string, opts ...func(*tmux.Session)) tmux.Session {
 	s := tmux.Session{Name: name, Command: "bash", Activity: time.Unix(1700000000, 0)}
-	s.Repo, s.Branch, s.Tool, _ = tmux.ParseName(tmux.DefaultPrefix, name)
+	p, _ := tmux.ParseName(tmux.DefaultPrefix, name)
+	s.Kind, s.Repo, s.Branch, s.Tool, s.Slug = p.Kind, p.Repo, p.Branch, p.Tool, p.Slug
 	for _, o := range opts {
 		o(&s)
 	}
@@ -51,15 +52,15 @@ func idleLonger(s *tmux.Session) {
 // regardless of how recently it was touched.
 func TestTmuxSessionOrder(t *testing.T) {
 	m := tmuxPickerModel(t,
-		session("ft/a/main/claude", idleLonger),
-		session("ft/b/main/claude"),
-		session("ft/c/main/copilot", alerting, idleLonger),
+		session("ft/agent/a/main/claude", idleLonger),
+		session("ft/agent/b/main/claude"),
+		session("ft/agent/c/main/copilot", alerting, idleLonger),
 	)
 	var got []string
 	for _, i := range m.tmuxRows {
 		got = append(got, m.tmuxAll[i].Name)
 	}
-	want := []string{"ft/c/main/copilot", "ft/b/main/claude", "ft/a/main/claude"}
+	want := []string{"ft/agent/c/main/copilot", "ft/agent/b/main/claude", "ft/agent/a/main/claude"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("order = %v, want %v", got, want)
 	}
@@ -67,9 +68,9 @@ func TestTmuxSessionOrder(t *testing.T) {
 
 func TestTmuxRowsFilter(t *testing.T) {
 	m := tmuxPickerModel(t,
-		session("ft/filetree/main/claude"),
-		session("ft/filetree/feat-x/copilot"),
-		session("ft/other/main/claude"),
+		session("ft/agent/filetree/main/claude"),
+		session("ft/agent/filetree/feat-x/copilot"),
+		session("ft/agent/other/main/claude"),
 	)
 	if len(m.tmuxRows) != 3 {
 		t.Fatalf("empty query should show everything, got %d", len(m.tmuxRows))
@@ -79,7 +80,7 @@ func TestTmuxRowsFilter(t *testing.T) {
 	if len(m.tmuxRows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(m.tmuxRows))
 	}
-	if s, _ := m.tmuxRow(0); s.Name != "ft/filetree/feat-x/copilot" {
+	if s, _ := m.tmuxRow(0); s.Name != "ft/agent/filetree/feat-x/copilot" {
 		t.Errorf("row 0 = %q", s.Name)
 	}
 	// The prefix is on every row and so says nothing; matching on it would
@@ -94,13 +95,13 @@ func TestTmuxRowsFilter(t *testing.T) {
 // finderLen/finderPath/finderAbs are what the shared finder machinery reads;
 // a source that does not answer all three scrolls and highlights wrongly.
 func TestTmuxFinderRowAccessors(t *testing.T) {
-	m := tmuxPickerModel(t, session("ft/filetree/main/claude", func(s *tmux.Session) {
+	m := tmuxPickerModel(t, session("ft/agent/filetree/main/claude", func(s *tmux.Session) {
 		s.Dir = "/home/u/filetree"
 	}))
 	if got := m.finderLen(); got != 1 {
 		t.Errorf("finderLen = %d, want 1", got)
 	}
-	if got := m.finderPath(0); got != "ft/filetree/main/claude" {
+	if got := m.finderPath(0); got != "ft/agent/filetree/main/claude" {
 		t.Errorf("finderPath = %q", got)
 	}
 	// A session's "path" is where it runs, so a finder_key command against a
@@ -116,8 +117,8 @@ func TestTmuxFinderRowAccessors(t *testing.T) {
 func TestRenderTmuxRow(t *testing.T) {
 	now := time.Unix(1700003600, 0) // an hour after the fixture's activity
 	m := tmuxPickerModel(t,
-		session("ft/filetree/main/claude", attached, func(s *tmux.Session) { s.Command = "claude" }),
-		session("ft/filetree/feat-x/copilot", alerting),
+		session("ft/agent/filetree/main/claude", attached, func(s *tmux.Session) { s.Command = "claude" }),
+		session("ft/agent/filetree/feat-x/copilot", alerting),
 	)
 	for i := range m.tmuxRows {
 		s := m.tmuxAll[m.tmuxRows[i]]
@@ -148,7 +149,7 @@ func TestRenderTmuxRow(t *testing.T) {
 // whole job is to be scanned — so the label gives up its head and the status
 // gives up its tail, and both stay on screen.
 func TestRenderTmuxRowNarrow(t *testing.T) {
-	m := tmuxPickerModel(t, session("ft/filetree/some-very-long-branch-name/claude"))
+	m := tmuxPickerModel(t, session("ft/agent/filetree/some-very-long-branch-name/claude"))
 	m.width = 24
 	line := m.renderTmuxRow(m.tmuxAll[0], nil, true, time.Unix(1700000060, 0))
 	if len(line) != 1 {
@@ -164,11 +165,73 @@ func TestRenderTmuxRowNarrow(t *testing.T) {
 	}
 }
 
+// This tree is a session like any other and shows in its own list, but every
+// key that acts on a session refuses it: attaching puts the tree in a popup
+// over itself, ctrl+w does the same in a pane beside it, and ctrl+x would kill
+// ft where it stands.
+func TestPickerWillNotActOnThisTree(t *testing.T) {
+	const self = "ft/tree/filetree-1a2b3c4d"
+	m := tmuxPickerModel(t, session(self))
+	m.tmuxSelf = self
+
+	for _, tc := range []struct {
+		key string
+		act func() (tea.Model, tea.Cmd)
+	}{
+		{"enter", m.attachSession},
+		{"ctrl+w", m.paneSession},
+		{"ctrl+x", m.killSession},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			m.mode = modeFuzzy
+			_, cmd := tc.act()
+			if cmd == nil {
+				t.Error("want a note saying why nothing happened")
+			}
+			if m.mode != modeFuzzy {
+				t.Errorf("mode = %v, want the picker still open", m.mode)
+			}
+			if m.pending != nil {
+				t.Errorf("pending = %+v, want nothing staged", m.pending)
+			}
+		})
+	}
+}
+
+// Ordering: you are typing in this tree, so by activity alone it would sit at
+// the top of its own list for ever — and it is the one row nothing here acts
+// on. A bell still outranks it, since that is what the list exists to surface.
+func TestThisTreeSortsLast(t *testing.T) {
+	const self = "ft/tree/filetree-1a2b3c4d"
+	m := tmuxPickerModel(t,
+		session(self),
+		session("ft/agent/filetree/main/claude", idleLonger),
+		session("ft/shell/filetree-1a2b3c4d", idleLonger, alerting),
+	)
+	m.tmuxSelf = self
+	m.sortTmuxSessions()
+
+	var got []string
+	for _, i := range m.tmuxRows {
+		got = append(got, m.tmuxAll[i].Name)
+	}
+	want := []string{"ft/shell/filetree-1a2b3c4d", "ft/agent/filetree/main/claude", self}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("order = %v, want %v", got, want)
+	}
+	// And it says which row it is, in place of a status that would only
+	// describe the pane you are looking at.
+	line := rowText(m.renderTmuxRow(m.tmuxAll[m.tmuxRows[2]], nil, false, time.Unix(1700000000, 0)))
+	if !strings.Contains(line, "this tree") {
+		t.Errorf("row = %q, want it marked as this tree", line)
+	}
+}
+
 // The picker's keys must fire only in the picker: ctrl+w is textinput's
 // delete-word-backward everywhere else, and taking it globally would break
 // editing in the other finder views.
 func TestTmuxPickerKeysAreScoped(t *testing.T) {
-	m := tmuxPickerModel(t, session("ft/filetree/main/claude"))
+	m := tmuxPickerModel(t, session("ft/agent/filetree/main/claude"))
 	m.finderSrc = srcBookmark
 	m.tmuxInput.Blur()
 	m.bmInput.Focus()
@@ -199,7 +262,7 @@ func TestKillDetachedSessionNeedsNoConfirmation(t *testing.T) {
 	if !tmux.Available() {
 		t.Skip("tmux is not installed")
 	}
-	m := tmuxPickerModel(t, session("ft/filetree/main/claude"))
+	m := tmuxPickerModel(t, session("ft/agent/filetree/main/claude"))
 	if _, cmd := m.killSession(); cmd == nil {
 		t.Error("killing a detached session should report what it did")
 	}
@@ -215,12 +278,12 @@ func TestKillAttachedSessionConfirms(t *testing.T) {
 	if !tmux.Available() {
 		t.Skip("tmux is not installed")
 	}
-	m := tmuxPickerModel(t, session("ft/filetree/main/claude", attached))
+	m := tmuxPickerModel(t, session("ft/agent/filetree/main/claude", attached))
 	m.killSession()
 	if m.mode != modeConfirm || m.pending == nil || m.pending.kind != opKillSession {
 		t.Fatalf("mode = %v, pending = %+v, want a kill confirmation", m.mode, m.pending)
 	}
-	if m.pending.session != "ft/filetree/main/claude" {
+	if m.pending.session != "ft/agent/filetree/main/claude" {
 		t.Errorf("pending session = %q", m.pending.session)
 	}
 	if got := plainText(m.renderConfirm()); !strings.Contains(got, "filetree/main/claude") {
@@ -241,7 +304,7 @@ func TestKillAttachedSessionConfirms(t *testing.T) {
 // Enter leaves the picker, because attaching takes over the screen; coming
 // back from the popup should land in the tree, not in a stale list.
 func TestAttachLeavesThePicker(t *testing.T) {
-	m := tmuxPickerModel(t, session("ft/filetree/main/claude"))
+	m := tmuxPickerModel(t, session("ft/agent/filetree/main/claude"))
 
 	_, cmd := m.attachSession()
 	if m.mode != modeNormal {
@@ -252,9 +315,9 @@ func TestAttachLeavesThePicker(t *testing.T) {
 	}
 	// The command it runs is the popup attach, exact-matched so a session name
 	// cannot be treated as a prefix of a longer one.
-	want := tmux.AttachPopup("ft/filetree/main/claude", config.ShellQuote)
-	if !strings.Contains(want, "attach-session -t '=ft/filetree/main/claude'") &&
-		!strings.Contains(want, "attach-session -t =ft/filetree/main/claude") {
+	want := tmux.AttachPopup("ft/agent/filetree/main/claude", config.ShellQuote)
+	if !strings.Contains(want, "attach-session -t '=ft/agent/filetree/main/claude'") &&
+		!strings.Contains(want, "attach-session -t =ft/agent/filetree/main/claude") {
 		t.Errorf("AttachPopup = %q, want an exact -t target", want)
 	}
 }
@@ -271,7 +334,7 @@ func TestAttachLeavesThePicker(t *testing.T) {
 // was not — the popup was closing because zsh mangled the "=" target, which
 // ShellQuote now quotes.
 func TestAttachRunsInteractively(t *testing.T) {
-	m := tmuxPickerModel(t, session("ft/filetree/main/copilot"))
+	m := tmuxPickerModel(t, session("ft/agent/filetree/main/copilot"))
 
 	_, cmd := m.attachSession()
 	if cmd == nil {
@@ -341,7 +404,7 @@ func TestRepoIdentAndSessionName(t *testing.T) {
 	if id.Repo != "proj" || id.Branch != "main" || id.GitRoot != repo {
 		t.Errorf("ident = %+v", id)
 	}
-	if got := m.sessionNameFor(repo, "claude"); got != "ft/proj/main/claude" {
+	if got := m.sessionNameFor(repo, "claude"); got != "ft/agent/proj/main/claude" {
 		t.Errorf("sessionNameFor = %q", got)
 	}
 
@@ -349,7 +412,7 @@ func TestRepoIdentAndSessionName(t *testing.T) {
 	mustGit(t, repo, "checkout", "-q", "-b", "claude/tmux-nav")
 	m.repoRoots = map[string]string{} // drop the memoised lookup
 	m.branches = map[string]string{}
-	if got := m.sessionNameFor(repo, "claude"); got != "ft/proj/claude-tmux-nav/claude" {
+	if got := m.sessionNameFor(repo, "claude"); got != "ft/agent/proj/claude-tmux-nav/claude" {
 		t.Errorf("slashed branch = %q", got)
 	}
 

@@ -65,8 +65,8 @@ func SocketPath(tmuxEnv string) string {
 // "Alongside" is the same window, not the same session: ft and the agent it
 // opened are two panes of one window, and a session attached in some other
 // window is not ft's to reach for. self is excluded so ft can never find
-// itself, which it would if ft's own session ever shared a name shape with the
-// agents'.
+// itself — load-bearing now that ft's own session is named under the same
+// prefix as everything else it opens.
 func PaneShowing(panes []Pane, clients []Client, self string, match func(string) bool) (Pane, string, bool) {
 	if self == "" || match == nil {
 		return Pane{}, "", false

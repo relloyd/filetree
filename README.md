@@ -54,17 +54,25 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   instead of trashing the directory.
 - Agent sessions: `c` opens **Claude Code** — `x` Copilot, `alt+s` a plain
   shell — in a *named* tmux session for the repo and branch of the selection
-  (`ft/<repo>/<branch>/<tool>`), in a popup over the tree. Detach and it keeps
-  running; press the same key again and you are back in it. `T` lists every
-  such session across all your repos and worktrees, newest first with the ones
-  ringing a bell on top — `enter` reattaches in a popup, `ctrl+w` opens one in a
-  pane beside the tree without leaving the tree, `ctrl+x` kills it, `alt+n`
-  starts one for the selection.
+  (`ft/agent/<repo>/<branch>/<tool>`), in a popup over the tree. Detach and it
+  keeps running; press the same key again and you are back in it. `T` lists
+  them across all your repos and worktrees, newest first with the ones ringing
+  a bell on top — `enter` reattaches in a popup, `ctrl+w` opens one in a pane
+  beside the tree without leaving the tree, `ctrl+x` kills it, `alt+n` starts
+  one for the selection.
 
   A session opened in a pane keeps its name and stays in the list, so `X` in the
-  tree detaches it again — the agent carries on running, and the tree gets its
-  space back. The sessions ft opens for itself are unnamed, so they never
-  clutter the list.
+  tree detaches it again — whatever is in it carries on running, and the tree
+  gets its space back.
+
+- Every session `ft` opens is named, not just the agents: the shell popup, the
+  lazygit and diff popups, and the tree you are looking at
+  ([naming](#tmux-sessions)). So `T` is the way back into anything you have
+  detached from — a shell popup with a server still running in it, say — and
+  `tmux ls` says what each session is instead of numbering them. This tree is
+  in that list too, marked as such and left alone by every key in it:
+  reattaching would put the tree in a popup over itself, and `ctrl+x` would
+  kill `ft` where it stands.
 
 - The tree follows your editor: bind `:sh ft jump %{buffer_name}` in helix and
   the pane beside it moves its cursor to the buffer you are in. With several
@@ -102,7 +110,7 @@ one surfaces as an error in the status bar rather than a failure to start.
 | Tool | Enables | Optional? |
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees, `alt+d` diffs | optional, but most of the git awareness is dark without it |
-| `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `P`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
+| `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `alt+n`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L` (repo view) and `M` (file blame/log view), in popups over the window | optional |
@@ -150,7 +158,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `W` | new git worktree for the repo containing the selection, from a branch name or PR number — lands in the worktrees view with it selected |
 | `c` / `x` | Claude Code / Copilot in a named tmux session for the selection's repo and branch, in a popup; pressing it again reattaches to the same one |
 | `alt+s` | a plain named shell in the same scheme — for a dev server or a test watcher you want to find again |
-| `T` | list the named sessions: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+x` kills it (asking first if it is attached elsewhere), `alt+n` starts one for the selection |
+| `T` | list the tmux sessions `ft` owns — agents, shells, popups and trees: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+x` kills it (asking first if it is attached elsewhere), `alt+n` starts one for the selection. Type a kind (`agent`, `shell`) to narrow the list; this tree is marked and refuses all four |
 
 | `X` | detach the agent session sharing this window, handing its space back to the tree |
 
@@ -209,12 +217,12 @@ automatically, so they work out of the box.
 | `v` | | open the selection, or everything marked, in helix in a new full-height split at the right edge — repeatable, one pane per press |
 | `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
 | `N` | | the same shell in a split beside the tree, dividing the current pane rather than the window |
-| `P` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree |
+| `alt+n` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree — in a session named after the directory, so detaching from it and pressing the key again comes back to it |
 | `c` | | Claude Code in a named tmux session for the selection's repo and branch, in a popup — created on the first press, reattached on every one after |
 | `x` | | the same for the Copilot CLI |
 | `alt+s` | | the same for a plain shell, so long-running work is reachable from the `T` list too |
 | `r` | | prime an `rg` at the selection's directory in a shell beside `ft`, or a new split if there is no shell to type into |
-| `L` | | open lazygit for the repo containing the selection, in a popup |
+| `L` | | open lazygit for the repo containing the selection, in a popup — one session per checkout, whichever subdirectory you press it in |
 | `M` | | open lazygit focused on the selected file's blame / log view, in a popup |
 | `alt+d` | | diff the selection — or everything marked — against `HEAD` in a popup; through git's pager if one is configured, and readable without one |
 | `D` | | diff the two most recently marked files in a split, with `delta` |
@@ -276,22 +284,42 @@ into your config just to move it. And because the set lives in the binary
 rather than in your file, a command added in a later version arrives when you
 rebuild — an old config does not have to be edited to catch up.
 
-### Agent sessions
+### tmux sessions
 
-`c`, `x` and `alt+s` all build their session name the same way, from the git
-repository holding the selection:
+Everything `ft` opens in a tmux session of its own is named after what it is,
+so a session you detached from can be found again — in `T`, and by eye in
+`tmux ls`. The kind comes first, which is also what a query in `T` narrows on:
 
 ```
-ft/<repo>/<branch>/<tool>       ft/filetree/main/claude
-                                ft/filetree/claude-tmux-nav/copilot
+ft/agent/<repo>/<branch>/<tool>   ft/agent/filetree/main/claude
+                                  ft/agent/filetree/claude-tmux-nav/copilot
+ft/tree/<dir>-<hash>              ft/tree/filetree-1a2b3c4d
+ft/shell/<dir>-<hash>             ft/shell/filetree-1a2b3c4d
+ft/lazygit/<checkout>-<hash>      ft/lazygit/filetree-1a2b3c4d
+ft/blame/<file>-<hash>            ft/blame/main_go-9f8e7d6c
+ft/diff/<file>-<hash>             ft/diff/main_go-9f8e7d6c
 ```
 
-A branch's `/` is flattened to `-`, and `.` and `:` become `_` because tmux
-rewrites those itself. The repo is the **main** repository even when the
-selection is in a linked worktree, so every worktree of a project files under
-one name and `T` reads down its first column. The prefix is `[sessions]
-prefix` in the config, and it is the only thing `T` filters on — everything
-`ft` opens for itself is unnamed and stays out of the list.
+An agent is named after the git repository holding the selection. A branch's
+`/` is flattened to `-`, and `.` and `:` become `_` because tmux rewrites those
+itself. The repo is the **main** repository even when the selection is in a
+linked worktree, so every worktree of a project files under one name and `T`
+reads down its first column.
+
+Everything else is named after a *place*: its basename, plus a hash of the full
+path so two directories called `web` stay two sessions. Which place is the one
+worth coming back to — a shell belongs to the directory it starts in, lazygit
+to the checkout it shows whatever subdirectory you pressed `L` in, and a blame
+or a diff to the file.
+
+All of them are created with `new-session -A`, so the key that opened one is
+the key that returns to it: detach (the tmux prefix, then `d`), and the next
+press lands in the same session with its scrollback rather than starting a
+second one. The tree is the exception — a second `ft` on the same directory is
+a second tree, and takes a `-2` on the end instead.
+
+The prefix is `[sessions] prefix` in the config, and it is the only thing `T`
+filters on: rename a session out from under it and it drops off the list.
 
 The session outlives the tool: the command is `claude; exec $SHELL`, so
 quitting the agent leaves a shell in the same directory with the scrollback
@@ -301,10 +329,12 @@ one you have open somewhere, and `!` for one with a terminal bell pending —
 which is what Claude Code rings when it is waiting for you.
 
 These are ordinary `[commands]` entries: point them at any CLI, change the
-keys, or add a fourth. `{session}`, `{repo}`, `{branch}` and `{gitroot}` are
-the template variables that make the naming work, and a command using any of
-them is refused outside a git repository rather than run with a half-built
-name.
+keys, or add a fourth. `{session}`, `{repo}`, `{branch}`, `{gitroot}` and
+`{repokey}` are the template variables that need a repository, and a command
+using any of them is refused outside one rather than run with a half-built
+name. `{prefix}` with `{dirkey}` or `{pathkey}` is how the rest name
+themselves — `-s {prefix}shell/{dirkey}` — and those work anywhere, which is
+the point: a shell popup is as useful outside a repository as in one.
 
 The last four take the same chord in the tree and in the finder, so a search
 can be left up while you go and look at something in the pane beside it. All
@@ -550,7 +580,7 @@ What gets recorded is decided by the command, not the key: a command counts as
 opening a file when its template names it with `{paths}`, `{path}` or
 `{relpath}` — a marked set records every file in it. So
 `enter`, `e`, `t`, `v` and `alt+d` are remembered — reading a file's diff counts
-as having had it open — while `n`/`N`/`P` (a shell in `{dir}`), `r` (an `rg`
+as having had it open — while `n`/`N`/`alt+n` (a shell in `{dir}`), `r` (an `rg`
 primed at `{dir}`), `L` (lazygit in `{dir}`), `D` (a diff of marked paths) and
 the `ctrl+l`/`ctrl+j`/`ctrl+k`/`alt+h` pane commands are not.
 Directories are never recorded, and neither is `C` — its file lives outside the

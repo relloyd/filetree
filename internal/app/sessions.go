@@ -64,12 +64,17 @@ func (m *Model) repoIdentFor(dir string) repoIdent {
 
 // sessionVars fills in the repo-derived half of a command's template
 // variables. An identity that did not resolve leaves them empty.
+//
+// The prefix is set either way: it belongs to ft rather than to the
+// repository, and the popups that name themselves after a directory need it
+// where there is no repository at all.
 func (m *Model) sessionVars(id repoIdent) config.Vars {
-	if !id.ok() {
-		return config.Vars{}
-	}
 	prefix := m.sessionPrefix()
+	if !id.ok() {
+		return config.Vars{Prefix: prefix}
+	}
 	return config.Vars{
+		Prefix:  prefix,
 		GitRoot: id.GitRoot,
 		Repo:    id.Repo,
 		Branch:  id.Branch,

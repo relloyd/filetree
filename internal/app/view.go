@@ -835,7 +835,7 @@ func (m *Model) renderTmuxRow(s tmux.Session, matched []int, selected bool, now 
 		// The status keeps its tail when it will not fit: the marker and the
 		// age are the two columns worth spotting from across the room, and the
 		// command in front of them is the one the label already implies.
-		plain, styled := tmuxRowStatus(s, now)
+		plain, styled := tmuxRowStatus(s, m.isSelf(s), now)
 		w := lipgloss.Width(plain)
 		if w > room {
 			return styleDim.Render(truncateLeft(plain, room)), room
@@ -851,7 +851,11 @@ func (m *Model) renderTmuxRow(s tmux.Session, matched []int, selected bool, now 
 // each other line up and the eye can run down them. "!" is a pending bell,
 // which is what Claude Code rings when it is waiting for you — the one thing
 // in this list worth spotting from across the room.
-func tmuxRowStatus(s tmux.Session, now time.Time) (plain, styled string) {
+//
+// This tree says so instead of showing a status, because none of it would tell
+// you anything you cannot see around you — and because the row is there to be
+// recognised and left alone: every key in this view refuses it.
+func tmuxRowStatus(s tmux.Session, self bool, now time.Time) (plain, styled string) {
 	var texts, out []string
 	add := func(text string, st lipgloss.Style) {
 		if text == "" {
@@ -859,6 +863,10 @@ func tmuxRowStatus(s tmux.Session, now time.Time) (plain, styled string) {
 		}
 		texts = append(texts, text)
 		out = append(out, st.Render(text))
+	}
+	if self {
+		add("this tree", styleDim)
+		return strings.Join(texts, " "), strings.Join(out, " ")
 	}
 	add(s.Command, styleDim)
 	switch {
@@ -1176,8 +1184,8 @@ func (m *Model) helpRows() []helpRow {
 		// description above — which was the longest line on the page.
 		{finderKey: "ctrl+s", desc: "bookmarks: widen to every project"},
 		{finderKey: "ctrl+x", desc: "bookmarks: forget the highlighted one"},
-		{key: m.actionKeys["tmux-sessions"], desc: "named agent tmux sessions; enter reattaches"},
-		{key: m.actionKeys["detach-pane"], desc: "detach the agent session sharing this window"},
+		{key: m.actionKeys["tmux-sessions"], desc: "tmux sessions ft owns; enter reattaches"},
+		{key: m.actionKeys["detach-pane"], desc: "detach the ft session sharing this window"},
 
 		{finderKey: "ctrl+w", desc: "sessions: open beside the tree (X detaches)"},
 

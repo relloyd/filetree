@@ -187,6 +187,53 @@ func TestStarterPopupsNameTheirDirectoryToTmux(t *testing.T) {
 	}
 }
 
+// Nothing ft opens is anonymous. A session with no name cannot be found again
+// once you detach from it — not by "T", which filters on the prefix, and not
+// by eye in "tmux ls", where it is a number. The name also has to come with
+// "-A": once a name exists, a second press with a detached session still
+// holding it fails with "duplicate session", in a popup that closes too fast
+// to read the error.
+func TestEveryNewSessionIsNamed(t *testing.T) {
+	cfg, err := loadTOML(t, Starter())
+	if err != nil {
+		t.Fatalf("starter config failed to load: %v", err)
+	}
+	// The kind each command's session belongs to. An agent is named after its
+	// repo and branch ({session}); everything else after a place, and which
+	// place is the identity worth reattaching to: a shell belongs to the
+	// directory it starts in, lazygit to the checkout it shows whatever
+	// directory it was run from, and a diff or a blame to the file.
+	want := map[string]string{
+		"shell-popup":         "-A -s {prefix}shell/{dirkey}",
+		"lazygit-popup":       "-A -s {prefix}lazygit/{repokey}",
+		"lazygit-blame-popup": "-A -s {prefix}blame/{pathkey}",
+		"git-diff-popup":      "-A -s {prefix}diff/{pathkey}",
+		"claude-popup":        "-A -s {session}/claude",
+		"copilot-popup":       "-A -s {session}/copilot",
+		"agent-shell":         "-A -s {session}/shell",
+	}
+	seen := map[string]bool{}
+	for name, c := range cfg.Commands {
+		if !strings.Contains(c.Run, "new-session") {
+			continue
+		}
+		seen[name] = true
+		frag, ok := want[name]
+		if !ok {
+			t.Errorf("commands.%s creates a session but this test does not know what to call it: %q", name, c.Run)
+			continue
+		}
+		if !strings.Contains(c.Run, frag) {
+			t.Errorf("commands.%s: run = %q, want %q in it", name, c.Run, frag)
+		}
+	}
+	for name := range want {
+		if !seen[name] {
+			t.Errorf("commands.%s no longer creates a session", name)
+		}
+	}
+}
+
 // A setting ft does not read is not an error — the rest of the config still
 // works — but it must not decode in silence. The shape that prompted this: a
 // keybinding written under a [keys] header still commented out, which TOML
@@ -495,6 +542,42 @@ func TestStarterAgentCommands(t *testing.T) {
 	}
 }
 
+// The popups name their own sessions out of {prefix} and a key, so the pieces
+// have to survive quoting and join back into one word — the same trick
+// {session}/claude relies on.
+func TestExpandSessionKeys(t *testing.T) {
+	v := Vars{
+		Prefix:  "ft/",
+		Path:    "/home/rl/proj/main.go",
+		Dir:     "/home/rl/proj",
+		GitRoot: "/home/rl/proj",
+	}
+	got := ExpandCommand("tmux new-session -A -s {prefix}shell/{dirkey} -c {dir}", v)
+	want := "tmux new-session -A -s ft/shell/" + tmux.Slug("/home/rl/proj") + " -c /home/rl/proj"
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+	// A key is one component: the basename, plus a hash that keeps two
+	// directories of the same name apart.
+	if !strings.Contains(got, "ft/shell/proj-") {
+		t.Errorf("got %q, want the directory name readable in the session name", got)
+	}
+
+	// {pathkey} and {dirkey} must not lose their tails to the shorter {path}
+	// and {dir}, which a Replacer would match first if they came before them.
+	got = ExpandCommand("{pathkey} {dirkey} {repokey} {path} {dir}", v)
+	want = strings.Join([]string{
+		tmux.Slug("/home/rl/proj/main.go"),
+		tmux.Slug("/home/rl/proj"),
+		tmux.Slug("/home/rl/proj"),
+		"/home/rl/proj/main.go",
+		"/home/rl/proj",
+	}, " ")
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
 func TestNeedsRepo(t *testing.T) {
 	cases := []struct {
 		tmpl string
@@ -509,6 +592,12 @@ func TestNeedsRepo(t *testing.T) {
 		// {root} is the tree root and is available everywhere, so it must not
 		// drag a command into being repo-gated.
 		{"tmux split-window -c {root}", false},
+		// A session named after a *place* needs no repository — the shell
+		// popup is used outside one as often as in — but one named after a
+		// checkout does.
+		{"tmux new-session -s {prefix}shell/{dirkey}", false},
+		{"tmux new-session -s {prefix}diff/{pathkey}", false},
+		{"tmux new-session -s {prefix}lazygit/{repokey}", true},
 	}
 	for _, tc := range cases {
 		if got := NeedsRepo(tc.tmpl); got != tc.want {

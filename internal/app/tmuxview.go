@@ -20,7 +20,7 @@ const (
 	cmdAttachSession = "attach-session"
 )
 
-// startTmuxSessions opens the finder over the named tmux sessions. It is the
+// startTmuxSessions opens the finder over the tmux sessions ft owns. It is the
 // same finder — same query field, ranking, scrolling and keys — over a
 // different supply of rows, exactly as the recent and bookmark views are.
 func (m *Model) startTmuxSessions() (tea.Model, tea.Cmd) {
@@ -44,21 +44,44 @@ func (m *Model) loadTmuxSessions() {
 		m.tmuxErr = err.Error()
 	}
 	m.tmuxAll = sessions
+	// Read alongside the list rather than remembered from startup: it is one
+	// more call on a key press that already makes one, and it stays right
+	// through a rename. Empty outside tmux, where no row can be us.
+	m.tmuxSelf = tmux.SelfSession(m.selfPane)
 	m.sortTmuxSessions()
 }
 
+// isSelf reports whether a row is the session this tree is running in. Every
+// key that would act on a session asks first: attaching to ourselves shows the
+// tree inside its own popup, a pane does the same beside it, and killing it
+// takes ft with it.
+func (m *Model) isSelf(s tmux.Session) bool {
+	return m.tmuxSelf != "" && s.Name == m.tmuxSelf
+}
+
+// noteSelf is the one answer all three of those keys give.
+func (m *Model) noteSelf() tea.Cmd {
+	return m.note("that session is this tree", true)
+}
+
 // sortTmuxSessions puts the sessions in the order they are wanted in: the ones
-// asking for attention first, then by how recently they did anything.
+// asking for attention first, this tree last, and everything else by how
+// recently it did anything.
 //
 // A bell is what Claude Code rings when it wants input, so a session with one
 // pending is the one the list exists to surface. Attachment is not part of the
 // ordering — a session you already have open somewhere is the one you least
-// need to be shown.
+// need to be shown — and this tree is the extreme of that: you are typing in
+// it, so by activity it would sit at the top of the list for ever, and it is
+// the one row no key here will act on.
 func (m *Model) sortTmuxSessions() {
 	sort.SliceStable(m.tmuxAll, func(i, j int) bool {
 		a, b := m.tmuxAll[i], m.tmuxAll[j]
 		if a.Alert != b.Alert {
 			return a.Alert
+		}
+		if sa, sb := m.isSelf(a), m.isSelf(b); sa != sb {
+			return sb
 		}
 		if !a.Activity.Equal(b.Activity) {
 			return a.Activity.After(b.Activity)
@@ -125,6 +148,9 @@ func (m *Model) attachSession() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil // an empty list is not an error
 	}
+	if m.isSelf(s) {
+		return m, m.noteSelf()
+	}
 	m.mode = modeNormal
 	return m.runSessionCommand(cmdAttachSession,
 		tmux.AttachPopup(s.Name, config.ShellQuote), config.ModeInteractive)
@@ -146,6 +172,9 @@ func (m *Model) paneSession() (tea.Model, tea.Cmd) {
 	s, ok := m.tmuxRow(m.fuzzySel)
 	if !ok {
 		return m, nil
+	}
+	if m.isSelf(s) {
+		return m, m.noteSelf()
 	}
 	m.mode = modeNormal
 	if m.selfPane == "" {
@@ -210,6 +239,9 @@ func (m *Model) killSession() (tea.Model, tea.Cmd) {
 	s, ok := m.tmuxRow(m.fuzzySel)
 	if !ok {
 		return m, nil
+	}
+	if m.isSelf(s) {
+		return m, m.noteSelf()
 	}
 	if s.Attached > 0 {
 		m.pending = &pendingOp{kind: opKillSession, session: s.Name}
@@ -287,9 +319,11 @@ func (m *Model) tmuxStatusNote() string {
 	return ""
 }
 
-// detachAgentPane is "X": send away whatever agent session is sharing this
-// window, handing its space back to the tree. The agent keeps running and the
-// picker will still list it — a detached session is exactly what "T" is for.
+// detachAgentPane is "X": send away whatever ft session is sharing this
+// window, handing its space back to the tree. Whatever is in it keeps running
+// and the picker will still list it — a detached session is exactly what "T"
+// is for. Any kind, not agents alone: a shell opened with "ctrl+w" sits in
+// the window the same way and goes away the same way.
 //
 // Detaching from outside is what spares the nested prefix. A session attached
 // inside a pane owns the prefix key there, so detaching from within is "prefix
@@ -303,9 +337,16 @@ func (m *Model) detachAgentPane() (tea.Model, tea.Cmd) {
 		return m, m.note("not running inside tmux", true)
 	}
 	prefix := m.sessionPrefix()
-	_, name, found := m.paneShowing(func(s string) bool { return strings.HasPrefix(s, prefix) })
+	// Never this tree: the panes beside ft carry the same prefix now that
+	// everything ft opens is named, and detach-client on our own session would
+	// send away the terminal you are reading this in.
+	m.tmuxSelf = tmux.SelfSession(m.selfPane)
+	self := m.tmuxSelf
+	_, name, found := m.paneShowing(func(s string) bool {
+		return strings.HasPrefix(s, prefix) && s != self
+	})
 	if !found {
-		return m, m.note("no agent session in this window", false)
+		return m, m.note("no ft session in this window", false)
 	}
 	before, window := m.paneWidths()
 	if err := tmux.DetachClient(name); err != nil {

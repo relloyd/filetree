@@ -137,8 +137,17 @@ watch_debounce_ms = 150
 #   {repo}     basename of the main repo, shared by all of its worktrees
 #   {branch}   branch of that checkout, with "/" flattened to "-"
 #   {session}  tmux session name for that repo and branch, without a tool on
-#              the end: write "-s {session}/claude" and the shell joins them.
-#              The four above are empty outside a git repository, and a
+#              the end: write "-s {session}/claude" and the shell joins them
+#   {repokey}  that checkout named in one component: basename plus a hash
+#              The five above are empty outside a git repository, and a
 #              command that uses any of them is refused there rather than run
+#   {prefix}   the [sessions] prefix every session filetree opens carries
+#   {dirkey}   {dir} named in one component: basename plus a hash of the path
+#   {pathkey}  the same for {path}, for a session that belongs to one file
+#              These three work anywhere. They are how a command names a
+#              session for a *place* rather than a repo: a popup written as
+#              "-s {prefix}shell/{dirkey}" is one session per directory, and
+#              "new-session -A" then makes the key that opened it the key
+#              that returns to it
 # Unknown {tokens} are left alone, so tmux formats like "{last}" still work.
 `

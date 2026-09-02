@@ -100,6 +100,28 @@ func tmuxError(err error, stderr string) error {
 	return err
 }
 
+// SelfSession is the name of the session a pane belongs to. Handed
+// $TMUX_PANE it answers "which session am I running in", which is what lets
+// the picker mark the row that is this tree and refuse to attach it to itself.
+//
+// Note display-message resolves -t as a *pane* and does not accept the "="
+// exact-match prefix target() adds, so this is one of the few places it must
+// not be used — the same reason PaneWidths passes a bare pane id.
+//
+// Anything unreadable is "": no marker at all beats marking the wrong row.
+func SelfSession(pane string) string {
+	if pane == "" || !Available() {
+		return ""
+	}
+	var stdout bytes.Buffer
+	c := exec.Command("tmux", "display-message", "-p", "-t", pane, "#{session_name}")
+	c.Stdout = &stdout
+	if err := c.Run(); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(stdout.String())
+}
+
 // ListPanes returns every pane on the server, across all sessions.
 //
 // "-a" is what makes this server-wide: without it tmux lists the panes of the

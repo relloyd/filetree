@@ -136,10 +136,15 @@ esac
 	// tree. The popup runs its own tmux session, so it has its own panes and
 	// its own scrollback, and closing that session (exit / ctrl+d) closes the
 	// popup.
+	//
+	// Named after the directory, and "-A", so it is one shell per directory:
+	// detach from it (the tmux prefix then "d") and the next press comes back
+	// to it with its scrollback and whatever is still running, rather than
+	// opening a second one. "T" lists it in the meantime.
 	{
 		Name: "shell-popup",
 		Desc: "shell in a popup over the window",
-		Run:  `tmux display-popup -E -w 92% -h 92% "tmux new-session -c {dir}"`,
+		Run:  `tmux display-popup -E -w 92% -h 92% "tmux new-session -A -s {prefix}shell/{dirkey} -c {dir}"`,
 		Mode: ModeBackground,
 		Key:  "alt+n",
 	},
@@ -304,7 +309,7 @@ fi`,
 	{
 		Name: "lazygit-popup",
 		Desc: "lazygit for this repo, in a popup",
-		Run:  `tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} lazygit"`,
+		Run:  `tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -A -s {prefix}lazygit/{repokey} -c {dir} lazygit"`,
 		Mode: ModeInteractive,
 		Key:  "L",
 	},
@@ -316,7 +321,7 @@ fi`,
 	{
 		Name: "lazygit-blame-popup",
 		Desc: "lazygit blame/log for this file",
-		Run:  `tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} lazygit -f {path}"`,
+		Run:  `tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -A -s {prefix}blame/{pathkey} -c {dir} lazygit -f {path}"`,
 		Mode: ModeInteractive,
 		Key:  "M",
 	},
@@ -343,7 +348,7 @@ fi`,
 	{
 		Name: "git-diff-popup",
 		Desc: "diff selection (or marks) vs HEAD",
-		Run: `tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -c {dir} \"
+		Run: `tmux display-popup -E -d {dir} -w 92% -h 92% "tmux new-session -A -s {prefix}diff/{pathkey} -c {dir} \"
 hold() {
   echo
   echo '-- press any key to close --'

@@ -55,8 +55,8 @@ internal/state/     per-root JSON persistence (expansion, selection, toggles)
 internal/icons/     Nerd Font glyphs; table.go is GENERATED — see below
 internal/platform/  OS interface; darwin impl (pbcopy, open -R, Finder trash)
 internal/tmux/      every tmux invocation: the self-relaunch decision, the
-                    named agent sessions (name building, list parsing, kill),
-                    and the server-wide pane list that jump routing needs
+                    session names (grammar, list parsing, kill), and the
+                    server-wide pane list that jump routing needs
 internal/ipc/       the "ft jump <file>" socket: one listener per instance,
                     plus the pure routing that picks which instance answers
 ```
@@ -214,16 +214,36 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   the app only sequences them in async `tea.Cmd`s. `d` on a worktree root
   becomes `git worktree remove` (pendingOp kind `opWorktree`, with an `f`
   force re-prompt when git refuses a dirty tree).
-- Agent tmux sessions (`c`/`x`/`alt+s` to create, `T` to list) are named
-  `<[sessions] prefix><repo>/<branch>/<tool>`, built by `tmux.SessionName` from
+- **Every session ft creates is named `<[sessions] prefix><kind>/<rest>`, kind
+  first.** `agent` is `<repo>/<branch>/<tool>` from `tmux.SessionName` and
   `m.repoIdentFor` (internal/app/sessions.go) — the *main* repo of a linked
-  worktree, so every worktree files under one name. The prefix is the only
-  filter, and everything ft opens for itself stays unnamed. "." and ":" are
-  rewritten to "_" in a name because tmux does that silently otherwise, which
-  would stop `new-session -A` finding what it created. The picker is a fourth
-  `finderSource` (`srcTmux`), not a new mode — see the bookmark view for the
-  pattern; its ctrl+w/ctrl+x/alt+n are hardcoded in the modeFuzzy switch and
-  listed in `finderReservedKeys`.
+  worktree, so every worktree files under one name. Every other kind (`tree`,
+  `shell`, `lazygit`, `blame`, `diff`) is `tmux.PlaceName`: one path, rendered
+  by `tmux.Slug` as `storekey.Name` does it, basename plus a hash. Kind first
+  is what lets `ParseName` read a name without counting its slashes, and what
+  makes a query in `T` narrow to one kind. The prefix is the only filter, so a
+  name from before this convention still lists — unparsed, name only.
+  "." and ":" are rewritten to "_" in a name because tmux does that silently
+  otherwise, which would stop `new-session -A` finding what it created.
+  - The popups build their own names in the catalogue out of `{prefix}` and a
+    key (`-s {prefix}shell/{dirkey}`), which composes because the value is
+    quoted and the literal between them is not — the same trick as
+    `{session}/claude`. `{repokey}` is in `repoTokens` and the other two are
+    not: a shell popup must keep working outside a repository.
+  - **`-A` on every one of them.** A named session that already exists makes a
+    bare `new-session` fail with "duplicate session", inside a popup that
+    closes too fast to read it. The tree is the exception and cannot use `-A`
+    (that would attach this terminal to the *other* tree), so `main` picks a
+    free name with `tmux.UniqueName` before `Wrap` execs — after the exec there
+    is no process left to recover in.
+  - The picker is a fourth `finderSource` (`srcTmux`), not a new mode — see the
+    bookmark view for the pattern; its ctrl+w/ctrl+x/alt+n are hardcoded in the
+    modeFuzzy switch and listed in `finderReservedKeys`. It lists this tree
+    too, from `tmux.SelfSession($TMUX_PANE)`: `attachSession`, `paneSession`
+    and `killSession` all refuse that row, because attaching shows the tree
+    inside its own popup and killing it kills ft, and `sortTmuxSessions` puts
+    it last so the row nothing acts on does not lead a list ordered by
+    activity.
 - **A session shown in a pane is a nested client, and that costs two things.**
   `ctrl+w` splits the window and runs `tmux attach-session` in the new pane
   (`tmux.SplitAttach`); `X` (`detach-pane`) sends it away again. tmux has no

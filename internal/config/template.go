@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/relloyd/filetree/internal/tmux"
 )
 
 // Vars are the placeholders available in command templates.
@@ -27,7 +29,13 @@ type Vars struct {
 	GitRoot string // repo (or linked worktree) root containing the selection
 	Repo    string // basename of the main repo, shared by all its worktrees
 	Branch  string // branch of that checkout, slashes flattened
-	Session string // "<prefix><repo>/<branch>"; the tool is appended by the config
+	Session string // "<prefix>agent/<repo>/<branch>"; the tool is appended by the config
+
+	// Prefix is [sessions] prefix, which every session ft creates carries.
+	// Unlike the four fields above it is filled in outside a repository too:
+	// a shell or a popup belongs to a directory, and has a name to build
+	// there whether or not git knows about it.
+	Prefix string
 }
 
 // ExpandCommand substitutes known {placeholders} with shell-quoted values.
@@ -55,8 +63,17 @@ type Vars struct {
 // {session} is the tmux session name for the selection's repo and branch,
 // without a tool on the end: a command appends its own, as in
 // `-s {session}/claude`. That works despite the quoting because the value is
-// quoted and the suffix is not, so the shell joins `'ft/repo/main'/claude`
+// quoted and the suffix is not, so the shell joins `'ft/agent/repo/main'/claude`
 // back into one word.
+//
+// {prefix} plus one of the three keys is how the popups name themselves —
+// `-s {prefix}shell/{dirkey}` — and it composes for the same reason. A key is
+// one path in one component: its basename plus a hash of the whole path, so
+// two directories called "web" are two sessions. {dirkey} is the selection's
+// directory, {pathkey} the selection itself, {repokey} its checkout — pick
+// whichever is the identity worth reattaching to. Only {repokey} needs a git
+// repository, and NeedsRepo below is what refuses a command that wants one
+// outside of it.
 func ExpandCommand(tmpl string, v Vars) string {
 	quoted := make([]string, len(v.Marked))
 	for i, p := range v.Marked {
@@ -78,6 +95,13 @@ func ExpandCommand(tmpl string, v Vars) string {
 	// its own "{", and "{gitroot}" does not contain "{root}" — but the pair is
 	// close enough to look like it does, hence this note and the test.
 	repl := strings.NewReplacer(
+		// The three keys come before {path}, {dir} and {repo} for the reason
+		// spelled out below: the shorter token would match first and leave a
+		// stray "key" behind.
+		"{prefix}", ShellQuote(v.Prefix),
+		"{pathkey}", ShellQuote(tmux.Slug(v.Path)),
+		"{dirkey}", ShellQuote(tmux.Slug(v.Dir)),
+		"{repokey}", ShellQuote(tmux.Slug(v.GitRoot)),
 		"{paths}", expandPaths(v),
 		"{path}", ShellQuote(v.Path),
 		"{relpath}", ShellQuote(noFlag(v.RelPath)),
@@ -126,7 +150,11 @@ var markTokens = []string{"{paths}", "{marked}", "{marked1}", "{marked2}"}
 
 // repoTokens are the placeholders that only mean something inside a git
 // repository. Kept beside the Replacer for the same reason as markTokens.
-var repoTokens = []string{"{session}", "{repo}", "{branch}", "{gitroot}"}
+//
+// {prefix}, {dirkey} and {pathkey} are deliberately not here: a shell popup
+// names itself after a directory and must keep working outside a repository,
+// which is half of where it is used.
+var repoTokens = []string{"{session}", "{repo}", "{branch}", "{gitroot}", "{repokey}"}
 
 // NeedsRepo reports whether a command template depends on the selection being
 // in a git repository. A template that does is refused outside one rather than

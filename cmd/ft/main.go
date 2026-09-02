@@ -79,7 +79,7 @@ func main() {
 		TTY:     term.IsTerminal(os.Stdout.Fd()),
 	}) {
 		// Only returns if the exec failed; carry on without tmux.
-		tmux.Wrap(abs)
+		tmux.Wrap(abs, treeSessionName(cfg.Sessions.Prefix, abs))
 	}
 
 	m, err := app.New(cfg, cfgDir, abs, platform.New())
@@ -109,6 +109,32 @@ func main() {
 		stopIPC()
 	}
 	fatalIf(err)
+}
+
+// treeSessionName names the session ft is about to put itself in: the tree
+// kind, keyed by the root it was opened on, so "tmux ls" says which tree is
+// which and the picker can list the others.
+//
+// The name has to be free before it is handed to Wrap, because a duplicate is
+// fatal there — the exec has replaced this process by the time tmux refuses.
+// So a second tree on the same root becomes "…-2". A list that fails is not a
+// reason to start without a name: the only failure that means "the name might
+// be taken" is a working tmux, and a broken one would fail the new-session
+// too.
+func treeSessionName(prefix, root string) string {
+	base := tmux.PlaceName(prefix, tmux.KindTree, root)
+	if base == "" {
+		return ""
+	}
+	sessions, err := tmux.List(prefix)
+	if err != nil {
+		return base
+	}
+	taken := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		taken = append(taken, s.Name)
+	}
+	return tmux.UniqueName(base, taken)
 }
 
 // revealTimeout is how long a jump waits for the model to answer. Long enough
