@@ -194,16 +194,11 @@ func (m *Model) paneShowing(match func(string) bool) (tmux.Pane, string, bool) {
 // to preserve and restoring the old width would crush the pane just opened
 // down to a single column.
 func (m *Model) openSessionPane(name string) error {
-	before, window, err := tmux.PaneWidths(m.selfPane)
-	if err != nil {
-		before, window = 0, 0 // not fatal: the split is still worth doing
-	}
+	before, window := m.paneWidths() // zeroes are not fatal: the split is still worth doing
 	if err := tmux.SplitAttach(m.selfPane, tmux.SocketPath(os.Getenv("TMUX")), name, config.ShellQuote); err != nil {
 		return err
 	}
-	if before > 0 && before < window/2 {
-		_ = tmux.ResizePaneWidth(m.selfPane, before)
-	}
+	m.keepSidebarWidth(before, window)
 	return nil
 }
 
@@ -312,15 +307,10 @@ func (m *Model) detachAgentPane() (tea.Model, tea.Cmd) {
 	if !found {
 		return m, m.note("no agent session in this window", false)
 	}
-	before, window, err := tmux.PaneWidths(m.selfPane)
-	if err != nil {
-		before, window = 0, 0
-	}
+	before, window := m.paneWidths()
 	if err := tmux.DetachClient(name); err != nil {
 		return m, m.note(err.Error(), true)
 	}
-	if before > 0 && before < window/2 {
-		_ = tmux.ResizePaneWidth(m.selfPane, before)
-	}
+	m.keepSidebarWidth(before, window)
 	return m, m.note("detached "+name, false)
 }

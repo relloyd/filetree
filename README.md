@@ -223,6 +223,21 @@ automatically, so they work out of the box.
 | `ctrl+k` | `ctrl+k` | widen `ft`'s pane to 70% of the window |
 | `alt+h` | `alt+h` | give every pane in the window the same width, side by side — tmux's `even-horizontal` layout, for a window that has drifted out of shape |
 
+A command that opens a pane — `t`'s fallback split, `v`, `n`, `N`, `D` — takes
+its columns from *every* pane in the window, so a 30-column tree beside an
+editor used to come back at 18. `ft` now measures its own width immediately
+before the split and puts it back afterwards, the way `ctrl+w` always has, so
+repeated splits leave the tree exactly where you had it. The columns come from
+your other panes instead. It is skipped for an `ft` that fills the window,
+where restoring the old width would crush the pane just opened.
+
+The mirror case — a pane *closing* and its columns coming back — is only
+handled for the ones `ft` closes itself (`X`). `ft` hears about someone else's
+close only when its own pane happens to resize, and from the width alone that
+is indistinguishable from you resizing it deliberately, so `ft` leaves it
+alone rather than risk undoing a resize you meant.
+
+
 ### Customising
 
 The built-in set needs no configuration at all — `config.toml` is only for

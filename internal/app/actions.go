@@ -670,8 +670,26 @@ func (m *Model) execCommand(name string, c config.Command, v config.Vars, reload
 			return cmdDoneMsg{name: name, interactive: true, reloadConfig: reloadCfg, err: err}
 		})
 	}
+	if !paneOpeningCommand(c.Run) {
+		return m, func() tea.Msg {
+			out, err := ec.CombinedOutput()
+			return cmdDoneMsg{name: name, out: string(out), reloadConfig: reloadCfg, err: err}
+		}
+	}
+
+	// A command that opens a pane takes its columns from every pane in the
+	// window, ft's own included, so a 30-column tree beside an editor comes
+	// back at 18. Measuring either side of the command is what lets ft put its
+	// own width back, and what lets it recognise the new pane later as the one
+	// it opened. Read now, while the window still has the shape the user gave
+	// it — see openSessionPane, which has always done this for "ctrl+w".
+	self := m.selfPane
+	before, window := m.paneWidths()
 	return m, func() tea.Msg {
 		out, err := ec.CombinedOutput()
+		// Back to width in the goroutine rather than on the far side of the
+		// message, so the tree never renders a frame at the squeezed width.
+		keepSidebarWidth(self, before, window)
 		return cmdDoneMsg{name: name, out: string(out), reloadConfig: reloadCfg, err: err}
 	}
 }
