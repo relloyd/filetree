@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/sahilm/fuzzy"
 
 	"github.com/relloyd/filetree/internal/bookmark"
 	"github.com/relloyd/filetree/internal/config"
@@ -221,22 +220,11 @@ func (m *Model) forgetBookmark() tea.Cmd {
 // The match positions are kept, not just the row numbers, so the list can show
 // what it matched on the way the tree finder does.
 func (m *Model) rebuildBookmarkRows() {
-	m.bmRows, m.bmMatched = m.bmRows[:0], m.bmMatched[:0]
-	if q := m.bmInput.Value(); q == "" {
-		for i := range m.bmAll {
-			m.bmRows = append(m.bmRows, i)
-			m.bmMatched = append(m.bmMatched, nil)
-		}
-	} else {
-		hay := make([]string, len(m.bmAll))
-		for i, b := range m.bmAll {
-			hay[i] = b.searchText(m.bmAllRepos)
-		}
-		for _, mt := range fuzzy.Find(q, hay) {
-			m.bmRows = append(m.bmRows, mt.Index)
-			m.bmMatched = append(m.bmMatched, mt.MatchedIndexes)
-		}
+	hay := make([]string, len(m.bmAll))
+	for i, b := range m.bmAll {
+		hay[i] = b.searchText(m.bmAllRepos)
 	}
+	m.bmRows, m.bmMatched = applyFindQuery(parseFindQuery(m.bmInput.Value()), hay)
 	m.fuzzySel = clamp(m.fuzzySel, 0, max(0, len(m.bmRows)-1))
 	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.bmRows)-m.fuzzyVisibleRows()))
 	m.applyResumeTarget()

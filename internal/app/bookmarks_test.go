@@ -81,6 +81,21 @@ func bmPaths(m *Model) []string {
 	return out
 }
 
+// Find !term drops bookmarks whose search haystack contains the substring.
+func TestBookmarkFindExclude(t *testing.T) {
+	m := finderModel()
+	m.finderSrc = srcBookmark
+	m.bmAll = []resolvedBookmark{
+		{Resolved: bookmark.Resolved{Bookmark: bookmark.Bookmark{Path: "prod/foo.go"}, AtLine: 1, Text: "alpha"}},
+		{Resolved: bookmark.Resolved{Bookmark: bookmark.Bookmark{Path: "nonprod/foo.go"}, AtLine: 1, Text: "alpha"}},
+	}
+	m.bmInput.SetValue("!nonprod")
+	m.rebuildBookmarkRows()
+	if got := bmPaths(m); len(got) != 1 || got[0] != "prod/foo.go" {
+		t.Errorf("!nonprod = %v, want prod/foo.go", got)
+	}
+}
+
 func TestBookmarkViewListsNewestFirst(t *testing.T) {
 	m := bmModel(t, "a.go", "b.go", "c.go")
 	for _, f := range []string{"a.go", "b.go", "c.go"} {

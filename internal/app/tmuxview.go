@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/sahilm/fuzzy"
 
 	"github.com/relloyd/filetree/internal/config"
 	"github.com/relloyd/filetree/internal/tmux"
@@ -94,22 +93,11 @@ func (m *Model) sortTmuxSessions() {
 // rebuildTmuxRows applies the query over the same text the row is drawn from,
 // so the highlight offsets fuzzy.Find reports land on the right characters.
 func (m *Model) rebuildTmuxRows() {
-	m.tmuxRows, m.tmuxMatched = m.tmuxRows[:0], m.tmuxMatched[:0]
-	if q := m.tmuxInput.Value(); q == "" {
-		for i := range m.tmuxAll {
-			m.tmuxRows = append(m.tmuxRows, i)
-			m.tmuxMatched = append(m.tmuxMatched, nil)
-		}
-	} else {
-		hay := make([]string, len(m.tmuxAll))
-		for i, s := range m.tmuxAll {
-			hay[i] = m.tmuxSearchText(s)
-		}
-		for _, mt := range fuzzy.Find(q, hay) {
-			m.tmuxRows = append(m.tmuxRows, mt.Index)
-			m.tmuxMatched = append(m.tmuxMatched, mt.MatchedIndexes)
-		}
+	hay := make([]string, len(m.tmuxAll))
+	for i, s := range m.tmuxAll {
+		hay[i] = m.tmuxSearchText(s)
 	}
+	m.tmuxRows, m.tmuxMatched = applyFindQuery(parseFindQuery(m.tmuxInput.Value()), hay)
 	m.fuzzySel = clamp(m.fuzzySel, 0, max(0, len(m.tmuxRows)-1))
 	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.tmuxRows)-m.fuzzyVisibleRows()))
 }

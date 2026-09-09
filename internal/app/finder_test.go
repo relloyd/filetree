@@ -512,6 +512,112 @@ func TestFindQueryNarrowsContentHits(t *testing.T) {
 	}
 }
 
+// Find !term is a case-insensitive path substring exclude, not a fuzzy invert.
+func TestFindExcludeNarrowsContentHits(t *testing.T) {
+	m := finderModel()
+	m.grepInput.SetValue("spanner-instance")
+	m.addGrepHits(hits(
+		"env/prod/spanner-instance.tf",
+		"env/nonprod/spanner-instance.tf",
+		"env/sandbox/spanner-instance.tf",
+	))
+
+	m.input.SetValue("!nonprod")
+	m.refuzzy()
+	if got := contentPaths(m); !slices.Equal(got, []string{
+		"env/prod/spanner-instance.tf",
+		"env/sandbox/spanner-instance.tf",
+	}) {
+		t.Errorf("!nonprod = %v", got)
+	}
+
+	m.input.SetValue("!nonprod !sandbox")
+	m.refuzzy()
+	if got := contentPaths(m); !slices.Equal(got, []string{
+		"env/prod/spanner-instance.tf",
+	}) {
+		t.Errorf("!nonprod !sandbox = %v", got)
+	}
+
+	// Fuzzy include plus exclude: nonprod still drops even though it
+	// subsequence-matches "prod".
+	m.input.SetValue("prod !nonprod")
+	m.refuzzy()
+	if got := contentPaths(m); !slices.Equal(got, []string{
+		"env/prod/spanner-instance.tf",
+	}) {
+		t.Errorf("prod !nonprod = %v", got)
+	}
+}
+
+func contentPaths(m *Model) []string {
+	out := make([]string, m.finderLen())
+	for i := range out {
+		out[i] = m.finderPath(i)
+	}
+	return out
+}
+
+// Exclude-only Find keeps walk order and drops matching paths.
+func TestFindExcludeBrowseOrder(t *testing.T) {
+	m := finderModel()
+	m.fuzzyCands = []string{
+		"infra/prod/foo.tf",
+		"infra/nonprod/foo.tf",
+		"infra/stage/foo.tf",
+	}
+	m.input.SetValue("!nonprod")
+	m.refuzzy()
+	if got := strsOf(m.fuzzyMatches); !slices.Equal(got, []string{
+		"infra/prod/foo.tf",
+		"infra/stage/foo.tf",
+	}) {
+		t.Errorf("matches = %v", got)
+	}
+}
+
+// Extending an exclude token widens the list; prefix-narrowing would hide
+// the row that no longer contains the longer substring.
+func TestExcludePrefixDoesNotNarrow(t *testing.T) {
+	m := finderModel()
+	m.fuzzyCands = []string{
+		"infra/non/foo.tf",
+		"infra/nonprod/foo.tf",
+		"infra/prod/foo.tf",
+	}
+	m.input.SetValue("!non")
+	m.refuzzy()
+	if got := strsOf(m.fuzzyMatches); !slices.Equal(got, []string{"infra/prod/foo.tf"}) {
+		t.Fatalf("!non = %v, want only prod", got)
+	}
+	m.input.SetValue("!nonp")
+	m.refuzzy()
+	if got := strsOf(m.fuzzyMatches); !slices.Equal(got, []string{
+		"infra/non/foo.tf",
+		"infra/prod/foo.tf",
+	}) {
+		t.Errorf("!nonp = %v, want non and prod", got)
+	}
+}
+
+// Excluded paths do not fill the browse cap, so a prefix of matching noise
+// cannot hide later survivors.
+func TestExcludeDoesNotCountTowardBrowseCap(t *testing.T) {
+	m := finderModel()
+	m.cfg.General.FuzzyMaxMatches = 2
+	m.input.SetValue("!nonprod")
+	m.addFuzzyCands([]string{
+		"nonprod/a.tf", "nonprod/b.tf", "nonprod/c.tf",
+		"prod/a.tf", "prod/b.tf", "prod/c.tf",
+	})
+	if got := strsOf(m.fuzzyMatches); !slices.Equal(got, []string{"prod/a.tf", "prod/b.tf"}) {
+		t.Errorf("matches = %v, want the first two survivors", got)
+	}
+	if !m.finderCapped() {
+		t.Error("three survivors under a cap of 2 should report capped")
+	}
+}
+
 // Enter acts on the file; the line number is context for choosing, not a
 // destination.
 func TestFinderPathUsesContentHits(t *testing.T) {

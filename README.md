@@ -431,7 +431,11 @@ no second column worth the space — the tree search and the recently-opened lis
 ### Find
 
 **`Find`** matches fuzzy subsequences, not regexps; include `/` in the query
-to constrain by path segments. Navigate results with `↑`/`↓`
+to constrain by path segments. Whitespace tokens that start with `!` **exclude**
+paths containing that substring (case-insensitive, not fuzzy — a fuzzy invert
+of `nonprod` would drop almost everything). Several `!` tokens all apply, so
+`!nonprod !sandbox` keeps rows containing neither; leftover tokens stay one
+fuzzy include (`spanner !nonprod`). Navigate results with `↑`/`↓`
 (`ctrl+p`/`ctrl+n`), half-page with `ctrl+u`/`ctrl+d`, or the mouse wheel;
 the list scrolls with the selection and shows a `12/1000` position counter
 (`…` while the walk is still running, `+` if it stopped at the candidate cap).
@@ -447,8 +451,10 @@ in order, so `/` + cursor keys doubles as a quick jump list.
 `ft` that needs `rg` installed. Together the two fields are the `fd … | rg …`
 combination: `Type: hcl` + `Grep: dependency "` finds every `terragrunt.hcl`
 containing a dependency block. Result rows become `path:line  matched text`,
-and `Find` narrows them further by path. Enter still jumps to the **file** in
-the tree — the line number is there to help you choose, not to open at. The
+and `Find` narrows them further by path, including `!term` excludes — Grep
+`spanner-instance` then Find `!nonprod` hides the nonprod hits. Enter still
+jumps to the **file** in the tree — the line number is there to help you
+choose, not to open at. The
 search respects the hidden and gitignored toggles, is debounced so a
 half-typed regexp is never run, and takes at most 5 matches from any one file
 (`fuzzy_grep_max_per_file`, passed straight through as ripgrep's

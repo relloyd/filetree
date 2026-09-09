@@ -90,6 +90,15 @@ func TestTmuxRowsFilter(t *testing.T) {
 	if len(m.tmuxRows) != 0 {
 		t.Errorf("got %d rows for a query that matches nothing", len(m.tmuxRows))
 	}
+
+	m.tmuxInput.SetValue("!copilot")
+	m.rebuildTmuxRows()
+	if len(m.tmuxRows) != 2 {
+		t.Fatalf("!copilot = %d rows, want 2", len(m.tmuxRows))
+	}
+	if s, _ := m.tmuxRow(0); !strings.Contains(s.Name, "claude") {
+		t.Errorf("row 0 = %q, want a claude session", s.Name)
+	}
 }
 
 // finderLen/finderPath/finderAbs are what the shared finder machinery reads;

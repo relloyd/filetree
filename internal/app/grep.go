@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/sahilm/fuzzy"
 
 	"github.com/relloyd/filetree/internal/config"
 	"github.com/relloyd/filetree/internal/search"
@@ -185,22 +184,13 @@ func (m *Model) finderCapped() bool {
 
 // rebuildGrepRows applies the Find query on top of the content hits: the Type
 // filter picks the files, the pattern picks the lines, and the query narrows
-// which of them are shown — the fd-then-rg combination on one screen.
+// which of them are shown — including !term path excludes.
 func (m *Model) rebuildGrepRows() {
-	m.grepRows = m.grepRows[:0]
-	if q := m.input.Value(); q == "" {
-		for i := range m.grepHits {
-			m.grepRows = append(m.grepRows, i)
-		}
-	} else {
-		paths := make([]string, len(m.grepHits))
-		for i, h := range m.grepHits {
-			paths[i] = h.Path
-		}
-		for _, mt := range fuzzy.Find(q, paths) {
-			m.grepRows = append(m.grepRows, mt.Index)
-		}
+	paths := make([]string, len(m.grepHits))
+	for i, h := range m.grepHits {
+		paths[i] = h.Path
 	}
+	m.grepRows, _ = applyFindQuery(parseFindQuery(m.input.Value()), paths)
 	m.fuzzySel = clamp(m.fuzzySel, 0, max(0, len(m.grepRows)-1))
 	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.grepRows)-m.fuzzyVisibleRows()))
 	m.applyResumeTarget()

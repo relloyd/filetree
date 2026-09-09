@@ -573,17 +573,14 @@ func (m *Model) addFuzzyCands(chunk []string) {
 		return
 	}
 	m.fuzzyCands = append(m.fuzzyCands, chunk...)
-	q := m.input.Value()
-	if q == "" {
-		// Browse order: the candidate order itself. Only a screenful is ever
-		// needed, so stop building the list once it is past the limit.
-		if limit := m.fuzzyLimit(); len(m.fuzzyAll) < limit {
-			for _, c := range chunk[:min(len(chunk), limit-len(m.fuzzyAll))] {
-				m.fuzzyAll = append(m.fuzzyAll, fuzzy.Match{Str: c})
-			}
-		}
+	q := parseFindQuery(m.input.Value())
+	if q.include == "" {
+		// Browse / exclude-only: candidate order, skipping excluded paths.
+		// One extra past the limit is kept so applyFuzzyLimit can see that
+		// survivors were dropped; excluded paths do not count toward it.
+		m.fuzzyAll = appendBrowse(m.fuzzyAll, chunk, q, m.fuzzyLimit())
 	} else {
-		m.fuzzyAll = rerankMatches(q, append(m.fuzzyAll, fuzzy.Find(q, chunk)...), m.fuzzyVisible)
+		m.fuzzyAll = rerankMatches(q.include, append(m.fuzzyAll, fuzzy.Find(q.include, excludeFiltered(chunk, q))...), m.fuzzyVisible)
 	}
 	m.applyFuzzyLimit()
 }
@@ -606,29 +603,30 @@ func (m *Model) refuzzy() {
 		m.fuzzySel, m.fuzzyScroll = 0, 0
 		return
 	}
-	q, prev := m.input.Value(), m.fuzzyQuery
-	m.fuzzyQuery = q
+	raw, prev := m.input.Value(), m.fuzzyQuery
+	m.fuzzyQuery = raw
+	q := parseFindQuery(raw)
 	if m.grepping() {
 		// In content mode the query narrows the hits ripgrep found, not the
 		// candidate list.
 		m.rebuildGrepRows()
 		return
 	}
+	// Prefix-narrowing is only valid for subsequence includes: extending
+	// "!non" to "!nonp" widens the list, and a previous match set would
+	// never give those rows back.
+	canNarrow := q.include != "" && len(q.exclude) == 0 && prev != "" && strings.HasPrefix(raw, prev)
 	switch {
-	case q == "":
-		n := min(m.fuzzyLimit(), len(m.fuzzyCands))
-		m.fuzzyAll = make([]fuzzy.Match, n)
-		for i := range n {
-			m.fuzzyAll[i] = fuzzy.Match{Str: m.fuzzyCands[i]}
-		}
-	case prev != "" && strings.HasPrefix(q, prev):
+	case q.include == "":
+		m.fuzzyAll = appendBrowse(nil, m.fuzzyCands, q, m.fuzzyLimit())
+	case canNarrow:
 		pool := make([]string, len(m.fuzzyAll))
 		for i, mt := range m.fuzzyAll {
 			pool[i] = mt.Str
 		}
-		m.fuzzyAll = rerankMatches(q, fuzzy.Find(q, pool), m.fuzzyVisible)
+		m.fuzzyAll = rerankMatches(q.include, fuzzy.Find(q.include, pool), m.fuzzyVisible)
 	default:
-		m.fuzzyAll = rerankMatches(q, fuzzy.Find(q, m.fuzzyCands), m.fuzzyVisible)
+		m.fuzzyAll = rerankMatches(q.include, fuzzy.Find(q.include, excludeFiltered(m.fuzzyCands, q)), m.fuzzyVisible)
 	}
 	m.applyFuzzyLimit()
 	m.fuzzySel, m.fuzzyScroll = 0, 0
@@ -643,10 +641,10 @@ func (m *Model) applyFuzzyLimit() {
 	} else {
 		m.fuzzyMatches = m.fuzzyAll
 	}
-	// With an empty query addFuzzyCands stops building fuzzyAll at the limit,
-	// so the candidate count is what says whether anything was left out.
-	m.fuzzyCapped = len(m.fuzzyAll) > limit ||
-		(m.input.Value() == "" && len(m.fuzzyCands) > limit)
+	// Browse / exclude-only keep one extra past the limit in fuzzyAll so this
+	// comparison sees that survivors were dropped. Excluded paths never enter
+	// fuzzyAll, so a list of 50 cands with 49 excluded is not reported capped.
+	m.fuzzyCapped = len(m.fuzzyAll) > limit
 	m.fuzzySel = clamp(m.fuzzySel, 0, max(0, len(m.fuzzyMatches)-1))
 	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.fuzzyMatches)-m.fuzzyVisibleRows()))
 	m.applyResumeTarget()
@@ -793,6 +791,65 @@ func (m *Model) applyResumeTarget() {
 		m.resumeWant = finderPick{}
 		return
 	}
+}
+
+// excludeFiltered returns the paths in cands that no exclude token drops.
+// The include, if any, is applied by the caller via fuzzy.Find.
+func excludeFiltered(cands []string, q findQuery) []string {
+	if len(q.exclude) == 0 {
+		return cands
+	}
+	out := make([]string, 0, len(cands))
+	for _, c := range cands {
+		if !q.excluded(c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// appendBrowse adds non-excluded paths in candidate order. It stops once dst
+// has more than limit entries: the extra is what lets applyFuzzyLimit report
+// the cap, and excluded paths do not count toward it.
+func appendBrowse(dst []fuzzy.Match, cands []string, q findQuery, limit int) []fuzzy.Match {
+	if len(dst) > limit {
+		return dst
+	}
+	for _, c := range cands {
+		if q.excluded(c) {
+			continue
+		}
+		dst = append(dst, fuzzy.Match{Str: c})
+		if len(dst) > limit {
+			break
+		}
+	}
+	return dst
+}
+
+// applyFindQuery returns the indexes into hay that survive q, in display
+// order, plus the fuzzy match positions when there is an include. Excludes
+// run first so a path that fuzzy-matches the include but contains an exclude
+// string is still dropped.
+func applyFindQuery(q findQuery, hay []string) (idxs []int, matched [][]int) {
+	kept := make([]string, 0, len(hay))
+	orig := make([]int, 0, len(hay))
+	for i, s := range hay {
+		if q.excluded(s) {
+			continue
+		}
+		kept = append(kept, s)
+		orig = append(orig, i)
+	}
+	if q.include == "" {
+		matched = make([][]int, len(orig))
+		return orig, matched
+	}
+	for _, mt := range fuzzy.Find(q.include, kept) {
+		idxs = append(idxs, orig[mt.Index])
+		matched = append(matched, mt.MatchedIndexes)
+	}
+	return idxs, matched
 }
 
 // rerankMatches orders fuzzy matches in two tiers: entries visible in the
