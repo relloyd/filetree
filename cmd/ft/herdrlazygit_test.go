@@ -160,11 +160,106 @@ func TestLazygitDoesNotCrossCheckouts(t *testing.T) {
 	all, _ := c.Panes()
 
 	scoped := inScope(all, herdr.ScopeFor(tree, tree), "", "")
-	if got := shellIDs(running(c, scoped, lazygitBin)); len(got) != 0 {
+	if got := shellIDs(running(c, scoped, lazygit.matches)); len(got) != 0 {
 		t.Errorf("running(lazygit) in the worktree = %v, want nothing from the main checkout", got)
 	}
 	scoped = inScope(all, herdr.ScopeFor(main, main), "", "")
-	if got := shellIDs(running(c, scoped, lazygitBin)); !equal(got, []string{"w1:p1"}) {
+	if got := shellIDs(running(c, scoped, lazygit.matches)); !equal(got, []string{"w1:p1"}) {
 		t.Errorf("running(lazygit) in the main checkout = %v, want w1:p1", got)
+	}
+}
+
+// The two lazygit keys share a binary, so each has to claim only its own panes.
+// Without that, the repository key would hand you somebody's blame view and the
+// blame key would hand you the repository.
+func TestLazygitAndBlameDoNotClaimEachOther(t *testing.T) {
+	const alpha, beta = "/repo/alpha.go", "/repo/beta.go"
+
+	plainPane := herdr.ProcessInfo{Foreground: []herdr.Process{
+		{Argv0: "lazygit", Argv: []string{"lazygit"}},
+	}}
+	alphaPane := herdr.ProcessInfo{Foreground: []herdr.Process{
+		{Argv0: "lazygit", Argv: []string{"lazygit", "-f", alpha}},
+	}}
+
+	tests := []struct {
+		name string
+		got  bool
+		want bool
+	}{
+		{"the repository key takes the plain one", lazygit.matches(plainPane), true},
+		{"and leaves a blame view alone", lazygit.matches(alphaPane), false},
+		{"the blame key takes its own file", blame(alpha).matches(alphaPane), true},
+		{"and leaves the repository alone", blame(alpha).matches(plainPane), false},
+		{"and another file's history alone", blame(beta).matches(alphaPane), false},
+	}
+	for _, tc := range tests {
+		if tc.got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// One tab per file, named so several of them can be told apart in a tab strip.
+func TestBlameProgramShape(t *testing.T) {
+	p := blame("/repo/internal/app/view.go")
+	if p.Argv0 != "lazygit" {
+		t.Errorf("Argv0 = %q, want lazygit", p.Argv0)
+	}
+	if p.label() != "blame view.go" {
+		t.Errorf("label = %q, want the file it is showing", p.label())
+	}
+	if got := p.Command(nil); got != "lazygit -f /repo/internal/app/view.go" {
+		t.Errorf("Command = %q, want lazygit pointed at the file", got)
+	}
+	if p.Reuse != nil {
+		t.Error("Reuse is set; one already open for this file is already showing it")
+	}
+	if !p.NeedsRepo {
+		t.Error("NeedsRepo = false; a file outside a checkout has no history to show")
+	}
+
+	// A path with a space has to survive reaching a shell as one argument.
+	if got := blame("/repo/my file.go").Command(nil); got != `lazygit -f '/repo/my file.go'` {
+		t.Errorf("Command = %q, want the path quoted", got)
+	}
+}
+
+func TestHerdrBlameArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"the subcommand form", []string{"herdr-blame", "/a", "/a/x.go"}, true},
+		{"a directory of that name still opens a tree", []string{"herdr-blame"}, false},
+		{"a directory with no file to show", []string{"herdr-blame", "/a"}, false},
+		{"too many arguments", []string{"herdr-blame", "/a", "/a/x.go", "/a/y.go"}, false},
+		{"something else entirely", []string{"jump", "/a", "/a/x.go"}, false},
+	}
+	for _, tc := range tests {
+		if got := herdrBlameArgs(tc.args); got != tc.want {
+			t.Errorf("%s: herdrBlameArgs(%v) = %v, want %v", tc.name, tc.args, got, tc.want)
+		}
+	}
+}
+
+// Like the repository key, it refuses before touching herdr so a machine with no
+// server still gets the useful message.
+func TestBlameRefusesOutsideACheckout(t *testing.T) {
+	base, err := os.MkdirTemp("/tmp", "ftbl")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	loose := filepath.Join(base, "loose")
+	if err := os.MkdirAll(loose, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(base, "absent.sock"))
+
+	err = runHerdrBlame([]string{loose, filepath.Join(loose, "x.go")})
+	if err == nil || !strings.Contains(err.Error(), "needs a git repo") {
+		t.Errorf("error = %v, want a refusal naming the reason", err)
 	}
 }

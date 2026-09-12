@@ -253,3 +253,38 @@ func TestHerdrEditUsesMarks(t *testing.T) {
 		t.Error("UsesMarks = false; the key would not consume the marks it acted on")
 	}
 }
+
+// The blame key needs both the directory and the file, and they are different
+// arguments: the directory decides which workspace answers, the file decides
+// what to show. On a finder row they can be in different checkouts entirely.
+func TestHerdrBlameCarriesDirAndFile(t *testing.T) {
+	got := runFTCommand(t, "herdr-blame", Vars{
+		Path: "/repo/internal/my file.go",
+		Dir:  "/repo/internal",
+		Root: "/repo",
+	})
+	want := []string{"herdr-blame", "/repo/internal", "/repo/internal/my file.go"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("ft got %q, want %q", got, want)
+	}
+}
+
+// It acts on the cursor, never on the marked set: one file has one history, and
+// {paths} would hand it several.
+func TestHerdrBlameIgnoresMarks(t *testing.T) {
+	c := Default().Commands["herdr-blame"]
+	if UsesMarks(c.Run) {
+		t.Error("UsesMarks = true; blame shows one file, so marks would be meaningless")
+	}
+	got := runFTCommand(t, "herdr-blame", Vars{
+		Path:   "/repo/one.go",
+		Paths:  []string{"/repo/one.go", "/repo/two.go"},
+		Marked: []string{"/repo/one.go", "/repo/two.go"},
+		Dir:    "/repo",
+		Root:   "/repo",
+	})
+	want := []string{"herdr-blame", "/repo", "/repo/one.go"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("ft got %q, want %q — the marks should not reach it", got, want)
+	}
+}

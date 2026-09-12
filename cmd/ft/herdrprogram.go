@@ -18,10 +18,21 @@ import (
 // and reports. Only the three fields below change, so they are the only thing
 // each key has to say.
 type program struct {
-	// Argv0 is how the program appears in a pane's process list, and the label a
-	// tab opened for it is given. It is matched against argv0 rather than the
-	// process name on purpose — see herdr.ProcessInfo.Runs.
+	// Argv0 is how the program appears in a pane's process list. It is matched
+	// against argv0 rather than the process name on purpose — see
+	// herdr.ProcessInfo.Runs.
 	Argv0 string
+
+	// Label is what a tab opened for it is called, and defaults to Argv0. Two
+	// keys can share a binary and still want different labels: "lazygit" and
+	// "blame view.go" are both lazygit.
+	Label string
+
+	// Match decides whether a pane is this program's, and defaults to running
+	// Argv0 at all. A key whose binary is also another key's needs more than
+	// the name — see lazygit and its blame view, which differ only by the
+	// arguments they were started with.
+	Match func(info herdr.ProcessInfo) bool
 
 	// Command builds the shell command that starts it, from the paths the key
 	// was given. A program that takes no paths ignores them.
@@ -72,7 +83,7 @@ func runHerdrProgram(p program, dir string, paths []string) error {
 	self, _ := herdr.Inside()
 	scoped := inScope(panes, scope, self.Pane, home)
 
-	if pane, ok := herdr.Pick(running(c, scoped, p.Argv0), dir, scope, self.Tab); ok {
+	if pane, ok := herdr.Pick(running(c, scoped, p.matches), dir, scope, self.Tab); ok {
 		verb := "focused"
 		if p.Reuse != nil {
 			if err := p.Reuse(c, pane.PaneID, paths); err != nil {
@@ -83,12 +94,12 @@ func runHerdrProgram(p program, dir string, paths []string) error {
 		if err := c.FocusPane(pane.PaneID); err != nil {
 			return err
 		}
-		nameTab(c, pane.TabID, p.Argv0)
+		nameTab(c, pane.TabID, p.label())
 		report(verb, pane.PaneID, scope, pane.Dir, false)
 		return nil
 	}
 
-	pane, tab, err := newPane(c, scoped, scope, self, dir, p.Argv0)
+	pane, tab, err := newPane(c, scoped, scope, self, dir, p.label())
 	if err != nil {
 		return err
 	}
@@ -104,18 +115,35 @@ func runHerdrProgram(p program, dir string, paths []string) error {
 	if err := c.SendInput(pane, p.Command(paths), []string{"enter"}); err != nil {
 		return err
 	}
-	nameTab(c, tab, p.Argv0)
+	nameTab(c, tab, p.label())
 	report("opened in", pane, scope, dir, false)
 	return nil
 }
 
-// running narrows scoped panes to the ones running argv0.
+// label is what this program's tab is called: its own, or the program's name.
+func (p program) label() string {
+	if p.Label != "" {
+		return p.Label
+	}
+	return p.Argv0
+}
+
+// matches reports whether a pane is running this program. A key that does not
+// say otherwise claims any pane running its binary.
+func (p program) matches(info herdr.ProcessInfo) bool {
+	if p.Match != nil {
+		return p.Match(info)
+	}
+	return info.Runs(p.Argv0)
+}
+
+// running narrows scoped panes to the ones a program claims.
 //
 // The mirror of atPrompt, which wants panes with nothing on top of the shell
 // where this wants the pane with something particular on top. Both pay one
 // pane.process_info call per candidate, and only for panes already known to be
 // in the right place.
-func running(c *herdr.Client, scoped []scopedPane, argv0 string) []herdr.Shell {
+func running(c *herdr.Client, scoped []scopedPane, match func(herdr.ProcessInfo) bool) []herdr.Shell {
 	var out []herdr.Shell
 	for _, s := range scoped {
 		// An agent pane is never one of these, and asking saves a round trip.
@@ -123,7 +151,7 @@ func running(c *herdr.Client, scoped []scopedPane, argv0 string) []herdr.Shell {
 			continue
 		}
 		info, err := c.ProcessInfo(s.pane.ID)
-		if err != nil || !info.Runs(argv0) {
+		if err != nil || !match(info) {
 			continue
 		}
 		out = append(out, herdr.Shell{

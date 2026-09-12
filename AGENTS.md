@@ -116,8 +116,14 @@ Design rules that keep this maintainable:
   or create, name the tab, report. A key says only what to look for (`Argv0`),
   what to run (`Command`), what to say to one already running (`Reuse`, nil when
   there is nothing to say) and whether it needs a checkout. `herdredit.go` and
-  `herdrlazygit.go` are what that looks like. Resist adding a fourth by copying
+  `herdrlazygit.go` are what that looks like. Resist adding a fifth by copying
   the body.
+- **Two keys sharing a binary must each claim only their own panes.** `alt+g` runs
+  `lazygit` and `ctrl+g` runs `lazygit -f <file>`; to `Runs` they are the same
+  program, so each would answer for the other. `program.Match` is the hook, and
+  `RunsWith`/`RunsWithout` are what it is built from — matching the arguments a
+  pane was started with, which is also what gives blame one tab per file. Give
+  such a key a `Label` too, or its tabs all carry the binary's name.
 - **The multi-step herdr work is a subcommand, not a template.** `J` runs
   `ft herdr-shell {dir}`, the same shape as `ft jump`. Choosing between the open
   shells takes a pane list, a process check per candidate and a ranking; in a

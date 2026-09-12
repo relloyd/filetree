@@ -272,3 +272,39 @@ func TestShippedKeysDoNotClash(t *testing.T) {
 		}
 	}
 }
+
+// A command may take "ctrl+g", which the finder also uses for raising the match
+// limit, because the finder answers its own keys before m.bindings is consulted
+// — the same arrangement that lets a command own "tab".
+//
+// It is worth pinning because it is invisible from either side. Adding
+// "finder-more" to the actions map in buildBindings would shadow the tree
+// binding with no conflict reported, and the key would quietly stop working in
+// the tree while still working in the finder.
+func TestACommandCanOwnCtrlG(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.cfg.Commands = map[string]config.Command{}
+	for _, c := range config.Builtin {
+		m.cfg.Commands[c.Name] = c
+	}
+	m.buildBindings()
+
+	if got := m.actionKeys["finder-more"]; got != "ctrl+g" {
+		t.Fatalf("finder-more = %q, want ctrl+g; this test is about that overlap", got)
+	}
+	if got := m.actionKeys["herdr-blame"]; got != "ctrl+g" {
+		t.Fatalf("herdr-blame = %q, want ctrl+g", got)
+	}
+	if len(m.keyConflicts) != 0 {
+		t.Errorf("the overlap was reported as a clash: %v", m.keyConflicts)
+	}
+	// The tree has to reach the command.
+	if _, ok := m.bindings["ctrl+g"]; !ok {
+		t.Error("ctrl+g is not bound in the main view, so the tree key does nothing")
+	}
+	// And the finder has to keep its own meaning: finder-more is handled inside
+	// the modeFuzzy switch, so it must never appear in m.finderCmds either.
+	if name, taken := m.finderCmds["ctrl+g"]; taken {
+		t.Errorf("ctrl+g went to commands.%s in the finder, want the finder to keep it", name)
+	}
+}

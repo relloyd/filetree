@@ -36,7 +36,7 @@ func TestRunningFindsHelixAndNothingElse(t *testing.T) {
 	all, _ := c.Panes()
 	scoped := inScope(all, herdr.ScopeFor(repo, repo), "", "")
 
-	got := shellIDs(running(c, scoped, editor))
+	got := shellIDs(running(c, scoped, helix.matches))
 	if !equal(got, []string{"w1:p2"}) {
 		t.Errorf("running(hx) = %v, want just the helix pane", got)
 	}
@@ -66,7 +66,7 @@ func TestRunningSeesPastAWrapper(t *testing.T) {
 	c := herdr.New(sock)
 	all, _ := c.Panes()
 	scoped := inScope(all, herdr.ScopeFor(repo, repo), "", "")
-	if got := shellIDs(running(c, scoped, editor)); !equal(got, []string{"w1:p1"}) {
+	if got := shellIDs(running(c, scoped, helix.matches)); !equal(got, []string{"w1:p1"}) {
 		t.Errorf("running(hx) = %v, want the pane despite the wrapper and the rename", got)
 	}
 }

@@ -463,3 +463,46 @@ func TestSendKeysTextAndInput(t *testing.T) {
 		t.Errorf("send_input params = %+v, want the text and one enter", params)
 	}
 }
+
+// Two keys can want the same binary for different jobs, and the only thing
+// telling their panes apart is what each was started with.
+//
+// The fixtures are real: captured from a herdr server running both forms of
+// lazygit. Note the transient git subprocess alongside each one, which is why
+// the match scans for the binary rather than trusting a position in the list.
+func TestRunsWithAndWithout(t *testing.T) {
+	plain := ProcessInfo{
+		ShellPID: 10, ForegroundPGID: 20,
+		Foreground: []Process{
+			{Argv0: "git", Argv: []string{"git", "--version"}},
+			{Argv0: "lazygit", Argv: []string{"lazygit"}},
+		},
+	}
+	alpha := ProcessInfo{
+		ShellPID: 10, ForegroundPGID: 20,
+		Foreground: []Process{
+			{Argv0: "git", Argv: []string{"git", "-C", "/repo", "rev-parse"}},
+			{Argv0: "lazygit", Argv: []string{"lazygit", "-f", "/repo/alpha.txt"}},
+		},
+	}
+
+	tests := []struct {
+		name string
+		got  bool
+		want bool
+	}{
+		{"the plain form is the one with no file", plain.RunsWithout("lazygit", "-f"), true},
+		{"and is not any file's history", plain.RunsWith("lazygit", "-f", "/repo/alpha.txt"), false},
+		{"a file's history is found by its own path", alpha.RunsWith("lazygit", "-f", "/repo/alpha.txt"), true},
+		{"never by another file's", alpha.RunsWith("lazygit", "-f", "/repo/beta.txt"), false},
+		{"and never answers for the whole repository", alpha.RunsWithout("lazygit", "-f"), false},
+		{"both are still lazygit to a plain name match", alpha.Runs("lazygit") && plain.Runs("lazygit"), true},
+		{"a binary that is not there matches nothing", alpha.RunsWith("hx", "-f"), false},
+		{"nor does an empty name", alpha.RunsWith("", "-f"), false},
+	}
+	for _, tc := range tests {
+		if tc.got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, tc.got, tc.want)
+		}
+	}
+}

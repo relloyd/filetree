@@ -1,6 +1,9 @@
 package herdr
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"slices"
+)
 
 // Pane is one herdr pane, as pane.list reports it. Only the fields ft actually
 // decides on are named; herdr sends a good deal more.
@@ -38,10 +41,11 @@ func (p Pane) Cwd() string {
 // Argv0 is how it was invoked; Name is what it calls itself now, and the two
 // part company more often than you would think — see Runs.
 type Process struct {
-	Name  string `json:"name"`
-	Argv0 string `json:"argv0"`
-	PID   int    `json:"pid"`
-	Dir   string `json:"cwd"`
+	Name  string   `json:"name"`
+	Argv0 string   `json:"argv0"`
+	Argv  []string `json:"argv"`
+	PID   int      `json:"pid"`
+	Dir   string   `json:"cwd"`
 }
 
 // ProcessInfo is what pane.process_info reports: the pane's login shell and
@@ -83,15 +87,57 @@ func (p ProcessInfo) AtPrompt() bool {
 // lists caffeinate *ahead* of it, so taking the first entry would find the
 // wrapper and miss the program entirely.
 func (p ProcessInfo) Runs(argv0 string) bool {
-	if argv0 == "" {
+	return p.find(argv0) != nil
+}
+
+// RunsWith is Runs for a program told to do something in particular: it also
+// requires every one of args among the arguments it was started with.
+//
+// It exists because two keys can want the same binary for different jobs.
+// lazygit shows a repository, and "lazygit -f <file>" shows one file's history;
+// they are the same program to Runs, so without this the key for one would
+// answer for the other. Matching the arguments keeps them apart, and keeps a
+// file's history from being reused for a different file.
+func (p ProcessInfo) RunsWith(argv0 string, args ...string) bool {
+	proc := p.find(argv0)
+	if proc == nil {
 		return false
 	}
-	for _, proc := range p.Foreground {
-		if proc.Argv0 == argv0 || proc.Name == argv0 {
-			return true
+	for _, want := range args {
+		if !slices.Contains(proc.Argv, want) {
+			return false
 		}
 	}
-	return false
+	return true
+}
+
+// RunsWithout is Runs for a program told to do nothing in particular: it
+// requires that none of args appear, which is how the plain form of a program is
+// told from a specialised one.
+func (p ProcessInfo) RunsWithout(argv0 string, args ...string) bool {
+	proc := p.find(argv0)
+	if proc == nil {
+		return false
+	}
+	for _, unwanted := range args {
+		if slices.Contains(proc.Argv, unwanted) {
+			return false
+		}
+	}
+	return true
+}
+
+// find is the foreground process invoked as argv0, or nil.
+func (p ProcessInfo) find(argv0 string) *Process {
+	if argv0 == "" {
+		return nil
+	}
+	for i, proc := range p.Foreground {
+		if proc.Argv0 == argv0 || proc.Name == argv0 {
+			return &p.Foreground[i]
+		}
+	}
+	return nil
 }
 
 // Panes lists every pane on the server, across all workspaces.

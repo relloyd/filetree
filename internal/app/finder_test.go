@@ -1402,7 +1402,12 @@ func TestRaiseInContentModeResearches(t *testing.T) {
 // ctrl+g is remappable like the other finder-local keys, and never leaks into
 // normal mode where it would shadow a command key.
 func TestFinderMoreIsFinderLocal(t *testing.T) {
+	// No commands, so that the only thing that could put ctrl+g in the
+	// normal-mode table is finder-more itself. A command is allowed to take the
+	// key — the finder answers its own keys first, and herdr-blame ships on it —
+	// so testing against the full catalogue would be testing that instead.
 	cfg := config.Default()
+	cfg.Commands = nil
 	m := &Model{cfg: cfg}
 	m.buildBindings()
 

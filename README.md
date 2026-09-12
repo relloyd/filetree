@@ -110,7 +110,7 @@ one surfaces as an error in the status bar rather than a failure to start.
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees, `alt+d` diffs | optional, but most of the git awareness is dark without it |
 | `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `alt+n`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
-| `herdr` ([herdr](https://herdr.dev)) | the `J`, `K` and `alt+g` hand-offs into herdr workspaces | optional; everything else works without it |
+| `herdr` ([herdr](https://herdr.dev)) | the `J`, `K`, `alt+g` and `ctrl+g` hand-offs into herdr workspaces | optional; everything else works without it |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L` (repo view) and `M` (file blame/log view), in popups over the window | optional |
@@ -160,6 +160,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `alt+s` | a plain named shell in the same scheme — for a dev server or a test watcher you want to find again |
 | `K` | open the selection (or marks) in the helix for this place in [herdr](#herdr) — reuses the editor you have, and takes you to it |
 | `alt+g` | lazygit for the selection's checkout in [herdr](#herdr) — reuses the one already open for it |
+| `ctrl+g` | the selected file's history in [herdr](#herdr) — lazygit filtered to that file, one tab per file |
 | `J` | a shell for the place under the cursor in [herdr](#herdr) — focuses one that is already open, opens one where there is none, and copies the selection's directory so you can `cd` if you land in a parent |
 | `T` | list the tmux sessions `ft` owns — agents, shells, popups and trees: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+x` kills it (asking first if it is attached elsewhere). Type a kind (`agent`, `shell`) to narrow the list; this tree is marked and refuses all three |
 
@@ -239,6 +240,7 @@ automatically, so they work out of the box.
 | `alt+n` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree — in a session named after the directory, so detaching from it and pressing the key again comes back to it |
 | `K` | `ctrl+r` | the herdr counterpart of `t`: open the selection — or everything marked — in the helix belonging to this place, wherever in herdr that is |
 | `alt+g` | | the herdr counterpart of `L`: lazygit for the checkout, in a tab of its own rather than a popup |
+| `ctrl+g` | | the herdr counterpart of `M`: lazygit filtered to the selected file's history |
 | `J` | | a shell for the place under the cursor in [herdr](#herdr) instead of tmux — focuses one that is already open, and otherwise opens one beside the tree, in the workspace that holds the code, or in a new workspace of its own |
 | `c` | | Claude Code in a named tmux session for the selection's repo and branch, in a popup — created on the first press, reattached on every one after |
 | `x` | | the same for the Copilot CLI |
@@ -490,14 +492,15 @@ panes, and either goes to the one it finds or makes somewhere for a new one:
 | `J` | your shell | going to it, with the selection's path on the clipboard |
 | `K` | helix | opening the files in it with `:open`, then going to it |
 | `alt+g` | lazygit | going to it, and nothing else |
+| `ctrl+g` | lazygit, on one file | going to that file's view, and nothing else |
 
 What "somewhere for a new one" means is the same for all three, and it is the
 [placement rule](#where-a-new-shell-goes) above. A tab any of them opens is named
 after the program, and so is the tab of one they reuse if it still carries the
 number herdr gave it.
 
-`J` and `K` work anywhere, in a checkout or a loose directory. `alt+g` refuses
-outside a checkout, because lazygit has nothing to show there.
+`J` and `K` work anywhere, in a checkout or a loose directory. `alt+g` and
+`ctrl+g` refuse outside a checkout, because lazygit has nothing to show there.
 
 #### `K`: the editor hand-off
 
@@ -550,6 +553,27 @@ it gets there differently: its template names a repo placeholder, and any comman
 whose template does is refused outside a repository. This one is asked directly,
 so that it agrees with the scoping about what counts as a checkout — including
 ignoring a repository that spans your whole home directory.
+
+#### `ctrl+g`: one file's history
+
+`ctrl+g` is to herdr what `M` is to tmux: lazygit filtered to the selected file,
+which is its blame and log view. One tab per file, the same as `M` keeps one
+session per file. Press it twice on the same file and you go back to the view you
+had; press it on another and that file gets its own, named after it so a tab
+strip with several stays readable.
+
+That works because the two lazygit keys are told apart by the arguments their
+panes are running with, not by the program's name. `lazygit` and `lazygit -f
+<file>` are the same binary, so without that, `alt+g` would hand you somebody's
+blame view and `ctrl+g` would hand you the whole repository. `alt+g` now claims
+only an instance started without a file, and `ctrl+g` only one started with the
+file you asked about.
+
+It acts on the cursor and ignores the marked set: one file has one history.
+
+`ctrl+g` is also the finder's key for raising the match limit, and both keep
+working. The finder answers its own keys before the tree's bindings are
+consulted, which is the same arrangement that lets a command own `tab`.
 
 #### Worktrees alongside herdr
 

@@ -284,6 +284,27 @@ esac
 		Key:  "alt+g",
 	},
 
+	// The herdr counterpart of "M": lazygit filtered to the selected file's
+	// history, in a tab of its own.
+	//
+	// One tab per file, which is what the tmux version does with its per-file
+	// session name. Pressing it twice on the same file returns to the view you
+	// had; pressing it on another gives that file its own. That falls out of
+	// matching on the arguments the pane is running with rather than on the
+	// binary alone — "lazygit" and "lazygit -f <file>" are the same program
+	// otherwise, and each key would keep answering for the other.
+	//
+	// {dir} and {path} both, because they answer different questions: the
+	// directory decides which workspace this belongs to, and the file decides
+	// what to show. On a finder row the two can be in different checkouts.
+	{
+		Name: "herdr-blame",
+		Desc: "this file's history in herdr",
+		Run:  `ft herdr-blame {dir} {path}`,
+		Mode: ModeBackground,
+		Key:  "ctrl+g",
+	},
+
 	// Prime a ripgrep at the selection's directory in a shell beside ft: the
 	// search path is filled in and the cursor waits where the pattern goes.
 	// Falls back to a fresh shell split at that directory.
