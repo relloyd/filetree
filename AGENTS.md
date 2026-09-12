@@ -59,6 +59,8 @@ internal/tmux/      every tmux invocation: the self-relaunch decision, the
                     server-wide pane list that jump routing needs
 internal/ipc/       the "ft jump <file>" socket: one listener per instance,
                     plus the pure routing that picks which instance answers
+internal/herdr/     every herdr call: the socket client, and the pure rule
+                    picking which open pane belongs to a checkout
 ```
 
 Design rules that keep this maintainable:
@@ -99,6 +101,57 @@ Design rules that keep this maintainable:
   `internal/tmux/exec.go`. It runs in `main` *after* root validation and config
   load, so startup errors print in the user's terminal instead of dying with
   the session they would have created.
+- `internal/herdr` owns every herdr call, the way `gitx` owns git: the pure half
+  (`pick.go` — which of the open shells answers for a checkout) is table-tested,
+  and the socket work lives alone in `herdr.go`. It speaks the socket directly
+  rather than shelling out to the `herdr` CLI, and that is not a preference:
+  focusing a *named* pane has no CLI form at all (`herdr pane focus` takes a
+  direction, and `herdr api` offers only snapshot and schema), while the socket
+  exposes `pane.focus` taking a pane id. Going straight to the socket also costs
+  no process spawn, which matters because one key press makes several calls.
+  Note `prutil/internal/herdr` shells out instead — fine there, because every
+  agent method it needs *does* have a CLI form.
+- **A new herdr key is a `program` value, not a new command.** `cmd/ft/herdrprogram.go`
+  holds the body all of them share: find the place, find the program in it, reuse
+  or create, name the tab, report. A key says only what to look for (`Argv0`),
+  what to run (`Command`), what to say to one already running (`Reuse`, nil when
+  there is nothing to say) and whether it needs a checkout. `herdredit.go` and
+  `herdrlazygit.go` are what that looks like. Resist adding a fourth by copying
+  the body.
+- **The multi-step herdr work is a subcommand, not a template.** `J` runs
+  `ft herdr-shell {dir}`, the same shape as `ft jump`. Choosing between the open
+  shells takes a pane list, a process check per candidate and a ranking; in a
+  `[commands]` template that would mean a `jq` dependency and no tests. Adding
+  more herdr keys should follow this: one line in the catalogue, the logic in Go.
+  Note the template passes `{dir}` alone and works the checkout out from it:
+  `config.NeedsRepo` refuses any template mentioning `{gitroot}` outside a
+  repository, and this key has to work in a loose directory too.
+- **Two herdr send methods, and picking the wrong one corrupts a file.**
+  `pane.send_input` honours the pane's bracketed-paste mode and arrives as a
+  *paste*; `pane.send_text` arrives as *typing*. A program that tells them apart
+  does completely different things with them. Sending `:open file` to helix via
+  send_input pastes the literal text into the buffer and leaves the file
+  modified, and nothing opens; via send_text the leading colon reaches helix's
+  command line. Verified against a real helix, not reasoned about. So: send_text
+  to drive a program's key handling, send_input to hand a command to a shell.
+  `TestOpenInTypesRatherThanPastes` is the guard — do not "simplify" those three
+  calls into one atomic send.
+- **Process identity comes from `argv0`, and the whole foreground list.**
+  `Name` is what a process calls itself *now*, and programs rename themselves:
+  a Claude pane reports Name `2.1.268` with Argv0 `claude`. The foreground group
+  can also hold more than one process, and the wrapper may be listed first — a
+  pane running Claude under caffeinate lists caffeinate ahead of it. Matching the
+  first entry by Name finds the wrapper and misses the program. See
+  `herdr.ProcessInfo.Runs`.
+- **`herdr.Scope` is the boundary, and it has two shapes.** Inside a checkout it
+  is the checkout root, which is the whole of the worktree-awareness. Outside
+  one it is the selection's own directory, and membership runs *both* ways —
+  a shell above the selection or below it. The upward direction is load-bearing:
+  without it, stepping one directory deeper puts the shell you just opened out of
+  scope and earns a second workspace for the same place. A repository spanning
+  the whole home directory is ignored as a boundary (`checkoutFor` in
+  `cmd/ft/herdrshell.go`), because dotfiles-in-`~` would otherwise make every
+  loose directory one enormous checkout.
 - `ft jump <file>` (internal/ipc) is the one way into a *running* ft from
   outside the process, and the only IPC there is. Each instance listens on
   `~/.filetree/run/<pid>.sock`; the jump command dials all of them, asks each

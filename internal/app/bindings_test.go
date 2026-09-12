@@ -239,3 +239,36 @@ func TestUnknownSettingsAreReported(t *testing.T) {
 		t.Errorf("status note = %q, want both counted", note)
 	}
 }
+
+// The shipped set has to be clash-free on its own, commands included.
+//
+// TestResolveActionKeysDefaultsAreConflictFree covers the actions, but commands
+// and actions share one key namespace, and nothing was checking that a command
+// arriving in the catalogue had not landed on a key something else already
+// held. A clash is not fatal — ft starts, says how many it found and lists them
+// in "?" — so a new command could take a key from an action and the only sign
+// would be a line in the help page nobody reads.
+func TestShippedKeysDoNotClash(t *testing.T) {
+	m := rootedModel(t, t.TempDir())
+	m.cfg.Commands = map[string]config.Command{}
+	for _, c := range config.Builtin {
+		m.cfg.Commands[c.Name] = c
+	}
+	m.cfg.Keys = nil
+	m.buildBindings()
+
+	if len(m.keyConflicts) != 0 {
+		t.Errorf("the shipped keys clash: %v", m.keyConflicts)
+	}
+
+	// And every command that ships with a key keeps it, which is the outcome a
+	// clash would otherwise quietly take away.
+	for _, c := range config.Builtin {
+		if c.Key == "" {
+			continue
+		}
+		if got := m.actionKeys[c.Name]; got != c.Key {
+			t.Errorf("%s bound to %q, want %q", c.Name, got, c.Key)
+		}
+	}
+}

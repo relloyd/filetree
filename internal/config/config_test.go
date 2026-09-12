@@ -884,3 +884,37 @@ func TestShellQuote(t *testing.T) {
 		}
 	}
 }
+
+// The herdr shell command works anywhere, and gets there through the ordinary
+// template machinery.
+//
+// NeedsRepo is the thing to watch: a template mentioning {gitroot} is refused
+// outside a repository, and this key has to work in a loose directory too. The
+// checkout is worked out from {dir} inside the subcommand instead, so adding
+// {gitroot} back here — an easy thing to do while editing — would silently take
+// the feature away everywhere except inside a repo.
+func TestHerdrShellWorksOutsideARepo(t *testing.T) {
+	var c Command
+	for _, b := range Builtin {
+		if b.Name == "herdr-shell" {
+			c = b
+			break
+		}
+	}
+	if c.Name == "" {
+		t.Fatal("herdr-shell is not in the catalogue")
+	}
+	if NeedsRepo(c.Run) {
+		t.Error("NeedsRepo = true, want false so it still runs outside a checkout")
+	}
+	if UsesMarks(c.Run) {
+		t.Error("UsesMarks = true; this acts on the selection, never on the marks")
+	}
+
+	// The directory is quoted, so a path with a space in it reaches the
+	// subcommand as one argument rather than two.
+	got := ExpandCommand(c.Run, Vars{Dir: "/r/my proj/internal"})
+	if want := `ft herdr-shell '/r/my proj/internal'`; got != want {
+		t.Errorf("ExpandCommand = %s, want %s", got, want)
+	}
+}

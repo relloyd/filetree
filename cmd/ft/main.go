@@ -23,7 +23,7 @@ import (
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: ft [-no-tmux] [dir]\n       ft bookmark <file> <line> [label]\n       ft jump <file>\n\nOpens a file tree for dir (default: current directory).\nThe other two forms act on this one and exit; both are meant to be bound in an\neditor, e.g. helix:\n  :sh ft bookmark %%{buffer_name} %%{cursor_line}   record a place for the \"B\" view\n  :sh ft jump %%{buffer_name}                      move a running tree's cursor\nConfig: ~/.filetree/config.toml   State: ~/.filetree/state/\n")
+		fmt.Fprintf(os.Stderr, "usage: ft [-no-tmux] [dir]\n       ft bookmark <file> <line> [label]\n       ft jump <file>\n       ft herdr-shell <dir>\n       ft herdr-edit <dir> <path>...\n       ft herdr-lazygit <dir>\n\nOpens a file tree for dir (default: current directory).\nThe other forms act on this one and exit. The first two are meant to be bound\nin an editor, e.g. helix:\n  :sh ft bookmark %%{buffer_name} %%{cursor_line}   record a place for the \"B\" view\n  :sh ft jump %%{buffer_name}                      move a running tree's cursor\nConfig: ~/.filetree/config.toml   State: ~/.filetree/state/\n")
 		flag.PrintDefaults()
 	}
 	noTmux := flag.Bool("no-tmux", false, "do not relaunch inside a new tmux session")
@@ -43,6 +43,20 @@ func main() {
 		dir, err := config.Dir()
 		fatalIf(err)
 		fatalIf(runJump(dir, flag.Args()[1:]))
+		return
+	}
+	// And again for the herdr shell command, which the catalogue runs against
+	// the selection rather than an editor running it against a buffer.
+	if herdrShellArgs(flag.Args()) {
+		fatalIf(runHerdrShell(flag.Args()[1:]))
+		return
+	}
+	if herdrEditArgs(flag.Args()) {
+		fatalIf(runHerdrEdit(flag.Args()[1:]))
+		return
+	}
+	if herdrLazygitArgs(flag.Args()) {
+		fatalIf(runHerdrLazygit(flag.Args()[1:]))
 		return
 	}
 

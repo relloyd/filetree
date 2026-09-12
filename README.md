@@ -110,6 +110,7 @@ one surfaces as an error in the status bar rather than a failure to start.
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees, `alt+d` diffs | optional, but most of the git awareness is dark without it |
 | `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `alt+n`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
+| `herdr` ([herdr](https://herdr.dev)) | the `J`, `K` and `alt+g` hand-offs into herdr workspaces | optional; everything else works without it |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
 | `lazygit` | `L` (repo view) and `M` (file blame/log view), in popups over the window | optional |
@@ -157,6 +158,9 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `W` | new git worktree for the repo containing the selection, from a branch name or PR number — lands in the worktrees view with it selected |
 | `c` / `x` | Claude Code / Copilot in a named tmux session for the selection's repo and branch, in a popup; pressing it again reattaches to the same one |
 | `alt+s` | a plain named shell in the same scheme — for a dev server or a test watcher you want to find again |
+| `K` | open the selection (or marks) in the helix for this place in [herdr](#herdr) — reuses the editor you have, and takes you to it |
+| `alt+g` | lazygit for the selection's checkout in [herdr](#herdr) — reuses the one already open for it |
+| `J` | a shell for the place under the cursor in [herdr](#herdr) — focuses one that is already open, opens one where there is none, and copies the selection's directory so you can `cd` if you land in a parent |
 | `T` | list the tmux sessions `ft` owns — agents, shells, popups and trees: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+x` kills it (asking first if it is attached elsewhere). Type a kind (`agent`, `shell`) to narrow the list; this tree is marked and refuses all three |
 
 | `X` | detach the agent session sharing this window, handing its space back to the tree |
@@ -217,6 +221,9 @@ automatically, so they work out of the box.
 | `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
 | `N` | | the same shell in a split beside the tree, dividing the current pane rather than the window |
 | `alt+n` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree — in a session named after the directory, so detaching from it and pressing the key again comes back to it |
+| `K` | `ctrl+r` | the herdr counterpart of `t`: open the selection — or everything marked — in the helix belonging to this place, wherever in herdr that is |
+| `alt+g` | | the herdr counterpart of `L`: lazygit for the checkout, in a tab of its own rather than a popup |
+| `J` | | a shell for the place under the cursor in [herdr](#herdr) instead of tmux — focuses one that is already open, and otherwise opens one beside the tree, in the workspace that holds the code, or in a new workspace of its own |
 | `c` | | Claude Code in a named tmux session for the selection's repo and branch, in a popup — created on the first press, reattached on every one after |
 | `x` | | the same for the Copilot CLI |
 | `alt+s` | | the same for a plain shell, so long-running work is reachable from the `T` list too |
@@ -362,6 +369,186 @@ Outside a pane, `tmux` resolves a command against the most recently used
 session, so an unguarded `select-pane` or `resize-pane` would move the focus or
 change the size in a window you are not even looking at — and being silent by
 design, these are exactly the commands where you would never notice.
+
+### herdr
+
+`J` is the first key that drives [herdr](https://herdr.dev) rather than tmux.
+It asks for a shell belonging to the place under the cursor: if one is already
+open it takes you there, and if not it opens one. Everything else still goes
+through tmux, so `n` and `J` sit side by side and can be compared.
+
+It also **copies the selection's directory to the clipboard**, every time, before
+anything that could fail. The shell you land in is often a parent of what you
+were looking at, and pasting is how you close the gap — so the copy has to be
+something you can rely on, including when herdr turns out not to be running. The
+status bar says `(path copied)` when the shell is somewhere other than the
+selection, which is exactly when you are going to want it.
+
+#### What counts as "the same place"
+
+Inside a checkout, the boundary is the checkout root. That is what makes the key
+worktree-aware: a linked worktree is a checkout of its own, so a shell in the
+main repo never answers for a branch worktree and a shell in a worktree never
+answers for the main repo. There is no branch to compare, because the roots
+already differ.
+
+Outside a checkout there is no boundary to inherit, so the selection's own
+directory becomes one, and a shell counts if it is on the same branch of the
+tree — above the selection or below it, but not off to one side. The upward
+direction matters most: without it, stepping one directory deeper would put the
+shell you just opened out of scope and earn you a second workspace for the same
+place, then a third.
+
+A shell that sits in a checkout of its own is never claimed by a loose directory
+that merely contains it. A shell in `~/src/someproject` belongs to that project,
+not to `~/src`, so opening a shell for a directory full of repositories does not
+hand you whichever one happened to have a shell open.
+
+Keeping your dotfiles in a repository at `~` is a special case, and it is
+handled: a repository spanning the whole home directory would otherwise make
+every loose directory on the machine one enormous checkout, so that asking for a
+shell in `~/Downloads` gave you the one sitting in `~/some-other-thing`. A
+repository that large is not a project, so it is not a boundary either, and those
+directories are scoped by themselves instead.
+
+A pane has to be an idle shell to qualify. One with an agent in it is never
+chosen, and neither is one that is busy: herdr reports which process group holds
+the terminal, so a shell running a dev server or a test watcher is passed over
+rather than typed at. That is sharper than the tmux hand-off commands, which
+have to recognise a shell by the name of the command running in it.
+
+When several shells qualify, they are compared in order:
+
+1. **A directory holding the selection** beats one off to the side. A sibling
+   directory shares just as much of the path as the parent does, but the parent
+   is on the way to the file and the sibling is a dead end.
+2. **Then the nearest**, by how much of the path it shares with the selection.
+3. **Then the one in the tree's own tab**, so a tie does not send the focus to
+   another workspace.
+4. **Then the lowest pane id**, so two equally good answers resolve the same way
+   every time.
+
+There is deliberately no "most recently used" in that list. herdr counts how
+much output a pane has produced but does not record when it last did anything,
+so recency is not something it can be asked for, and proximity carries the whole
+decision.
+
+The status bar says which pane it chose and where that pane is sitting —
+`focused w1:p4 — internal/app` — so the reasoning is visible rather than
+guessed at.
+
+Because a new shell opens at the *selection's* directory while reuse covers the
+whole place, the steady state is one shell per checkout, wherever you first
+pressed the key. Press it again anywhere in that checkout and you go back to
+that shell rather than collecting a second one.
+
+#### Where a new shell goes
+
+When nothing is open, the shell goes where the rest of that place already lives,
+narrowest first:
+
+1. **Beside the tree**, when the code is in the workspace `ft` is looking at, so
+   the tree stays on screen next to the shell it just opened.
+2. **In a new tab of whichever workspace does hold the code**, when that is
+   somewhere else — less disruptive than carving up a layout nobody is looking
+   at.
+3. **In a workspace of its own**, when herdr has never seen this place at all.
+   The alternative, dropping a tab into whatever `ft` happened to be sitting in,
+   is what makes a workspace list stop meaning anything.
+
+"Holds the code" counts any pane at all, not just an idle shell: a lone agent
+working on a repository still says where that repository lives.
+
+`J` needs herdr running, and reports plainly when it is not — with the path still
+copied. It works best from an `ft` that is itself inside a herdr pane, where the
+new shell can be split in beside the tree.
+
+#### One rule, three keys
+
+`J`, `K` and `alt+g` are the same key with a different program in it. Each one
+works out the place under the selection, looks for its program among herdr's
+panes, and either goes to the one it finds or makes somewhere for a new one:
+
+| Key | Program | Reusing one means |
+|---|---|---|
+| `J` | your shell | going to it, with the selection's path on the clipboard |
+| `K` | helix | opening the files in it with `:open`, then going to it |
+| `alt+g` | lazygit | going to it, and nothing else |
+
+What "somewhere for a new one" means is the same for all three, and it is the
+[placement rule](#where-a-new-shell-goes) above. A tab any of them opens is named
+after the program, and so is the tab of one they reuse if it still carries the
+number herdr gave it.
+
+`J` and `K` work anywhere, in a checkout or a loose directory. `alt+g` refuses
+outside a checkout, because lazygit has nothing to show there.
+
+#### `K`: the editor hand-off
+
+`K` is to herdr what `t` is to tmux, one level up. Where `t` looks for an editor
+in the pane beside `ft` and types into it, `K` looks for the **workspace** that
+holds this code, and for a helix inside that. So it reaches an editor a whole
+workspace away, which `t` cannot.
+
+Three outcomes, in order:
+
+1. **helix is already open for this place** — the files are opened in it with
+   `:open`, reusing the editor you have rather than starting a second one.
+2. **the place has a workspace but no editor** — a tab of its own there, running
+   helix on the files.
+3. **herdr has never seen this place** — a workspace for it, with helix in the
+   tab it comes with.
+
+A tab it creates is named `hx`, and so is the tab of an editor it reuses if that
+tab is still carrying the number herdr gave it. A tab you have named yourself, or
+one herdr has labelled after what is running in it, is left alone.
+
+`{paths}` means marks work here exactly as they do for `e` and `t`: mark three
+files and one helix opens all three. A `Grep` hit from the finder carries its
+line through, and `ctrl+r` fires the same command against the highlighted result
+without closing the finder.
+
+Two ways it differs from `t`, both deliberate:
+
+- **It moves you.** `t` can afford to stay in the tree because the pane it types
+  into is already on screen beside it. `K` may be sending a file a workspace
+  away, and a hand-off you cannot see is not a hand-off.
+- **It never types into a shell.** `t` falls back to typing `hx` at an idle
+  shell. A shell in your checkout is usually one you are using for something, and
+  taking it away to be an editor is a poor trade when a tab costs nothing.
+
+#### `alt+g`: lazygit
+
+`alt+g` is to herdr what `L` is to tmux. The tmux version keeps one named session
+per checkout and reattaches it in a popup; this keeps one tab per checkout and
+goes to it. Same idea in herdr's shape, there being no popup to reattach into and
+no need for one when a tab is a keystroke away.
+
+Reusing a lazygit means going to it and nothing else. It shows a repository
+rather than a file, so one already open for this checkout is already showing what
+you asked for — and sending a stray keystroke to a running lazygit would act on
+whatever it has selected, which is not a thing to do by accident.
+
+It is the one herdr key that refuses outside a checkout. `L` refuses too, though
+it gets there differently: its template names a repo placeholder, and any command
+whose template does is refused outside a repository. This one is asked directly,
+so that it agrees with the scoping about what counts as a checkout — including
+ignoring a repository that spans your whole home directory.
+
+#### Worktrees alongside herdr
+
+herdr creates worktrees too, and puts each one in a workspace. Point it at the
+same directory `ft` uses and the two agree, so a worktree made on either side
+shows up in `w` and gets its own shell from `J`:
+
+```toml
+# ~/.config/herdr/config.toml
+[worktrees]
+directory = "~/.filetree/worktrees"   # match [worktrees] dir in ft's config
+```
+
+The defaults differ — `~/.herdr/worktrees` against `~/.filetree/worktrees` — so
+this is worth setting on whichever side you would rather move.
 
 ### Acting on marked files
 

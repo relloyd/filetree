@@ -210,6 +210,80 @@ esac
 		Key:  "alt+s",
 	},
 
+	// The first command that drives herdr rather than tmux: a shell for the
+	// place under the cursor, focused if one is already open and created if not.
+	// It sits beside "n" rather than replacing it, so the two can be pressed in
+	// turn and compared before anything else moves.
+	//
+	// Reuse is scoped to the *checkout*, not the repository, which is what makes
+	// it worktree-aware: a linked worktree has a root of its own, so a shell in
+	// the main checkout never answers for a branch worktree or the other way
+	// round. Outside a checkout the selection's own directory is the boundary
+	// instead. herdr.Scope and herdr.Pick own the whole rule.
+	//
+	// {dir} alone, and deliberately not {gitroot}: a template mentioning
+	// {gitroot} is refused outside a repository by NeedsRepo, and this has to
+	// work in a loose directory too. The checkout is worked out from {dir} in
+	// the subcommand, by the same gitx.FindRepoRoot that would have filled
+	// {gitroot} in, so nothing is lost by not asking for it here.
+	//
+	// A subcommand rather than a template of its own: choosing between the open
+	// shells needs a list, a process check each and a ranking, which in shell
+	// would mean jq and no tests.
+	{
+		Name: "herdr-shell",
+		Desc: "shell for this place, in herdr",
+		Run:  `ft herdr-shell {dir}`,
+		Mode: ModeBackground,
+		Key:  "J",
+	},
+
+	// The herdr counterpart of "t": open the selection — or everything marked —
+	// in the helix belonging to the place under the cursor, and go to it.
+	//
+	// Where "t" looks for an editor in the pane beside ft, this looks for the
+	// workspace that holds the code and for an editor inside that, so it reaches
+	// a helix a whole workspace away. It also moves you, which "t" does not:
+	// "t" can stay in the tree because the pane it types into is already on
+	// screen, and this one cannot make that promise.
+	//
+	// {paths} rather than {path}, so marks work here exactly as they do for "e"
+	// and "t": mark three files and one helix opens all three. A Grep hit in the
+	// finder carries its ":42" through the same expansion, and both "hx" and
+	// helix's own ":open" take a path in that form.
+	//
+	// {dir} comes first and separately because the *place* is what decides which
+	// workspace answers, and that is not the same question as which files to
+	// open — on a finder row the two can be in different checkouts entirely.
+	{
+		Name: "herdr-edit",
+		Desc: "helix for this place, in herdr",
+		Run:  `ft herdr-edit {dir} {paths}`,
+		Mode: ModeBackground,
+		Key:  "K", FinderKey: "ctrl+r",
+	},
+
+	// The herdr counterpart of "L": lazygit for the checkout under the cursor,
+	// in a tab of its own rather than a popup.
+	//
+	// The tmux version keeps one named session per checkout and reattaches it in
+	// a popup; this keeps one tab per checkout and goes to it. Same idea in
+	// herdr's shape — there is no popup to reattach into, and none is needed
+	// when a tab is a keystroke away.
+	//
+	// {dir} alone. lazygit walks up to find the repository itself, so the
+	// selection's directory is enough, and the checkout is what decides which
+	// workspace answers. The refusal outside a repository happens in the
+	// subcommand rather than through NeedsRepo here, so that it agrees with the
+	// scoping about what counts as a checkout.
+	{
+		Name: "herdr-lazygit",
+		Desc: "lazygit for this checkout, in herdr",
+		Run:  `ft herdr-lazygit {dir}`,
+		Mode: ModeBackground,
+		Key:  "alt+g",
+	},
+
 	// Prime a ripgrep at the selection's directory in a shell beside ft: the
 	// search path is filled in and the cursor waits where the pattern goes.
 	// Falls back to a fresh shell split at that directory.
