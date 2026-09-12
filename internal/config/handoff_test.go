@@ -152,3 +152,104 @@ func TestHandoffsRefuseOutsideTmux(t *testing.T) {
 		})
 	}
 }
+
+// stubFT puts a fake ft on PATH that records its arguments one per line, so a
+// catalogue command calling a subcommand can be run for real through /bin/sh.
+//
+// One argument per line is the whole point: it is what distinguishes three
+// marked files arriving as three arguments from arriving as one string with
+// spaces in it, which is the way this can quietly break.
+func stubFT(t *testing.T) (dir, log string) {
+	t.Helper()
+	dir = t.TempDir()
+	log = filepath.Join(dir, "argv")
+	script := "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\" >> " + shq(log) + "; done\n"
+	if err := os.WriteFile(filepath.Join(dir, "ft"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir, log
+}
+
+// runFTCommand expands a catalogue command and runs it against the stub ft,
+// returning the arguments it was handed.
+func runFTCommand(t *testing.T, name string, v Vars) []string {
+	t.Helper()
+	c, ok := Default().Commands[name]
+	if !ok {
+		t.Fatalf("%s is not in the catalogue", name)
+	}
+	dir, log := stubFT(t)
+	cmd := exec.Command("/bin/sh", "-c", ExpandCommand(c.Run, v))
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s failed: %v\n%s", name, err, out)
+	}
+	b, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("%s called nothing", name)
+	}
+	return strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+}
+
+// The herdr editor key has to carry a marked set the way "e" and "t" do: several
+// files reaching helix as several arguments, not as one string with spaces in
+// it. {paths} is what makes that work, and the quoting is what keeps a path with
+// a space in it from arriving as two.
+func TestHerdrEditCarriesMarkedFiles(t *testing.T) {
+	marks := []string{"/repo/one.go", "/repo/sub/two.go", "/repo/my file.go"}
+	got := runFTCommand(t, "herdr-edit", Vars{
+		Path:   "/repo/one.go",
+		Paths:  marks,
+		Marked: marks,
+		Dir:    "/repo/sub",
+		Root:   "/repo",
+	})
+
+	want := append([]string{"herdr-edit", "/repo/sub"}, marks...)
+	if len(got) != len(want) {
+		t.Fatalf("ft got %d arguments %q, want %d %q", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("argument %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// With nothing marked it still gets the selection, so the key works the same
+// whether or not marks are set — the rule {paths} applies everywhere.
+func TestHerdrEditFallsBackToTheSelection(t *testing.T) {
+	got := runFTCommand(t, "herdr-edit", Vars{
+		Path: "/repo/one.go",
+		Dir:  "/repo",
+		Root: "/repo",
+	})
+	want := []string{"herdr-edit", "/repo", "/repo/one.go"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("ft got %q, want %q", got, want)
+	}
+}
+
+// A Grep hit carries its line, and a lone target is the only case that can:
+// ":42" on the end of a list would attach to the last path alone.
+func TestHerdrEditCarriesAGrepLine(t *testing.T) {
+	got := runFTCommand(t, "herdr-edit", Vars{
+		Path: "/repo/one.go",
+		Line: 42,
+		Dir:  "/repo",
+		Root: "/repo",
+	})
+	want := []string{"herdr-edit", "/repo", "/repo/one.go:42"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("ft got %q, want %q", got, want)
+	}
+}
+
+// The marks must be consumed the same way "e" and "t" consume them, so
+// clear_marks_after_command behaves consistently across the editor keys.
+func TestHerdrEditUsesMarks(t *testing.T) {
+	c := Default().Commands["herdr-edit"]
+	if !UsesMarks(c.Run) {
+		t.Error("UsesMarks = false; the key would not consume the marks it acted on")
+	}
+}
