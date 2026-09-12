@@ -952,7 +952,7 @@ const sameKeyMark = "·"
 
 func (m *Model) renderHelp() string {
 	warn := m.helpWarnings(m.width)
-	body := m.layoutHelp(m.helpRows(), m.treeHeight()-len(warn), m.width)
+	body := m.layoutHelp(m.helpVisibleRows(), m.treeHeight()-len(warn), m.width, m.helpScroll)
 	if len(warn) == 0 {
 		return body
 	}
@@ -1004,64 +1004,134 @@ func (m *Model) helpWarnings(width int) []string {
 	return append(lines, "")
 }
 
+// helpHeaderLines is what the table gives up to the title and the blank line
+// under it, and so what separates the body height from the room for rows.
+const helpHeaderLines = 2
+
+// helpAvail is how many lines the grid itself has, once the warnings, the title
+// and its blank line are paid for.
+func (m *Model) helpAvail() int {
+	return max(1, m.treeHeight()-len(m.helpWarnings(m.width))-helpHeaderLines)
+}
+
+// helpCapacity is how many rows fit on the page at once, which is what scrolling
+// is measured against.
+func (m *Model) helpCapacity(rows []helpRow) int {
+	cols, per := helpGrid(rows, m.helpAvail(), m.width)
+	return cols * per
+}
+
+// helpPerColumn is how many rows go in each of n columns, leaving a line for the
+// footer when they do not all fit — so the count the footer reports is the truth
+// rather than one short of it.
+func helpPerColumn(n, total, avail int) int {
+	per := (total + n - 1) / n // column-major: each column filled down
+	if per > avail {
+		per = max(1, avail-1)
+	}
+	return per
+}
+
+// helpGrid decides the shape of the table: how many columns the rows get, and
+// how many rows go in each.
+//
+// Kept apart from the rendering because scrolling has to ask the same question
+// — how much fits — before it knows how far it may go.
+func helpGrid(rows []helpRow, avail, width int) (cols, per int) {
+	cols = 1
+	for n := 2; n <= 3; n++ {
+		if len(rows) <= avail*(n-1) {
+			break // the previous count already had room to spare
+		}
+		if _, _, _, w := helpMetrics(rows, n, helpPerColumn(n, len(rows), avail), helpGap); w > width {
+			break
+		}
+		cols = n
+	}
+	return cols, helpPerColumn(cols, len(rows), avail)
+}
+
+// helpGap is the space between columns.
+const helpGap = 3
+
 // layoutHelp arranges the rows into as few columns as will fit the height,
 // falling back to fewer when the width cannot take them. Rows run down each
 // column and then across, so reading order matches helpRows either way.
 //
 // The list outgrew a single column once the tmux pane commands arrived: every
-// command contributes a row per key, and the old renderer simply stopped at the
-// height, silently dropping whatever came last — which, since commands sort
-// after the fixed keys, was always the commands. Columns buy back the room on a
-// wide pane. On a narrow one they cannot, and the tail is still cut; that at
-// least says so now instead of pretending the list ended.
-func (m *Model) layoutHelp(rows []helpRow, height, width int) string {
+// command contributes a row per key, and the renderer simply stopped at the
+// height, silently dropping whatever came last. Columns buy the room back on a
+// wide pane. On a narrow one they cannot, which is what scroll is for — the
+// page starts at scroll and the footer says what is on either side of it.
+func (m *Model) layoutHelp(rows []helpRow, height, width, scroll int) string {
 	lines := []string{m.helpTitle(width), ""}
 	avail := max(1, height-len(lines))
 
-	const gap = 3
-	cols := 1
-	for n := 2; n <= 3; n++ {
-		if len(rows) <= avail*(n-1) {
-			break // the previous count already had room to spare
-		}
-		if _, _, _, _, w := helpMetrics(rows, n, avail, gap); w > width {
-			break
-		}
-		cols = n
-	}
-	per, keyW, findW, descW, _ := helpMetrics(rows, cols, avail, gap)
+	cols, per := helpGrid(rows, avail, width)
+	total := len(rows)
+	scroll = clamp(scroll, 0, max(0, total-cols*per))
+	window := rows[min(scroll, total):]
+	shown := min(len(window), cols*per)
+
+	keyW, findW, descW, _ := helpMetrics(window, cols, per, helpGap)
 
 	for r := 0; r < per; r++ {
 		var b strings.Builder
 		for c := 0; c < cols; c++ {
 			i := c*per + r
-			if i >= len(rows) {
+			if i >= len(window) {
 				break
 			}
 			if c > 0 {
-				b.WriteString(strings.Repeat(" ", gap))
+				b.WriteString(strings.Repeat(" ", helpGap))
 			}
 			// Pad before styling: lipgloss counts the escape bytes otherwise.
 			b.WriteString("  ")
-			b.WriteString(styleOK.Render(fmt.Sprintf("%-*s", keyW, rows[i].key)))
+			b.WriteString(styleOK.Render(fmt.Sprintf("%-*s", keyW, window[i].key)))
 			if findW > 0 {
-				b.WriteString(styleFinder.Render(fmt.Sprintf("%-*s", findW, finderCell(rows[i]))))
+				b.WriteString(styleFinder.Render(fmt.Sprintf("%-*s", findW, finderCell(window[i]))))
 			}
 			// Clip the description to what is left of the line. A single column
 			// is never narrowed to fit, so in a sidebar-width pane a long
 			// description would wrap and push the status bar off the screen.
-			desc := truncate(rows[i].desc, max(1, width-lipgloss.Width(b.String())))
+			desc := truncate(window[i].desc, max(1, width-lipgloss.Width(b.String())))
 			b.WriteString(styleDim.Render(fmt.Sprintf("%-*s", descW, desc)))
 		}
 		lines = append(lines, strings.TrimRight(b.String(), " "))
 	}
-	if dropped := len(rows) - min(len(rows), cols*per); dropped > 0 {
-		lines = append(lines, styleDim.Render(fmt.Sprintf("  … %d more", dropped)))
+
+	if total == 0 {
+		lines = append(lines, styleDim.Render("  nothing matches "+m.helpInput.Value()))
+	} else if above, below := scroll, total-scroll-shown; above > 0 || below > 0 {
+		lines = append(lines, m.helpFooter(width, above, below))
 	}
 	for len(lines) < height {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// helpFooter says what is off the page in each direction, and on a pane with
+// room to spare how to get at it.
+//
+// Both counts, not just the tail: once the page scrolls, "6 more" below says
+// nothing about the rows you have already gone past, and a reader who has lost
+// their place needs to know there is a way back up.
+func (m *Model) helpFooter(width, above, below int) string {
+	s := "  "
+	if above > 0 {
+		s += fmt.Sprintf("↑ %d", above)
+	}
+	if above > 0 && below > 0 {
+		s += "  "
+	}
+	if below > 0 {
+		s += fmt.Sprintf("↓ %d", below)
+	}
+	if width >= 60 {
+		s += "   scroll, or type to filter"
+	}
+	return styleDim.Render(s)
 }
 
 // finderCell is what goes in the finder column: the key, a ditto when it is
@@ -1077,21 +1147,24 @@ func finderCell(r helpRow) string {
 	}
 }
 
-// helpTitle is the heading and, where there is room for it, a legend for the
-// two key colours. The colours are the whole point of the second column, and a
-// swatch costs one line against a page of rows that would otherwise need the
-// words "in the fuzzy finder" on every one of them.
+// helpTitle is the heading, the filter box, and — where there is room for it —
+// a legend for the two key colours. The colours are the whole point of the
+// second column, and a swatch costs one line against a page of rows that would
+// otherwise need the words "in the fuzzy finder" on every one of them.
+//
+// The filter sits beside the title rather than on a line of its own: the page is
+// short of lines on exactly the panes where filtering matters most.
 func (m *Model) helpTitle(width int) string {
-	title := styleTitle.Render(" Keys")
-	if width < 60 {
+	title := styleTitle.Render(" Keys") + "  " + m.helpInput.View()
+	if width < 90 {
 		return title
 	}
 	return title + "   " + styleOK.Render("●") + styleDim.Render(" tree  ") +
 		styleFinder.Render("●") + styleDim.Render(" finder  ("+sameKeyMark+" = same key)")
 }
 
-// helpMetrics measures the layout n columns would actually produce: rows per
-// column, the three column widths, and the total width of the widest line.
+// helpMetrics measures the three column widths a grid of cols columns and per
+// rows each would produce, and the total width of its widest line.
 //
 // It measures the rows that would really be shown rather than the whole set,
 // which is what makes two columns viable at ordinary terminal widths. A couple
@@ -1100,13 +1173,7 @@ func (m *Model) helpTitle(width int) string {
 // two columns at widths where they fit comfortably.
 // findW is zero when no row shown has a finder key, so a config binding none
 // pays nothing for the column.
-func helpMetrics(rows []helpRow, cols, avail, gap int) (per, keyW, findW, descW, width int) {
-	per = (len(rows) + cols - 1) / cols // column-major: each column filled down
-	if per > avail {
-		// Give up a line for the "… more" marker, so the count it reports is
-		// the truth rather than one short of it.
-		per = max(1, avail-1)
-	}
+func helpMetrics(rows []helpRow, cols, per, gap int) (keyW, findW, descW, width int) {
 	shown := min(len(rows), cols*per)
 	// descW pads every column but the last, which has nothing to its right to
 	// align. lastW is that column's natural width, still part of the line.
@@ -1127,7 +1194,7 @@ func helpMetrics(rows []helpRow, cols, avail, gap int) (per, keyW, findW, descW,
 		findW += 2
 	}
 	width = (cols-1)*(2+keyW+findW+descW+gap) + 2 + keyW + findW + lastW
-	return per, keyW, findW, descW, width
+	return keyW, findW, descW, width
 }
 
 func (m *Model) helpRows() []helpRow {

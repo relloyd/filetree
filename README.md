@@ -169,7 +169,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default command; an editor that takes over this pane reloads the config when it exits |
 | `alt+c` | re-read the config from disk — for when the editor is somewhere `ft` cannot see it finish, such as the `t` hand-off to another pane |
-| `?` | help |
+| `?` | help — **type to filter** it, scroll for what is off the page, `esc` closes |
 | `ctrl+c` | quit — from the finder, a prompt or a confirmation the first press backs out to the tree, and the next one quits |
 
 Every key above — and every command below — is remappable by name in the
@@ -205,6 +205,22 @@ key ending the session.
 
 `?` is the list of names to use, and the commented `[keys]` block written into
 your config on first run has the same list with the defaults beside it.
+
+The page is longer than a screen, and on a narrow pane it cannot use columns to
+buy the room back. So it filters and scrolls: **type and the list narrows**,
+matching the key columns as well as the descriptions, so `ctrl` finds the chords
+and `worktree` finds the actions. The wheel, the arrows and `pgup`/`pgdn` move
+through what is left, and a line at the bottom says how many rows are above and
+below. `!` excludes, the same as in the fuzzy finder.
+
+Filtered rows keep the page's own order rather than taking the matcher's
+ranking. The list is grouped by what things do — navigation, then the commands in
+catalogue order — and on a reference page that grouping is worth more than
+relevance, because you are scanning rather than picking.
+
+Because typing filters, the letters that used to close the page are now
+characters. **`esc` is the way out**, and it clears the filter on the way, so the
+next `?` starts fresh.
 
 ## Commands
 

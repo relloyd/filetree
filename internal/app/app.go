@@ -218,7 +218,14 @@ type Model struct {
 	// tmuxAll is re-read on entry and after every kill: the sessions belong to
 	// the tmux server, and any other ft — or the user, at a shell — can change
 	// the list while this one is showing it.
-	tmuxInput   textinput.Model
+	tmuxInput textinput.Model
+
+	// helpInput filters the help page as you type, and helpScroll is how far
+	// down the filtered set the page is shown from. The page outgrew a screen
+	// once the commands arrived, and on a narrow pane it could not use columns
+	// to buy the room back — so what fell off the end was unreachable.
+	helpInput   textinput.Model
+	helpScroll  int
 	tmuxAll     []tmux.Session
 	tmuxRows    []int
 	tmuxMatched [][]int
@@ -358,6 +365,9 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 	m.tmuxInput = textinput.New()
 	m.tmuxInput.SetVirtualCursor(true)
 	m.tmuxInput.Placeholder = "kind, repo, branch or tool"
+	m.helpInput = textinput.New()
+	m.helpInput.SetVirtualCursor(true)
+	m.helpInput.Placeholder = "type to filter"
 
 	m.buildBindings()
 
@@ -538,7 +548,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.grepInput.SetWidth(w)
 		m.bmInput.SetWidth(w)
 		m.tmuxInput.SetWidth(w)
+		m.helpInput.SetWidth(helpInputWidth(msg.Width))
 		m.clampScroll()
+		m.clampHelpScroll()
 		m.ensureVisible()
 		return m, nil
 
@@ -680,10 +692,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch m.mode {
 	case modeHelp:
-		if s == "esc" || s == "q" || s == m.actionKeys["help"] {
-			m.mode = modeNormal
-		}
-		return m, nil
+		return m.handleHelpKey(msg, s)
 
 	case modeConfirm:
 		return m.handleConfirmKey(s)

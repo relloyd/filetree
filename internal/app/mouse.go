@@ -22,6 +22,8 @@ func (m *Model) handleWheel(mo tea.Mouse) (tea.Model, tea.Cmd) {
 		m.clampScroll()
 	case modeFuzzy:
 		m.moveFuzzySel(delta)
+	case modeHelp:
+		m.scrollHelp(delta)
 	}
 	return m, nil
 }

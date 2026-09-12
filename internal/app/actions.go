@@ -1628,9 +1628,20 @@ func (m *Model) handleWorktreeRemoved(msg worktreeRemovedMsg) (tea.Model, tea.Cm
 
 // --- misc ---
 
+// toggleHelp opens the help page, always at the top and unfiltered.
+//
+// Reset rather than resumed, unlike the finder's "f": a filter left over from
+// last time would answer a question you are no longer asking, and the page is
+// one keystroke away from being opened again.
 func (m *Model) toggleHelp() (tea.Model, tea.Cmd) {
 	m.mode = modeHelp
-	return m, nil
+	m.helpInput.Reset()
+	m.helpScroll = 0
+	// Sized here as well as on resize, so the placeholder is there on the first
+	// frame. It is the only thing that says the page can be typed at, and a
+	// textinput with no width renders neither placeholder nor text.
+	m.helpInput.SetWidth(helpInputWidth(m.width))
+	return m, m.helpInput.Focus()
 }
 
 func (m *Model) quit() (tea.Model, tea.Cmd) {
