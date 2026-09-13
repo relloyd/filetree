@@ -271,21 +271,17 @@ func TestScopeFor(t *testing.T) {
 		root     string
 		wantRoot string
 		wantRepo bool
-		wantName string
 	}{
-		{"in a checkout, the checkout is the boundary", repo + "/internal", repo, repo, true, "filetree"},
-		{"a worktree is its own boundary", worktree + "/internal", worktree, worktree, true, "feature-x"},
-		{"outside one, the directory is", loose + "/stuff", "", loose + "/stuff", false, "stuff"},
-		{"nothing at all", "", "", "", false, ""},
+		{"in a checkout, the checkout is the boundary", repo + "/internal", repo, repo, true},
+		{"a worktree is its own boundary", worktree + "/internal", worktree, worktree, true},
+		{"outside one, the directory is", loose + "/stuff", "", loose + "/stuff", false},
+		{"nothing at all", "", "", "", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := ScopeFor(tc.dir, tc.root)
 			if s.Root != tc.wantRoot || s.Repo != tc.wantRepo {
 				t.Errorf("ScopeFor = %+v, want {Root:%q Repo:%v}", s, tc.wantRoot, tc.wantRepo)
-			}
-			if got := s.Name(); got != tc.wantName {
-				t.Errorf("Name() = %q, want %q", got, tc.wantName)
 			}
 		})
 	}

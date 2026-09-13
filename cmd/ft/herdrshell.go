@@ -64,7 +64,7 @@ func runHerdrShell(args []string) error {
 		return nil
 	}
 
-	id, err := openShell(c, scoped, scope, self, dir)
+	id, err := openShell(c, scoped, self, dir)
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func runHerdrShell(args []string) error {
 // workspace of its own when herdr has never seen this place at all — the
 // alternative, dropping a tab into whatever ft happened to be sitting in, is
 // what makes a workspace list stop meaning anything.
-func openShell(c *herdr.Client, scoped []scopedPane, scope herdr.Scope, self herdr.Self, dir string) (string, error) {
+func openShell(c *herdr.Client, scoped []scopedPane, self herdr.Self, dir string) (string, error) {
 	ws, found := workspaceFor(scoped, self.Workspace)
 	switch {
 	case found && self.Pane != "" && ws == self.Workspace:
@@ -90,7 +90,7 @@ func openShell(c *herdr.Client, scoped []scopedPane, scope herdr.Scope, self her
 	case found:
 		return c.CreateTab(ws, dir, "")
 	default:
-		pane, _, err := c.CreateWorkspace(dir, scope.Name())
+		pane, _, err := c.CreateWorkspace(dir)
 		return pane, err
 	}
 }

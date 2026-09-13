@@ -124,6 +124,14 @@ Design rules that keep this maintainable:
   `RunsWith`/`RunsWithout` are what it is built from — matching the arguments a
   pane was started with, which is also what gives blame one tab per file. Give
   such a key a `Label` too, or its tabs all carry the binary's name.
+- **Never label a workspace `ft` creates.** herdr derives a workspace's name from
+  its shell's directory and keeps it current, but a label passed to
+  `workspace.create` is stored as the workspace's `custom_name` in
+  `~/.config/herdr/session.json`, and a custom name is never replaced. `J` once
+  labelled new workspaces with the directory's basename, which read correctly
+  until the first `cd` and then stuck. herdr's own name for a fresh workspace is
+  that same basename, so there is nothing to add. Tabs are the opposite case:
+  `hx`, `lazygit` and `blame <file>` say what a tab runs, and should stick.
 - **The multi-step herdr work is a subcommand, not a template.** `J` runs
   `ft herdr-shell {dir}`, the same shape as `ft jump`. Choosing between the open
   shells takes a pane list, a process check per candidate and a ranking; in a

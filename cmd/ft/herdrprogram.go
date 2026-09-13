@@ -99,7 +99,7 @@ func runHerdrProgram(p program, dir string, paths []string) error {
 		return nil
 	}
 
-	pane, tab, err := newPane(c, scoped, scope, self, dir, p.label())
+	pane, tab, err := newPane(c, scoped, self, dir, p.label())
 	if err != nil {
 		return err
 	}
@@ -173,12 +173,12 @@ func running(c *herdr.Client, scoped []scopedPane, match func(herdr.ProcessInfo)
 //
 // The returned tab id is empty when the label was set at creation and there is
 // nothing left to rename.
-func newPane(c *herdr.Client, scoped []scopedPane, scope herdr.Scope, self herdr.Self, dir, label string) (pane, tab string, err error) {
+func newPane(c *herdr.Client, scoped []scopedPane, self herdr.Self, dir, label string) (pane, tab string, err error) {
 	if ws, found := workspaceFor(scoped, self.Workspace); found {
 		pane, err = c.CreateTab(ws, dir, label)
 		return pane, "", err
 	}
-	return c.CreateWorkspace(dir, scope.Name())
+	return c.CreateWorkspace(dir)
 }
 
 // nameTab labels a tab for the program in it, unless it already carries a name

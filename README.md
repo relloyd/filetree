@@ -73,6 +73,11 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   reattaching would put the tree in a popup over itself, and `ctrl+x` would
   kill `ft` where it stands.
 
+- herdr hand-offs: `J` a shell, `K` helix, `alt+g` lazygit and `ctrl+g` one
+  file's history, each in the [herdr](#herdr) workspace that already holds the
+  code — reusing what is open for that place, and opening one where there is
+  none. They sit alongside the tmux keys they mirror rather than replacing them.
+
 - The tree follows your editor: bind `:sh ft jump %{buffer_name}` in helix and
   the pane beside it moves its cursor to the buffer you are in. With several
   trees open the one that answers is the one whose root holds the file, and of
@@ -128,7 +133,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `←`/`h` | collapse, or jump to parent |
 | `→`/`l` | expand, or step into first child |
 | `enter` | file: run default command · dir: toggle |
-| `space` | mark/unmark the selection (and move down) — `e`, `t`, `v` and `enter` then act on the whole set |
+| `space` | mark/unmark the selection (and move down) — `e`, `t`, `v`, `K` and `enter` then act on the whole set |
 | `esc` | clear all marks; with none, return from the scratch or worktrees view |
 | `p` / `m` | copy / move marked items into the selected dir (or the selected file's parent); conflicts prompt overwrite-to-Trash vs keep-both |
 | `y` / `Y` | copy absolute / git-relative path |
@@ -140,11 +145,12 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `/` | fuzzy finder (esc cancels, enter jumps) |
 | `F` | fuzzy finder, confined to the selected directory (its parent for a file) |
 | `tab` | in the fuzzy finder: cycle the `Find` / `Grep` / `Type` fields |
-| `ctrl+g` | in the fuzzy finder: raise the match limit for the session (2×, 3×, …) |
+| `ctrl+g` | in the fuzzy finder: raise the match limit for the session (2×, 3×, …) — in the tree it is the herdr blame key |
 | `ctrl+y` | in the fuzzy finder: copy the `rg` command behind the `Type`/`Grep` fields |
 | `ctrl+o` | in the fuzzy finder: empty all three fields |
 | `ctrl+e` | in the fuzzy finder: open the highlighted result in helix, at the matched line — quitting returns you to the results |
 | `ctrl+t` | in the fuzzy finder: hand the highlighted result to the other tmux pane, without closing the finder |
+| `ctrl+r` | in the fuzzy finder: open the highlighted result in the helix for its place in [herdr](#herdr), at the matched line, without closing the finder |
 | `f` | reopen the `/` finder with the last `Find`/`Grep`/`Type` still in place |
 | `b` | recently opened files, newest first — fuzzy-filtered the same way; enter reveals and opens |
 | `B` | line bookmarks captured from your editor — searchable by path *and* by the line's contents |
@@ -158,10 +164,10 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `W` | new git worktree for the repo containing the selection, from a branch name or PR number — lands in the worktrees view with it selected |
 | `c` / `x` | Claude Code / Copilot in a named tmux session for the selection's repo and branch, in a popup; pressing it again reattaches to the same one |
 | `alt+s` | a plain named shell in the same scheme — for a dev server or a test watcher you want to find again |
+| `J` | a shell for the place under the cursor in [herdr](#herdr) — focuses one that is already open, opens one where there is none, and copies the selection's directory so you can `cd` if you land in a parent |
 | `K` | open the selection (or marks) in the helix for this place in [herdr](#herdr) — reuses the editor you have, and takes you to it |
 | `alt+g` | lazygit for the selection's checkout in [herdr](#herdr) — reuses the one already open for it |
 | `ctrl+g` | the selected file's history in [herdr](#herdr) — lazygit filtered to that file, one tab per file |
-| `J` | a shell for the place under the cursor in [herdr](#herdr) — focuses one that is already open, opens one where there is none, and copies the selection's directory so you can `cd` if you land in a parent |
 | `T` | list the tmux sessions `ft` owns — agents, shells, popups and trees: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+x` kills it (asking first if it is attached elsewhere). Type a kind (`agent`, `shell`) to narrow the list; this tree is marked and refuses all three |
 
 | `X` | detach the agent session sharing this window, handing its space back to the tree |
@@ -238,13 +244,13 @@ automatically, so they work out of the box.
 | `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
 | `N` | | the same shell in a split beside the tree, dividing the current pane rather than the window |
 | `alt+n` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree — in a session named after the directory, so detaching from it and pressing the key again comes back to it |
-| `K` | `ctrl+r` | the herdr counterpart of `t`: open the selection — or everything marked — in the helix belonging to this place, wherever in herdr that is |
-| `alt+g` | | the herdr counterpart of `L`: lazygit for the checkout, in a tab of its own rather than a popup |
-| `ctrl+g` | | the herdr counterpart of `M`: lazygit filtered to the selected file's history |
-| `J` | | a shell for the place under the cursor in [herdr](#herdr) instead of tmux — focuses one that is already open, and otherwise opens one beside the tree, in the workspace that holds the code, or in a new workspace of its own |
 | `c` | | Claude Code in a named tmux session for the selection's repo and branch, in a popup — created on the first press, reattached on every one after |
 | `x` | | the same for the Copilot CLI |
 | `alt+s` | | the same for a plain shell, so long-running work is reachable from the `T` list too |
+| `J` | | the herdr counterpart of `n`: a shell for the place under the cursor in [herdr](#herdr) — focuses one that is already open, and otherwise opens one beside the tree, in the workspace that holds the code, or in a new workspace of its own |
+| `K` | `ctrl+r` | the herdr counterpart of `t`: open the selection — or everything marked — in the helix belonging to this place, wherever in herdr that is |
+| `alt+g` | | the herdr counterpart of `L`: lazygit for the checkout, in a tab of its own rather than a popup |
+| `ctrl+g` | | the herdr counterpart of `M`: lazygit filtered to the selected file's history |
 | `r` | | prime an `rg` at the selection's directory in a shell beside `ft`, or a new split if there is no shell to type into |
 | `L` | | open lazygit for the repo containing the selection, in a popup — one session per checkout, whichever subdirectory you press it in |
 | `M` | | open lazygit focused on the selected file's blame / log view, in a popup |
@@ -390,12 +396,17 @@ design, these are exactly the commands where you would never notice.
 
 ### herdr
 
-`J` is the first key that drives [herdr](https://herdr.dev) rather than tmux.
-It asks for a shell belonging to the place under the cursor: if one is already
-open it takes you there, and if not it opens one. Everything else still goes
-through tmux, so `n` and `J` sit side by side and can be compared.
+Four keys drive [herdr](https://herdr.dev) rather than tmux: `J` a shell, `K`
+helix, `alt+g` lazygit, and `ctrl+g` one file's history in lazygit. Each sits
+beside the tmux key it mirrors rather than replacing it, so the two can be
+pressed in turn and compared — see [one rule, four keys](#one-rule-four-keys).
 
-It also **copies the selection's directory to the clipboard**, every time, before
+Each asks for its program belonging to the place under the cursor: if one is
+already open it takes you there, and if not it opens one. The rules for what
+counts as the same place, and where a new one goes, are shared by all four and
+described below in terms of `J`.
+
+`J` also **copies the selection's directory to the clipboard**, every time, before
 anything that could fail. The shell you land in is often a parent of what you
 were looking at, and pasting is how you close the gap — so the copy has to be
 something you can rely on, including when herdr turns out not to be running. The
@@ -433,7 +444,9 @@ A pane has to be an idle shell to qualify. One with an agent in it is never
 chosen, and neither is one that is busy: herdr reports which process group holds
 the terminal, so a shell running a dev server or a test watcher is passed over
 rather than typed at. That is sharper than the tmux hand-off commands, which
-have to recognise a shell by the name of the command running in it.
+have to recognise a shell by the name of the command running in it. For the
+other three keys the pane has to be running their program instead: helix for
+`K`, lazygit for `alt+g`, and lazygit on that same file for `ctrl+g`.
 
 When several shells qualify, they are compared in order:
 
@@ -472,7 +485,9 @@ narrowest first:
    at.
 3. **In a workspace of its own**, when herdr has never seen this place at all.
    The alternative, dropping a tab into whatever `ft` happened to be sitting in,
-   is what makes a workspace list stop meaning anything.
+   is what makes a workspace list stop meaning anything. `ft` does not name the
+   workspace: herdr names it after the shell's directory and keeps the name
+   current as you `cd` about in it, the same as a workspace you make by hand.
 
 "Holds the code" counts any pane at all, not just an idle shell: a lone agent
 working on a repository still says where that repository lives.
@@ -481,23 +496,28 @@ working on a repository still says where that repository lives.
 copied. It works best from an `ft` that is itself inside a herdr pane, where the
 new shell can be split in beside the tree.
 
-#### One rule, three keys
+#### One rule, four keys
 
-`J`, `K` and `alt+g` are the same key with a different program in it. Each one
+`J`, `K`, `alt+g` and `ctrl+g` are the same key with a different program in it. Each one
 works out the place under the selection, looks for its program among herdr's
 panes, and either goes to the one it finds or makes somewhere for a new one:
 
-| Key | Program | Reusing one means |
-|---|---|---|
-| `J` | your shell | going to it, with the selection's path on the clipboard |
-| `K` | helix | opening the files in it with `:open`, then going to it |
-| `alt+g` | lazygit | going to it, and nothing else |
-| `ctrl+g` | lazygit, on one file | going to that file's view, and nothing else |
+| Key | tmux counterpart | Program | Reusing one means |
+|---|---|---|---|
+| `J` | `n` | your shell | going to it, with the selection's path on the clipboard |
+| `K` | `t` | helix | opening the files in it with `:open`, then going to it |
+| `alt+g` | `L` | lazygit | going to it, and nothing else |
+| `ctrl+g` | `M` | lazygit, on one file | going to that file's view, and nothing else |
 
-What "somewhere for a new one" means is the same for all three, and it is the
-[placement rule](#where-a-new-shell-goes) above. A tab any of them opens is named
-after the program, and so is the tab of one they reuse if it still carries the
-number herdr gave it.
+What "somewhere for a new one" means is the
+[placement rule](#where-a-new-shell-goes) above, with one difference: `K`,
+`alt+g` and `ctrl+g` never split the tree's pane. When the code is in the
+workspace `ft` is looking at they open a tab there instead, because an editor or
+lazygit wants the width and the tree is one tab away rather than gone.
+
+Those three name the tabs they open after what runs in them — `hx`, `lazygit`,
+`blame <file>` — and name the tab of one they reuse the same way, if it still
+carries the number herdr gave it. `J` leaves its tab for herdr to name.
 
 `J` and `K` work anywhere, in a checkout or a loose directory. `alt+g` and
 `ctrl+g` refuse outside a checkout, because lazygit has nothing to show there.
@@ -548,7 +568,7 @@ rather than a file, so one already open for this checkout is already showing wha
 you asked for — and sending a stray keystroke to a running lazygit would act on
 whatever it has selected, which is not a thing to do by accident.
 
-It is the one herdr key that refuses outside a checkout. `L` refuses too, though
+It refuses outside a checkout, as `ctrl+g` does. `L` refuses too, though
 it gets there differently: its template names a repo placeholder, and any command
 whose template does is refused outside a repository. This one is asked directly,
 so that it agrees with the scoping about what counts as a checkout — including
@@ -811,10 +831,11 @@ rather than overwrite each other's.
 What gets recorded is decided by the command, not the key: a command counts as
 opening a file when its template names it with `{paths}`, `{path}` or
 `{relpath}` — a marked set records every file in it. So
-`enter`, `e`, `t`, `v` and `alt+d` are remembered — reading a file's diff counts
-as having had it open — while `n`/`N`/`alt+n` (a shell in `{dir}`), `r` (an `rg`
-primed at `{dir}`), `L` (lazygit in `{dir}`), `D` (a diff of marked paths) and
-the `ctrl+l`/`ctrl+j`/`ctrl+k`/`alt+h` pane commands are not.
+`enter`, `e`, `t`, `v`, `K` and `alt+d` are remembered — reading a file's diff
+counts as having had it open, and so does reading its history with `M` or
+`ctrl+g` — while `n`/`N`/`alt+n` and `J` (a shell in `{dir}`), `r` (an `rg`
+primed at `{dir}`), `L` and `alt+g` (lazygit in `{dir}`), `D` (a diff of marked
+paths) and the `ctrl+l`/`ctrl+j`/`ctrl+k`/`alt+h` pane commands are not.
 Directories are never recorded, and neither is `C` — its file lives outside the
 tree. Files deleted since are dropped from the list rather than offered and
 then failing to open, but they stay in the history, since a branch switch can

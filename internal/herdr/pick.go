@@ -49,15 +49,6 @@ func ScopeFor(dir, root string) Scope {
 	return Scope{Root: filepath.Clean(dir)}
 }
 
-// Name is what a workspace opened for this scope should be called: the
-// checkout's name, or the directory's.
-func (s Scope) Name() string {
-	if s.Root == "" {
-		return ""
-	}
-	return filepath.Base(s.Root)
-}
-
 // Covers reports whether a pane working in dir, whose own checkout root is
 // checkout, belongs to this scope.
 //

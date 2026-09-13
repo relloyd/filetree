@@ -212,19 +212,25 @@ func (c *Client) CreateTab(workspace, dir, label string) (string, error) {
 	return string(out.RootPane), nil
 }
 
-// CreateWorkspace opens a whole new workspace for dir, named label, and focuses
-// its shell.
+// CreateWorkspace opens a whole new workspace for dir and focuses its shell.
 //
 // It is the answer when herdr has nothing for this code at all. A workspace
 // rather than a tab beside whatever ft happened to be sitting in: the point of
 // the key is to put the code somewhere of its own, and a directory herdr has
 // never seen has no home to be added to.
-func (c *Client) CreateWorkspace(dir, label string) (pane, tab string, err error) {
+//
+// Deliberately no label. herdr names a workspace after its shell's directory
+// and keeps that name current as the shell moves, but only while nothing else
+// has named it: a label given here is stored as the workspace's custom name,
+// and a custom name is never replaced. A workspace ft labelled "Documents" was
+// still called that after a cd somewhere else, where one made by hand followed
+// along. herdr's own name for a fresh workspace is the directory's name anyway,
+// so leaving the label out loses nothing and keeps the name alive.
+func (c *Client) CreateWorkspace(dir string) (pane, tab string, err error) {
 	params := struct {
 		Dir   string `json:"cwd,omitempty"`
-		Label string `json:"label,omitempty"`
 		Focus bool   `json:"focus"`
-	}{Dir: dir, Label: label, Focus: true}
+	}{Dir: dir, Focus: true}
 
 	var out struct {
 		RootPane ref `json:"root_pane"`

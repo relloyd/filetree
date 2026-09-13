@@ -301,12 +301,21 @@ func TestDefaultSocketPrefersWhatHerdrTold(t *testing.T) {
 	}
 }
 
-func TestCreateWorkspaceNamesAndFocusesIt(t *testing.T) {
+// A workspace ft creates must be left for herdr to name.
+//
+// herdr keeps a workspace's name in step with its shell's directory, but only
+// until something gives it a label: a label becomes a custom name, and a custom
+// name is never replaced. Sending one made a workspace opened on ~/Documents
+// stay "Documents" after a cd elsewhere, where a workspace made by hand
+// followed along. The absence of the field is the thing under test, so it is
+// checked on the raw request rather than on a struct that would read a missing
+// label and an empty one the same way.
+func TestCreateWorkspaceLeavesNamingToHerdr(t *testing.T) {
 	s, sock := serveStub(t, map[string]string{
 		"workspace.create": `{"result":{"type":"workspace_created","workspace":{"workspace_id":"w3"},"tab":{"tab_id":"w3:t1"},"root_pane":{"pane_id":"w3:p1"}}}`,
 	})
 
-	id, tab, err := New(sock).CreateWorkspace("/r/filetree", "filetree")
+	id, tab, err := New(sock).CreateWorkspace("/r/filetree")
 	if err != nil {
 		t.Fatalf("CreateWorkspace: %v", err)
 	}
@@ -316,16 +325,15 @@ func TestCreateWorkspaceNamesAndFocusesIt(t *testing.T) {
 	if tab != "w3:t1" {
 		t.Errorf("tab = %q, want w3:t1 so it can be named", tab)
 	}
-	var params struct {
-		Dir   string `json:"cwd"`
-		Label string `json:"label"`
-		Focus bool   `json:"focus"`
-	}
+	var params map[string]any
 	if err := json.Unmarshal(s.seen["workspace.create"], &params); err != nil {
 		t.Fatalf("params: %v", err)
 	}
-	if params.Dir != "/r/filetree" || params.Label != "filetree" || !params.Focus {
-		t.Errorf("params = %+v, want the directory, its name, and focus", params)
+	if _, named := params["label"]; named {
+		t.Errorf("params = %v, want no label so herdr's name follows the shell", params)
+	}
+	if params["cwd"] != "/r/filetree" || params["focus"] != true {
+		t.Errorf("params = %v, want the directory and focus", params)
 	}
 }
 
