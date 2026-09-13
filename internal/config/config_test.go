@@ -39,9 +39,6 @@ func TestLoadStarter(t *testing.T) {
 	// Command keys must not collide with an action default: actions win, so a
 	// clash would silently shadow the command. "n"/"N" and "L"/"D" are the ones
 	// worth spelling out, since they sit closest to the bound letters.
-	if g := cfg.Commands["grep-here"]; g.Key != "r" {
-		t.Errorf("grep-here key = %q, want r", g.Key)
-	}
 	if s := cfg.Commands["shell-popup"]; s.Key != "alt+n" || s.Mode != ModeBackground {
 		t.Errorf("shell-popup = %+v, want key P, background", s)
 	}

@@ -1232,6 +1232,7 @@ func (m *Model) helpRows() []helpRow {
 		{key: m.actionKeys["root-here"], desc: "re-root to the selection (or shift+enter)"},
 		{key: m.actionKeys["copy-here"] + " / " + m.actionKeys["move-here"], desc: "copy / move marked items here"},
 		{key: m.actionKeys["copy-abs"] + " / " + m.actionKeys["copy-rel"], desc: "copy absolute / git-relative path"},
+		{key: m.actionKeys["copy-grep"], desc: "copy an rg command for the selected dir"},
 		{key: m.actionKeys["copy-url"] + " / " + m.actionKeys["open-url"], desc: "copy web URL / open in browser (+copy)"},
 		{key: m.actionKeys["toggle-hidden"], desc: "toggle hidden files"},
 		{key: m.actionKeys["toggle-ignored"], desc: "toggle gitignored files"},

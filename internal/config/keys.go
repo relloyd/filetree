@@ -28,6 +28,7 @@ var DefaultActionKeys = map[string]string{
 	"reveal":         "o",
 	"copy-abs":       "y",
 	"copy-rel":       "Y",
+	"copy-grep":      "r",
 	"fuzzy":          "/",
 	"fuzzy-here":     "F",
 	// Finder-local: these cycle and edit the "/" input lines. Listed so [keys]
@@ -74,6 +75,7 @@ var DefaultActionKeys = map[string]string{
 var actionNotes = map[string]string{
 	"quit":                `unbound: ctrl+c always quits; set a key to add one`,
 	"reload":              `unbound: F5 always reloads; set a key to add one`,
+	"copy-grep":           `copy an rg for the selected dir, to paste into a shell`,
 	"fuzzy-here":          `the finder, confined to the selected dir`,
 	"finder-next-field":   `move between the "/" finder's input lines`,
 	"finder-more":         `raise fuzzy_max_matches for this session`,

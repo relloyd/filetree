@@ -305,41 +305,6 @@ esac
 		Key:  "ctrl+g",
 	},
 
-	// Prime a ripgrep at the selection's directory in a shell beside ft: the
-	// search path is filled in and the cursor waits where the pattern goes.
-	// Falls back to a fresh shell split at that directory.
-	//
-	// A *shell*, specifically, and never whatever pane happens to be last.
-	// send-keys types into whatever is running there, so aiming this at the
-	// previously-active pane meant a helix sitting in it took "rg -n ... -e "
-	// as editor keystrokes and came away with a modified buffer. Nothing
-	// matched the shell list, nothing is typed — the split below is the safe
-	// answer, and the only one that cannot corrupt what is already open.
-	//
-	// C-u first, so a half-typed line in that shell does not end up with the
-	// rg command appended to it.
-	{
-		Name: "grep-here",
-		Desc: "prime an rg in a shell beside ft",
-		Run: `[ -n "$TMUX" ] || { echo "not running inside tmux"; exit 1; }
-pane=$(tmux list-panes -F "#{pane_last} #{pane_id} #{pane_current_command}" |
-  awk -v self="$TMUX_PANE" '
-    $2 == self { next }
-    $3 !~ /^(sh|dash|bash|zsh|fish|ksh|nu)$/ { next }
-    {
-      p = ($1 == 1) ? 2 : 1
-      if (p > best) { best = p; sel = $2 }
-    }
-    END { if (best) print sel }')
-if [ -n "$pane" ]; then
-  tmux send-keys -t "$pane" C-u "rg -n {dir} -e "
-else
-  tmux split-window -h -c {dir}
-fi`,
-		Mode: ModeBackground,
-		Key:  "r",
-	},
-
 	// Focus the tmux pane to the right of ft, so "ctrl+l" replaces tmux's own
 	// "ctrl+b →" for getting back to a split opened above. Silent when there
 	// is no pane to the right: select-pane -R simply exits 0 in a single-pane

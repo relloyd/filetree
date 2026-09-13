@@ -114,10 +114,10 @@ one surfaces as an error in the status bar rather than a failure to start.
 | Tool | Enables | Optional? |
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees, `alt+d` diffs | optional, but most of the git awareness is dark without it |
-| `tmux` | the `t`/`v`/`n`/`N`/`r` split and hand-off commands, the `alt+n`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
+| `tmux` | the `t`/`v`/`n`/`N` split and hand-off commands, the `alt+n`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
 | `herdr` ([herdr](https://herdr.dev)) | the `J`, `K`, `alt+g` and `ctrl+g` hand-offs into herdr workspaces | optional; everything else works without it |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
-| `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and `r` grep-here | optional; without it the finder still searches file names |
+| `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and running the command `r` copies | optional; without it the finder still searches file names |
 | `lazygit` | `L` (repo view) and `M` (file blame/log view), in popups over the window | optional |
 | `delta` | `D` diff the two most recently marked files | optional |
 | `claude` / `copilot` | the `c` / `x` agent sessions, and the `T` list they populate | optional; any CLI works — the commands are ordinary config |
@@ -137,6 +137,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `esc` | clear all marks; with none, return from the scratch or worktrees view |
 | `p` / `m` | copy / move marked items into the selected dir (or the selected file's parent); conflicts prompt overwrite-to-Trash vs keep-both |
 | `y` / `Y` | copy absolute / git-relative path |
+| `r` | copy an `rg` command for the selection's directory (a file's parent) — `rg -n <dir> -e `, ready to paste into any shell and finish with a pattern |
 | `u` / `U` | copy the selection's web URL (GitHub-style, from the origin remote) / open it in the browser and copy |
 | `.` | toggle hidden files |
 | `i` | toggle gitignored files |
@@ -249,7 +250,6 @@ automatically, so they work out of the box.
 | `K` | `ctrl+r` | the herdr counterpart of `t`: open the selection — or everything marked — in the helix belonging to this place, wherever in herdr that is |
 | `alt+g` | | the herdr counterpart of `L`: lazygit for the checkout, in a tab of its own rather than a popup |
 | `ctrl+g` | | the herdr counterpart of `M`: lazygit filtered to the selected file's history |
-| `r` | | prime an `rg` at the selection's directory in a shell beside `ft`, or a new split if there is no shell to type into |
 | `L` | | open lazygit for the repo containing the selection, in a popup — one session per checkout, whichever subdirectory you press it in |
 | `M` | | open lazygit focused on the selected file's blame / log view, in a popup |
 | `alt+d` | | diff the selection — or everything marked — against `HEAD` in a popup; through git's pager if one is configured, and readable without one |
@@ -259,15 +259,13 @@ automatically, so they work out of the box.
 | `ctrl+k` | `ctrl+k` | widen `ft`'s pane to 70% of the window |
 | `alt+h` | `alt+h` | give every pane in the window the same width, side by side — tmux's `even-horizontal` layout, for a window that has drifted out of shape |
 
-`t` and `r` choose their target by looking at what is running in the window
-rather than by asking tmux for the previously-active pane. A pane `ft` opens is
-created detached, so it never becomes active and never becomes the "last" pane
-either — which left `{last}` pointing back at `ft` itself, and every press after
-the first opening yet another helix until you visited one by hand. `t` prefers a
+`t` chooses its target by looking at what is running in the window rather than
+by asking tmux for the previously-active pane. A pane `ft` opens is created
+detached, so it never becomes active and never becomes the "last" pane either —
+which left `{last}` pointing back at `ft` itself, and every press after the
+first opening yet another helix until you visited one by hand. `t` prefers a
 running helix over a waiting shell, since sending to an editor already open
-reuses it where typing `hx` at a shell starts a second one. `r` only ever types
-into a *shell*: aimed at whatever was last, it fed `rg -n … -e ` to a helix
-sitting there as editor keystrokes and left the buffer modified.
+reuses it where typing `hx` at a shell starts a second one.
 
 A command that opens a pane — `t`'s fallback split, `v`, `n`, `N`, `D` — takes
 its columns from *every* pane in the window, so a 30-column tree beside an
@@ -831,9 +829,9 @@ opening a file when its template names it with `{paths}`, `{path}` or
 `{relpath}` — a marked set records every file in it. So
 `enter`, `e`, `t`, `v`, `K` and `alt+d` are remembered — reading a file's diff
 counts as having had it open, and so does reading its history with `M` or
-`ctrl+g` — while `n`/`N`/`alt+n` and `J` (a shell in `{dir}`), `r` (an `rg`
-primed at `{dir}`), `L` and `alt+g` (lazygit in `{dir}`), `D` (a diff of marked
-paths) and the `ctrl+l`/`ctrl+j`/`ctrl+k`/`alt+h` pane commands are not.
+`ctrl+g` — while `n`/`N`/`alt+n` and `J` (a shell in `{dir}`), `L` and
+`alt+g` (lazygit in `{dir}`), `D` (a diff of marked paths) and the
+`ctrl+l`/`ctrl+j`/`ctrl+k`/`alt+h` pane commands are not.
 Directories are never recorded, and neither is `C` — its file lives outside the
 tree. Files deleted since are dropped from the list rather than offered and
 then failing to open, but they stay in the history, since a branch switch can

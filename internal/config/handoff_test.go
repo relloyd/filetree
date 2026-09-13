@@ -102,54 +102,24 @@ func TestHandoffTargeting(t *testing.T) {
 	}
 }
 
-// grep-here types a shell command, so it must only ever reach a shell. Aimed
-// at the previously-active pane it fed "rg -n ... -e " to a helix sitting
-// there as editor keystrokes, and left the buffer modified.
-func TestGrepHereNeverTypesIntoAnEditor(t *testing.T) {
-	got := runHandoff(t, "grep-here", "0 %0 ft\n1 %1 hx\n", handoffVars)
-	if strings.Contains(got, "send-keys") {
-		t.Errorf("typed into a non-shell pane:\n%s", got)
+// Outside tmux the hand-off resolves against the most recently used session,
+// so a send-keys would type into a pane in a window nobody is looking at. It
+// says so rather than acting, and the status bar reports it.
+func TestHandoffRefusesOutsideTmux(t *testing.T) {
+	dir, _ := stubTmux(t, "0 %0 ft\n")
+	cmd := exec.Command("/bin/sh", "-c", ExpandCommand(Default().Commands["tmux-handoff"].Run, handoffVars))
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for i, e := range cmd.Env {
+		if strings.HasPrefix(e, "TMUX=") {
+			cmd.Env[i] = "TMUX="
+		}
 	}
-	if !strings.Contains(got, "split-window") {
-		t.Errorf("want a fresh shell split instead:\n%s", got)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Errorf("succeeded outside tmux:\n%s", out)
 	}
-}
-
-func TestGrepHereUsesAShellWhenThereIsOne(t *testing.T) {
-	got := runHandoff(t, "grep-here", "0 %0 ft\n0 %1 hx\n0 %2 bash\n", handoffVars)
-	if !strings.Contains(got, "-t %2") {
-		t.Errorf("did not target the shell:\n%s", got)
-	}
-	if !strings.Contains(got, "rg -n") {
-		t.Errorf("did not prime the rg:\n%s", got)
-	}
-	if strings.Contains(got, "split-window") {
-		t.Errorf("split despite a shell being available:\n%s", got)
-	}
-}
-
-// Outside tmux these resolve against the most recently used session, so a
-// send-keys would type into a pane in a window nobody is looking at. They say
-// so rather than acting, and the status bar reports it.
-func TestHandoffsRefuseOutsideTmux(t *testing.T) {
-	for _, name := range []string{"tmux-handoff", "grep-here"} {
-		t.Run(name, func(t *testing.T) {
-			dir, _ := stubTmux(t, "0 %0 ft\n")
-			cmd := exec.Command("/bin/sh", "-c", ExpandCommand(Default().Commands[name].Run, handoffVars))
-			cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-			for i, e := range cmd.Env {
-				if strings.HasPrefix(e, "TMUX=") {
-					cmd.Env[i] = "TMUX="
-				}
-			}
-			out, err := cmd.CombinedOutput()
-			if err == nil {
-				t.Errorf("succeeded outside tmux:\n%s", out)
-			}
-			if !strings.Contains(string(out), "not running inside tmux") {
-				t.Errorf("said nothing useful: %q", out)
-			}
-		})
+	if !strings.Contains(string(out), "not running inside tmux") {
+		t.Errorf("said nothing useful: %q", out)
 	}
 }
 

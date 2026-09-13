@@ -922,6 +922,7 @@ func (m *Model) buildBindings() {
 		"reveal":         m.reveal,
 		"copy-abs":       m.copyAbs,
 		"copy-rel":       m.copyRel,
+		"copy-grep":      m.copyGrep,
 		"fuzzy":          m.startFuzzy,
 		"fuzzy-here":     m.startFuzzyHere,
 		"finder-resume":  m.resumeFuzzy,

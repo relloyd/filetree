@@ -425,6 +425,30 @@ func (m *Model) copyRel() (tea.Model, tea.Cmd) {
 	return m, m.note("Copied: "+p, false)
 }
 
+// copyGrep copies an rg command aimed at the selection's directory, ending at
+// -e so the pattern is all that is left to type. It used to type the same
+// command into a shell beside ft with tmux send-keys, which tied it to a tmux
+// window and needed care not to type it into an editor; on the clipboard it
+// goes to whichever shell you paste it into, under tmux, herdr or neither.
+//
+// The directory is absolute because nothing is known about where that shell
+// is sitting, and quoted because a shell is where it is going.
+func (m *Model) copyGrep() (tea.Model, tea.Cmd) {
+	n := m.selected()
+	if n == nil {
+		return m, nil
+	}
+	dir := n.Path
+	if !n.IsDir {
+		dir = filepath.Dir(n.Path)
+	}
+	cmd := "rg -n " + config.ShellQuote(dir) + " -e "
+	if err := m.plat.CopyToClipboard(cmd); err != nil {
+		return m, m.note(err.Error(), true)
+	}
+	return m, m.note("Copied: "+cmd, false)
+}
+
 // gitRelPath is the node's path relative to its closest parent git repo,
 // falling back to the absolute path outside any repo.
 func (m *Model) gitRelPath(n *tree.Node) string { return m.gitRelPathFor(n.Path) }
@@ -748,9 +772,9 @@ func (m *Model) clearMarksAfter(tmpl string, v config.Vars) bool {
 // Three things have to hold, and each excludes a real case:
 //
 //   - the template names the file. A command that never substitutes it did not
-//     open it: this is what keeps "n" (a shell in {dir}), "r" (an rg primed at
-//     {dir}), "tab" (focus the pane to the right, no placeholders at all) and
-//     "D" (a diff of {marked1}/{marked2}) out of the history;
+//     open it: this is what keeps "n" (a shell in {dir}), "tab" (focus the
+//     pane to the right, no placeholders at all) and "D" (a diff of
+//     {marked1}/{marked2}) out of the history;
 //   - the path is inside the tree. History is per root and stored
 //     root-relative, so there is nowhere to put anything else — this is what
 //     excludes "C", whose file lives under ~/.filetree;
