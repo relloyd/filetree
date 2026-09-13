@@ -69,7 +69,11 @@ Design rules that keep this maintainable:
   listing is injected via `tree.Lister`.
 - All git information comes from one parsed `git status` per repo, cached in
   the app model and refreshed via async `tea.Cmd`s. Never shell out to git
-  per file.
+  per file. That status runs as `git --no-optional-locks status`: ft re-reads
+  it after every watched file change, and a plain `git status` takes
+  `.git/index.lock` on every run (measured), so a lazygit commit or any other
+  index write landing in that window fails with "index.lock: File exists".
+  `TestReadStatusLeavesTheIndexAlone` is the guard.
 - OS-specific behaviour goes behind `platform.Platform` in
   `platform_<goos>.go` files with build tags — never inline `exec.Command`
   for OS integrations elsewhere.

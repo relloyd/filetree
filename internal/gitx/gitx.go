@@ -58,8 +58,14 @@ type RepoStatus struct {
 
 // ReadStatus runs git for the repo rooted at root. Call it from a background
 // command; parsing is deterministic and covered by tests via parseStatus.
+//
+// --no-optional-locks because this runs after every watched file change: a
+// plain status takes .git/index.lock to save refreshed stat data, on every
+// run, and an index write elsewhere — a lazygit commit, an agent's git add —
+// that lands in that window fails with "index.lock: File exists". The output
+// is the same without it; git just does not save what it worked out.
 func ReadStatus(root string) (*RepoStatus, error) {
-	cmd := exec.Command("git", "-C", root, "status", "--porcelain", "-z", "--ignored")
+	cmd := exec.Command("git", "-C", root, "--no-optional-locks", "status", "--porcelain", "-z", "--ignored")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git status in %s: %w", root, err)
