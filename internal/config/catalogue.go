@@ -154,9 +154,10 @@ esac
 	// lists them; these three keys create or return to one.
 	//
 	// The name is {session} with the tool on the end —
-	// "ft/<repo>/<branch>/<tool>" — and it is what "T" filters on, so these
-	// sessions are the only ones in the list. Everything else ft opens (the
-	// tree itself, the splits above, the popups) stays unnamed and out of it.
+	// "ft/agent/<repo>/<branch>/<tool>" — which makes these the "agent" rows
+	// in "T". The tree itself and the popups are named after a place instead
+	// ("ft/tree/<root>", "ft/shell/<dir>") and listed as kinds of their own;
+	// only the splits above, which are panes rather than sessions, stay out.
 	//
 	// "-A" is what makes the key idempotent: it attaches to the session if it
 	// is already there and creates it otherwise. Note that it *ignores the
@@ -204,7 +205,7 @@ esac
 	// from the same "T" list rather than lost among anonymous panes.
 	{
 		Name: "agent-shell",
-		Desc: "a named shell session for this repo",
+		Desc: "named agent shell at the repo root",
 		Run:  `tmux display-popup -E -d {gitroot} -w 92% -h 92% "tmux new-session -A -s {session}/shell -c {gitroot}"`,
 		Mode: ModeInteractive,
 		Key:  "alt+s",

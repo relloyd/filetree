@@ -245,7 +245,7 @@ automatically, so they work out of the box.
 | `alt+n` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree — in a session named after the directory, so detaching from it and pressing the key again comes back to it |
 | `c` | | Claude Code in a named tmux session for the selection's repo and branch, in a popup — created on the first press, reattached on every one after |
 | `x` | | the same for the Copilot CLI |
-| `alt+s` | | the same for a plain shell, so long-running work is reachable from the `T` list too |
+| `alt+s` | | the same for a plain shell, started at the repo root — for long-running work such as a dev server, listed in `T` beside the agents |
 | `J` | | the herdr counterpart of `n`: a shell for the place under the cursor in [herdr](#herdr) — focuses one that is already open, and otherwise opens one beside the tree, in the workspace that holds the code, or in a new workspace of its own |
 | `K` | `ctrl+r` | the herdr counterpart of `t`: open the selection — or everything marked — in the helix belonging to this place, wherever in herdr that is |
 | `alt+g` | | the herdr counterpart of `L`: lazygit for the checkout, in a tab of its own rather than a popup |
