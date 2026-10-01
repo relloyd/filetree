@@ -181,15 +181,15 @@ func row(fields ...string) string { return strings.Join(fields, "\t") }
 
 func TestParseList(t *testing.T) {
 	out := strings.Join([]string{
-		row("ft/agent/filetree/main/claude", "1", "1700000000", "2", "", "/home/u/filetree", "claude"),
-		row("ft/agent/filetree/feat-x/copilot", "0", "1700000060", "1", "bell", "/home/u/wt/feat-x", "bash"),
+		row("ft/agent/filetree/main/claude", "1", "1700000000", "2", "", "/home/u/filetree", "claude", "waiting 1700000100"),
+		row("ft/agent/filetree/feat-x/copilot", "0", "1700000060", "1", "0!", "/home/u/wt/feat-x", "bash", ""),
 		// A place session: one component after the kind, no repo or branch.
-		row("ft/shell/filetree-1a2b3c4d", "0", "1700000030", "1", "", "/home/u/filetree", "zsh"),
+		row("ft/shell/filetree-1a2b3c4d", "0", "1700000030", "1", "", "/home/u/filetree", "zsh", ""),
 		// Not ours: a session someone else created.
-		row("0", "1", "1700000000", "1", "", "/home/u", "vim"),
-		row("work", "0", "1700000000", "1", "", "/home/u", "bash"),
+		row("0", "1", "1700000000", "1", "", "/home/u", "vim", ""),
+		row("work", "0", "1700000000", "1", "", "/home/u", "bash", ""),
 		// Under the prefix but not conventional — listed, but unparsed.
-		row("ft/loose", "0", "1700000000", "1", "", "/tmp", "bash"),
+		row("ft/loose", "0", "1700000000", "1", "", "/tmp", "bash", ""),
 		// Malformed: too few fields, skipped rather than fatal.
 		"ft/broken\t0",
 		"",
@@ -219,6 +219,12 @@ func TestParseList(t *testing.T) {
 	if !first.Activity.Equal(time.Unix(1700000000, 0)) {
 		t.Errorf("activity = %v", first.Activity)
 	}
+	if first.Agent != (Agent{State: AgentWaiting, Since: time.Unix(1700000100, 0)}) {
+		t.Errorf("agent = %+v", first.Agent)
+	}
+	if got[1].Agent.State != "" {
+		t.Errorf("no agent option should leave the state empty, got %+v", got[1].Agent)
+	}
 	if first.Dir != "/home/u/filetree" || first.Command != "claude" {
 		t.Errorf("dir/command = %q/%q", first.Dir, first.Command)
 	}
@@ -238,13 +244,34 @@ func TestParseList(t *testing.T) {
 	}
 }
 
+// session_alerts is a list of window indexes with one flag per alert, not
+// words: the values here are what tmux 3.6a printed, not what it might print.
+func TestHasBell(t *testing.T) {
+	cases := []struct {
+		alerts string
+		want   bool
+	}{
+		{"", false},
+		{"0!", true},
+		{"1#", false},   // activity: any busy shell does that
+		{"0~", false},   // silence
+		{"0#,2!", true}, // the bell can be in any window
+		{"3#!", true},   // and share a window with another flag
+	}
+	for _, c := range cases {
+		if got := hasBell(c.alerts); got != c.want {
+			t.Errorf("hasBell(%q) = %v, want %v", c.alerts, got, c.want)
+		}
+	}
+}
+
 // The format string and the parser are two halves of one agreement; a field
 // added to one and not the other silently shifts every column after it.
 func TestListFormatMatchesParser(t *testing.T) {
 	if n := len(strings.Split(ListFormat, "\t")); n != len(listFields) {
 		t.Fatalf("ListFormat has %d fields, listFields has %d", n, len(listFields))
 	}
-	line := row("ft/agent/r/b/t", "0", "1", "1", "", "/tmp", "sh")
+	line := row("ft/agent/r/b/t", "0", "1", "1", "", "/tmp", "sh", "")
 	if got := ParseList(DefaultPrefix, line); len(got) != 1 {
 		t.Fatalf("a line with len(listFields) fields must parse, got %d rows", len(got))
 	}

@@ -274,3 +274,52 @@ func run(args ...string) error {
 	}
 	return nil
 }
+
+// PaneInfo is what the agent hook needs to know about the pane it was run
+// from: which session to report on, whether anyone is looking at it, and the
+// terminal to ring a bell on.
+type PaneInfo struct {
+	Session  string // #{session_name}
+	Attached int    // #{session_attached}: clients showing the session now
+	TTY      string // #{pane_tty}
+}
+
+// DescribePane reads PaneInfo for a pane id, typically $TMUX_PANE. A bare pane
+// id, as everywhere display-message is used: it does not take target()'s "=".
+func DescribePane(pane string) (PaneInfo, error) {
+	if !Available() {
+		return PaneInfo{}, ErrNotInstalled
+	}
+	var stdout, stderr bytes.Buffer
+	c := exec.Command("tmux", "display-message", "-p", "-t", pane,
+		"#{session_name}\t#{session_attached}\t#{pane_tty}")
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		return PaneInfo{}, tmuxError(err, stderr.String())
+	}
+	f := strings.Split(strings.TrimRight(stdout.String(), "\n"), "\t")
+	if len(f) != 3 {
+		return PaneInfo{}, errors.New("tmux: unreadable pane description")
+	}
+	return PaneInfo{Session: f[0], Attached: atoi(f[1]), TTY: f[2]}, nil
+}
+
+// SetAgent records an agent's state on the session holding pane. set-option
+// resolves a pane id to its session for a session option, which is what lets
+// the hook name the pane it runs in and leave tmux to work out the rest — and,
+// like display-message, it refuses target()'s "=" prefix.
+func SetAgent(pane, value string) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	return run("set-option", "-t", pane, AgentOption, value)
+}
+
+// ClearAgent removes the state, for an agent that has ended: the session goes
+// back to being a shell, and a state left behind would say otherwise.
+func ClearAgent(pane string) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	return run("set-option", "-u", "-t", pane, AgentOption)
+}

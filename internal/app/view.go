@@ -34,6 +34,10 @@ var (
 	colType   = lipgloss.Color("#D7BA7D") // finder: what the Type filter matched
 	colFinder = lipgloss.Color("#9CDCFE") // help: a key the finder answers, not the tree
 
+	// colWaiting is an agent blocked on you: orange, louder than git's
+	// modified gold, because it is the one row in "T" that is costing time.
+	colWaiting = lipgloss.Color("#F5A742")
+
 	styleBase    = lipgloss.NewStyle()
 	styleDim     = lipgloss.NewStyle().Foreground(colDim)
 	styleError   = lipgloss.NewStyle().Foreground(colError)
@@ -44,6 +48,7 @@ var (
 	styleMark    = lipgloss.NewStyle().Foreground(colMark)
 	styleType    = lipgloss.NewStyle().Foreground(colType)
 	styleFinder  = lipgloss.NewStyle().Foreground(colFinder)
+	styleWaiting = lipgloss.NewStyle().Foreground(colWaiting).Bold(true)
 
 	codeColors = map[gitx.Code]color.Color{
 		gitx.Ignored:   lipgloss.Color("#6D6D6D"),
@@ -365,11 +370,21 @@ const (
 
 // renderStatusRight builds the right-hand end of the status bar and reports how
 // many columns it occupies. Segments are added in priority order — the row
-// counter always, then the mark count, then whatever the branch can be given —
-// so a narrow pane sheds them from the left rather than losing the lot.
+// counter always, then the agents waiting on you, then the mark count, then
+// whatever the branch can be given — so a narrow pane sheds them from the left
+// rather than losing the lot.
 func (m *Model) renderStatusRight() (string, int) {
 	counter := fmt.Sprintf("%d/%d ", m.cursor+1, len(m.rows))
 	right, rw := styleDim.Render(counter), lipgloss.Width(counter)
+
+	// Ahead of the marks: the marks are something you did and know about, a
+	// waiting agent is something you would not otherwise know. The "!" is the
+	// same marker "T" puts on the rows it counts.
+	if n := m.agentsWaiting; n > 0 {
+		waiting := fmt.Sprintf("! %d waiting  ", n)
+		right = styleWaiting.Render(waiting) + right
+		rw += lipgloss.Width(waiting)
+	}
 
 	if n := len(m.marked); n > 0 {
 		marks := fmt.Sprintf("● %d marked  ", n)
@@ -815,8 +830,9 @@ func (m *Model) renderMatchRow(mt fuzzy.Match, selected bool, now time.Time) []s
 }
 
 // renderTmuxRow draws one named tmux session as its repo/branch/tool label,
-// with a status block pushed to the right edge: what is running in it, whether
-// anyone has it open, and how long since it last did anything.
+// with a status block pushed to the right edge: what is running in it, what
+// its agent last reported, whether it needs you or anyone has it open, and how
+// long since that changed.
 //
 // The label is the only thing the query matches, so the offsets start at zero
 // and the status block carries no highlighting — it changes on its own, and
@@ -828,7 +844,11 @@ func (m *Model) renderTmuxRow(s tmux.Session, matched []int, selected bool, now 
 	}
 	label := s.Label(m.sessionPrefix())
 	shown, shownIdx := truncatePathLeft(label, matched, max(1, m.width-3))
-	line := prefix + highlightIn(shown, shownIdx, 0, styleBase)
+	tone := styleBase
+	if !m.isSelf(s) {
+		tone = sessionTone(s)
+	}
+	line := prefix + highlightIn(shown, shownIdx, 0, tone)
 	used := 3 + lipgloss.Width(shown)
 
 	return m.finderRow(line, used, true, 1, func(room int) (string, int) {
@@ -847,10 +867,15 @@ func (m *Model) renderTmuxRow(s tmux.Session, matched []int, selected bool, now 
 // tmuxRowStatus is the right-hand block of a session row, returned both as
 // plain text (to measure) and styled (to draw).
 //
-// The marker cell is always one column wide, blank included, so the ages below
-// each other line up and the eye can run down them. "!" is a pending bell,
-// which is what Claude Code rings when it is waiting for you — the one thing
-// in this list worth spotting from across the room.
+// The agent's state comes next when its hooks have reported one, in the
+// row's sessionTone, as is the "!". The marker cell is always one column wide, blank
+// included, so the ages below each other line up and the eye can run down
+// them. "!" is tmux.Session.NeedsYou — an agent waiting, or a bell nobody has
+// looked at — the one thing in this list worth spotting from across the room.
+//
+// The age is how long the agent has been in its state when it has one, which
+// is the question a "waiting" raises; otherwise how long since the session
+// last did anything.
 //
 // This tree says so instead of showing a status, because none of it would tell
 // you anything you cannot see around you — and because the row is there to be
@@ -869,16 +894,55 @@ func tmuxRowStatus(s tmux.Session, self bool, now time.Time) (plain, styled stri
 		return strings.Join(texts, " "), strings.Join(out, " ")
 	}
 	add(s.Command, styleDim)
+	tone := sessionTone(s)
+	agent := s.AgentNow()
+	add(agent.State, tone)
 	switch {
-	case s.Alert:
-		add("!", styleChanged)
+	case s.NeedsYou():
+		add("!", tone)
 	case s.Attached > 0:
 		add("●", styleTitle)
 	default:
 		add(" ", styleBase)
 	}
-	add(relativeAge(s.Activity, now), styleDim)
+	since := s.Activity
+	if !agent.Since.IsZero() {
+		since = agent.Since
+	}
+	add(relativeAge(since, now), styleDim)
 	return strings.Join(texts, " "), strings.Join(out, " ")
+}
+
+// sessionTone is the colour a session's row is drawn in, so the state can be
+// read down the list before any of the words are:
+//
+//	waiting        orange, bold  blocked on you — the row costing time
+//	done, unread   green, bold   finished and you have not looked yet
+//	bell, unread   gold, bold    something else rang (no agent state)
+//	working        light blue    busy; nothing for you to do
+//	done, read     green         finished and seen: told, not flagged
+//	nothing        default
+//
+// The bold ones are exactly the rows NeedsYou counts, which is what the "!"
+// and the status bar's count mean too; the colour says why. Green and gold
+// are the git palette's untracked and modified, so the list reads with the
+// same weights as the tree beside it.
+func sessionTone(s tmux.Session) lipgloss.Style {
+	switch s.AgentNow().State {
+	case tmux.AgentWaiting:
+		return styleWaiting
+	case tmux.AgentWorking:
+		return styleFinder
+	case tmux.AgentDone:
+		if s.Alert {
+			return styleOK.Bold(true)
+		}
+		return styleOK
+	}
+	if s.Alert {
+		return styleChanged.Bold(true)
+	}
+	return styleBase
 }
 
 // highlightPath colours a result path: the runes the Find query matched in

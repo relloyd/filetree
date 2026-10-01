@@ -64,11 +64,13 @@ func (m *Model) noteSelf() tea.Cmd {
 }
 
 // sortTmuxSessions puts the sessions in the order they are wanted in: the ones
-// asking for attention first, this tree last, and everything else by how
-// recently it did anything.
+// waiting on you first, this tree last, and everything else by how recently
+// it did anything.
 //
-// A bell is what Claude Code rings when it wants input, so a session with one
-// pending is the one the list exists to surface. Attachment is not part of the
+// Waiting on you is tmux.Session.NeedsYou: an agent its hooks say is blocked
+// on a question, or a bell nobody has looked at — which is how an agent says
+// it has finished, and how any other tool asks for attention. That is the
+// session the list exists to surface. Attachment is not part of the
 // ordering — a session you already have open somewhere is the one you least
 // need to be shown — and this tree is the extreme of that: you are typing in
 // it, so by activity it would sit at the top of the list for ever, and it is
@@ -76,8 +78,8 @@ func (m *Model) noteSelf() tea.Cmd {
 func (m *Model) sortTmuxSessions() {
 	sort.SliceStable(m.tmuxAll, func(i, j int) bool {
 		a, b := m.tmuxAll[i], m.tmuxAll[j]
-		if a.Alert != b.Alert {
-			return a.Alert
+		if na, nb := a.NeedsYou(), b.NeedsYou(); na != nb {
+			return na
 		}
 		if sa, sb := m.isSelf(a), m.isSelf(b); sa != sb {
 			return sb
