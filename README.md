@@ -398,7 +398,10 @@ through its own lifecycle hooks. `ft` then shows it in three places:
 
 - **`T`**: each agent's row says `working`, `waiting` or `done` and how long it
   has been that way, and the sessions waiting for you are marked `!` and sorted
-  to the top.
+  to the top. The whole row is coloured by state: bold orange for waiting,
+  bold green for done and not yet looked at, bold gold for any other bell, and
+  plain green for done and seen. Working is light blue. The bold rows are the
+  ones counted as waiting for you.
 - **The status bar**: `! 2 waiting`, from the tree, without opening anything.
 - **A desktop notification**: when an agent starts waiting or finishes in a
   session nobody has open. One you are looking at has already told you.

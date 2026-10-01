@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/relloyd/filetree/internal/tmux"
 )
 
@@ -131,5 +133,32 @@ func TestStatusBarShowsWaiting(t *testing.T) {
 	m.agentsWaiting = 2
 	if got := rowText([]string{m.renderStatus()}); !strings.Contains(got, "! 2 waiting") {
 		t.Errorf("status bar = %q, want the waiting count", got)
+	}
+}
+
+// Each state has its own colour, and the bold ones are exactly the rows that
+// need you — the same rows the "!" and the status bar count.
+func TestSessionTone(t *testing.T) {
+	cases := []struct {
+		name string
+		s    tmux.Session
+		want lipgloss.Style
+	}{
+		{"waiting", session("ft/agent/r/main/claude", agentState(tmux.AgentWaiting, 1)), styleWaiting},
+		{"done, unread", session("ft/agent/r/main/claude", agentState(tmux.AgentDone, 1), alerting), styleOK.Bold(true)},
+		{"done, read", session("ft/agent/r/main/claude", agentState(tmux.AgentDone, 1)), styleOK},
+		{"working", session("ft/agent/r/main/claude", agentState(tmux.AgentWorking, 1), alerting), styleFinder},
+		{"bell, no agent", session("ft/shell/x-1a2b3c4d", alerting), styleChanged.Bold(true)},
+		{"nothing", session("ft/shell/x-1a2b3c4d"), styleBase},
+	}
+	for _, c := range cases {
+		got := sessionTone(c.s)
+		if got.GetForeground() != c.want.GetForeground() || got.GetBold() != c.want.GetBold() {
+			t.Errorf("%s: tone fg=%v bold=%v, want fg=%v bold=%v",
+				c.name, got.GetForeground(), got.GetBold(), c.want.GetForeground(), c.want.GetBold())
+		}
+		if got.GetBold() != c.s.NeedsYou() {
+			t.Errorf("%s: bold=%v but NeedsYou=%v — the emphasis should mark exactly those", c.name, got.GetBold(), c.s.NeedsYou())
+		}
 	}
 }
