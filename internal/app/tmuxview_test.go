@@ -47,8 +47,8 @@ func idleLonger(s *tmux.Session) {
 	s.Activity = time.Unix(1600000000, 0)
 }
 
-// A session with a bell pending is the one the list exists to surface: Claude
-// Code rings it when it is waiting for input, so it sorts above everything
+// A session with a bell pending is the one the list exists to surface: an
+// agent rings it when it is waiting for input, so it sorts above everything
 // regardless of how recently it was touched.
 func TestTmuxSessionOrder(t *testing.T) {
 	m := tmuxPickerModel(t,

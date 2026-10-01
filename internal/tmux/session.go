@@ -235,13 +235,9 @@ func ParseList(prefix, out string) []Session {
 			Name:     f[0],
 			Attached: atoi(f[1]),
 			Windows:  atoi(f[3]),
-			// session_alerts is empty when nothing is pending and lists the
-			// alerts otherwise ("bell", "activity", ...). Claude Code rings the
-			// terminal bell when it wants input, which is what makes this the
-			// "waiting on you" marker.
-			Alert:   strings.Contains(f[4], "bell"),
-			Dir:     f[5],
-			Command: f[6],
+			Alert:    hasBell(f[4]),
+			Dir:      f[5],
+			Command:  f[6],
 		}
 		if secs := atoi(f[2]); secs > 0 {
 			s.Activity = time.Unix(int64(secs), 0)
@@ -251,6 +247,19 @@ func ParseList(prefix, out string) []Session {
 		sessions = append(sessions, s)
 	}
 	return sessions
+}
+
+// hasBell reports whether a #{session_alerts} value includes a bell.
+//
+// tmux lists each window with an alert pending as its index followed by one
+// flag per alert — "#" activity, "!" bell, "~" silence — joined by commas, so
+// a bell in window 0 reads "0!" and the value never contains a word. Only the
+// bell counts: it is what an agent rings when it wants you (Claude Code once
+// its preferredNotifChannel is "terminal_bell"), while activity and silence
+// are things any busy or idle shell does. Measured on tmux 3.6a; the first
+// version of this matched the word "bell" and so never fired.
+func hasBell(alerts string) bool {
+	return strings.Contains(alerts, "!")
 }
 
 // atoi is Atoi with a zero for anything unreadable: a count or a timestamp

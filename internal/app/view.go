@@ -849,8 +849,8 @@ func (m *Model) renderTmuxRow(s tmux.Session, matched []int, selected bool, now 
 //
 // The marker cell is always one column wide, blank included, so the ages below
 // each other line up and the eye can run down them. "!" is a pending bell,
-// which is what Claude Code rings when it is waiting for you — the one thing
-// in this list worth spotting from across the room.
+// which is what an agent rings when it is waiting for you — the one thing in
+// this list worth spotting from across the room.
 //
 // This tree says so instead of showing a status, because none of it would tell
 // you anything you cannot see around you — and because the row is there to be

@@ -352,7 +352,53 @@ quitting the agent leaves a shell in the same directory with the scrollback
 still there. `T` shows what is running in each one (`claude` while it works,
 your shell once it has stopped), how long since it last did anything, `●` for
 one you have open somewhere, and `!` for one with a terminal bell pending —
-which is what Claude Code rings when it is waiting for you.
+which is how an agent says it is waiting for you, once it is set up to ring
+one (below).
+
+#### Knowing when an agent is waiting
+
+`!` is tmux's own bell flag. tmux sets it when a program rings the terminal
+bell in a session nobody is looking at, and clears it when you attach, so it
+means "wanted you while you were away, and you have not looked yet". `T` sorts
+those sessions to the top. Two things have to be true for it to appear:
+
+1. **The agent has to ring the bell.** Claude Code does not by default: its
+   `auto` notification channel sends a desktop-notification escape sequence
+   in Ghostty, iTerm2 and Kitty, and nothing at all elsewhere. Neither is a
+   bell. Ask for the bell in `~/.claude/settings.json`:
+
+   ```json
+   { "preferredNotifChannel": "terminal_bell" }
+   ```
+
+   This replaces the desktop notification in those three terminals rather
+   than adding to it. Copilot CLI does not ring a bell either. Its
+   notifications are hooks (`notification`, `agentStop`), so it will not show
+   `!` from settings alone.
+
+2. **tmux has to be watching for it.** `monitor-bell on` and `bell-action
+   any` are tmux's defaults, so this only goes wrong if your `~/.tmux.conf`
+   turned them off. Stating them does no harm:
+
+   ```tmux
+   set -g monitor-bell on
+   set -g bell-action any
+   ```
+
+`allow-passthrough` is the setting you will find recommended for agent
+notifications inside tmux, and it does help, but not here. It lets escape
+sequences through to your terminal, which is how a desktop notification
+gets out of a pane that is *on screen*. A detached session has no terminal to
+pass anything to, so passthrough cannot tell you about the agent you walked
+away from. That is the job of the bell and the `!`. Turn it on anyway, for
+the popup or split you do have open:
+
+```tmux
+set -g allow-passthrough on
+```
+
+`T` reads tmux when you open it and does not update while it is open, so
+press it again to see a newer bell.
 
 These are ordinary `[commands]` entries: point them at any CLI, change the
 keys, or add a fourth. `{session}`, `{repo}`, `{branch}`, `{gitroot}` and

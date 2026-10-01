@@ -182,7 +182,7 @@ func row(fields ...string) string { return strings.Join(fields, "\t") }
 func TestParseList(t *testing.T) {
 	out := strings.Join([]string{
 		row("ft/agent/filetree/main/claude", "1", "1700000000", "2", "", "/home/u/filetree", "claude"),
-		row("ft/agent/filetree/feat-x/copilot", "0", "1700000060", "1", "bell", "/home/u/wt/feat-x", "bash"),
+		row("ft/agent/filetree/feat-x/copilot", "0", "1700000060", "1", "0!", "/home/u/wt/feat-x", "bash"),
 		// A place session: one component after the kind, no repo or branch.
 		row("ft/shell/filetree-1a2b3c4d", "0", "1700000030", "1", "", "/home/u/filetree", "zsh"),
 		// Not ours: a session someone else created.
@@ -235,6 +235,27 @@ func TestParseList(t *testing.T) {
 	}
 	if got[3].Name != "ft/loose" || got[3].Parsed() {
 		t.Errorf("unconventional name should be listed unparsed, got %+v", got[3])
+	}
+}
+
+// session_alerts is a list of window indexes with one flag per alert, not
+// words: the values here are what tmux 3.6a printed, not what it might print.
+func TestHasBell(t *testing.T) {
+	cases := []struct {
+		alerts string
+		want   bool
+	}{
+		{"", false},
+		{"0!", true},
+		{"1#", false},   // activity: any busy shell does that
+		{"0~", false},   // silence
+		{"0#,2!", true}, // the bell can be in any window
+		{"3#!", true},   // and share a window with another flag
+	}
+	for _, c := range cases {
+		if got := hasBell(c.alerts); got != c.want {
+			t.Errorf("hasBell(%q) = %v, want %v", c.alerts, got, c.want)
+		}
 	}
 }
 

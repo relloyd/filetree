@@ -67,8 +67,9 @@ func (m *Model) noteSelf() tea.Cmd {
 // asking for attention first, this tree last, and everything else by how
 // recently it did anything.
 //
-// A bell is what Claude Code rings when it wants input, so a session with one
-// pending is the one the list exists to surface. Attachment is not part of the
+// A bell is what an agent rings when it wants input (Claude Code does once its
+// preferredNotifChannel is "terminal_bell"), so a session with one pending is
+// the one the list exists to surface. Attachment is not part of the
 // ordering — a session you already have open somewhere is the one you least
 // need to be shown — and this tree is the extreme of that: you are typing in
 // it, so by activity it would sit at the top of the list for ever, and it is
