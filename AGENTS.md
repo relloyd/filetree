@@ -61,6 +61,8 @@ internal/ipc/       the "ft jump <file>" socket: one listener per instance,
                     plus the pure routing that picks which instance answers
 internal/herdr/     every herdr call: the socket client, and the pure rule
                     picking which open pane belongs to a checkout
+internal/agenthook/ what an agent's lifecycle hook means: event + payload in,
+                    state / bell / notification out (pure; "ft agent-hook")
 ```
 
 Design rules that keep this maintainable:
@@ -349,6 +351,34 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   so a user resize is honoured. It is skipped when ft filled more than half the
   window, where there was no sidebar to preserve and restoring the old width
   would squeeze the pane just opened down to a single column.
+- **An agent's state lives on its tmux session, written only by its own hooks.**
+  `ft agent-hook <prompt|tool|notify|stop|end>` (cmd/ft/agenthook.go) sets the
+  session option `@ft_agent` to `"<state> <unix>"` from `$TMUX_PANE`, and
+  `List` reads it back as one more `list-sessions` field — so the tree, `T` and
+  the status bar never keep state of their own, and an ft restart loses
+  nothing. `internal/agenthook.Decide` is the whole event table; the command
+  only sequences tmux and `platform.Notify` around it (`hookEnv`, tested with
+  fakes). Four decisions hold it together:
+  - **"Unseen" is tmux's bell flag, not ft's bookkeeping.** The hook writes BEL
+    to the pane's tty; tmux raises `session_alerts` only for a session nobody
+    is viewing and clears it on attach. `Session.NeedsYou` is waiting, or that
+    flag — except while `working`, because the flag outlives an answer given
+    without attaching. Note `session_alerts` is `<window index><flags>`
+    (`0!`), never words: the first version matched `"bell"` and never fired.
+  - **Passthrough is not the mechanism.** `allow-passthrough` only reaches a
+    terminal from a pane that is on screen; a detached session has none. The
+    desktop banner therefore comes from the hook (`osascript`, text passed as
+    argv so a payload cannot become script), and only when
+    `session_attached` is 0.
+  - **A state outlives its agent, so it is ignored at a shell.** `AgentNow`
+    drops the state when the foreground command is a shell — the agent keys
+    run `<tool>; exec $SHELL`, so that means the agent has exited, whether or
+    not its `end` hook ran.
+  - **The poll is one chain.** `pollSessions` reads off the event loop and each
+    result schedules the next tick (`agentPollInterval`, 2s), so a slow tmux
+    never stacks reads. A failed read keeps the last count rather than showing
+    "all clear", and an open `T` re-sorts with the cursor following the
+    session by name.
 - **Not every tmux subcommand takes the `=` exact-match prefix `target()` adds.**
   `attach-session`, `kill-session`, `detach-client`, `join-pane` and
   `resize-pane` do; `set-option`, `display-message` and `capture-pane` resolve

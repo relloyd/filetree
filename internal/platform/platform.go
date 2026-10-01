@@ -1,5 +1,5 @@
 // Package platform abstracts OS-specific integrations (clipboard, file
-// manager reveal, trash). Implementations live in platform_<goos>.go files
+// manager reveal, trash, desktop notifications). Implementations live in platform_<goos>.go files
 // behind build tags; New returns the one for the current OS.
 package platform
 
@@ -12,4 +12,6 @@ type Platform interface {
 	OpenURL(url string) error
 	// Trash moves the path to the OS trash so it can be recovered.
 	Trash(path string) error
+	// Notify posts a desktop notification.
+	Notify(title, message string) error
 }

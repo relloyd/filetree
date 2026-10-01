@@ -156,6 +156,12 @@ type Sessions struct {
 	// self-relaunch, the splits, the popups — is unnamed, so the prefix is what
 	// keeps the picker to sessions worth coming back to.
 	Prefix string `toml:"prefix"`
+
+	// Notify lets "ft agent-hook" post a desktop notification when an agent
+	// starts waiting for you or finishes, in a session nobody is attached to.
+	// The bell and the state in "T" do not depend on it: this is only the
+	// banner, for an agent you have walked away from entirely.
+	Notify bool `toml:"notify"`
 }
 
 type Config struct {
@@ -212,6 +218,7 @@ func Default() *Config {
 		},
 		Sessions: Sessions{
 			Prefix: tmux.DefaultPrefix,
+			Notify: true,
 		},
 		DefaultCommand: DefaultBuiltinCommand,
 		Commands:       commands,

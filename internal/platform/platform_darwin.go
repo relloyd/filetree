@@ -44,3 +44,19 @@ func (darwin) Trash(path string) error {
 	}
 	return nil
 }
+
+func (darwin) Notify(title, message string) error {
+	// The text arrives as arguments to the script rather than spliced into
+	// it: the message comes from an agent's hook payload, and text quoted
+	// into AppleScript source would be text that could end the string and
+	// run as script.
+	script := []string{
+		"-e", "on run argv",
+		"-e", "display notification (item 2 of argv) with title (item 1 of argv)",
+		"-e", "end run",
+	}
+	if out, err := exec.Command("osascript", append(script, title, message)...).CombinedOutput(); err != nil {
+		return fmt.Errorf("notify: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}

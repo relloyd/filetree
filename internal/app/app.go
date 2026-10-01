@@ -215,8 +215,9 @@ type Model struct {
 	// query field, so "T" comes back to the sessions you were filtering
 	// rather than to the tree search.
 	//
-	// tmuxAll is re-read on entry and after every kill: the sessions belong to
-	// the tmux server, and any other ft — or the user, at a shell — can change
+	// tmuxAll is re-read on entry, after every kill, and by the background
+	// poll while the list is open: the sessions belong to the tmux server, and
+	// any other ft — or the user, at a shell, or an agent's hooks — can change
 	// the list while this one is showing it.
 	tmuxInput textinput.Model
 
@@ -231,6 +232,11 @@ type Model struct {
 	tmuxMatched [][]int
 	tmuxErr     string // what List had to say, if anything
 	tmuxSelf    string // this tree's own session name; "" outside tmux
+
+	// agentsWaiting is how many other sessions need you, from the background
+	// poll (agents.go). The status bar shows it, so a waiting agent is visible
+	// from the tree without opening "T".
+	agentsWaiting int
 
 	// homeRoot is the project root to return to from the scratch or worktrees
 	// view (session-only). Remembered once, on entering the first of them, and
@@ -479,6 +485,11 @@ func expandsAnything(rels []string) bool {
 func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{waitFs(m.watcher)}
 	cmds = append(cmds, m.ensureStatusesForExpanded()...)
+	// Without tmux there are no sessions to watch, and the poll would only
+	// report that once every two seconds for the life of the tree.
+	if tmux.Available() {
+		cmds = append(cmds, m.pollSessions())
+	}
 	if s := m.configNote(); s != "" {
 		cmds = append(cmds, m.note(s, true))
 	}
@@ -616,6 +627,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case worktreeRemovedMsg:
 		return m.handleWorktreeRemoved(msg)
+
+	case agentPollMsg:
+		return m, m.pollSessions()
+
+	case sessionsPolledMsg:
+		m.applySessionPoll(msg)
+		return m, nextAgentPoll()
 
 	case clearStatusMsg:
 		if msg.seq == m.statusSeq {

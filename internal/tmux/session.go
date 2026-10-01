@@ -58,6 +58,7 @@ type Session struct {
 	Windows  int       //
 	Activity time.Time // #{session_activity}: last time it did anything
 	Alert    bool      // a bell is pending — the tool wants attention
+	Agent    Agent     // what the agent's hooks last reported; see AgentNow
 }
 
 // Parsed reports whether the name followed the convention.
@@ -205,6 +206,9 @@ var listFields = []string{
 	"#{session_alerts}",
 	"#{session_path}",
 	"#{pane_current_command}",
+	// Last on purpose: a session no hook has touched leaves it empty, and an
+	// empty last field is the one that cannot be mistaken for a missing one.
+	"#{" + AgentOption + "}",
 }
 
 // ListFormat is the -F argument for list-sessions.
@@ -238,6 +242,7 @@ func ParseList(prefix, out string) []Session {
 			Alert:    hasBell(f[4]),
 			Dir:      f[5],
 			Command:  f[6],
+			Agent:    ParseAgent(f[7]),
 		}
 		if secs := atoi(f[2]); secs > 0 {
 			s.Activity = time.Unix(int64(secs), 0)

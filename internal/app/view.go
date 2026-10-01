@@ -365,11 +365,21 @@ const (
 
 // renderStatusRight builds the right-hand end of the status bar and reports how
 // many columns it occupies. Segments are added in priority order — the row
-// counter always, then the mark count, then whatever the branch can be given —
-// so a narrow pane sheds them from the left rather than losing the lot.
+// counter always, then the agents waiting on you, then the mark count, then
+// whatever the branch can be given — so a narrow pane sheds them from the left
+// rather than losing the lot.
 func (m *Model) renderStatusRight() (string, int) {
 	counter := fmt.Sprintf("%d/%d ", m.cursor+1, len(m.rows))
 	right, rw := styleDim.Render(counter), lipgloss.Width(counter)
+
+	// Ahead of the marks: the marks are something you did and know about, a
+	// waiting agent is something you would not otherwise know. The "!" is the
+	// same marker "T" puts on the rows it counts.
+	if n := m.agentsWaiting; n > 0 {
+		waiting := fmt.Sprintf("! %d waiting  ", n)
+		right = styleChanged.Render(waiting) + right
+		rw += lipgloss.Width(waiting)
+	}
 
 	if n := len(m.marked); n > 0 {
 		marks := fmt.Sprintf("● %d marked  ", n)
@@ -815,8 +825,9 @@ func (m *Model) renderMatchRow(mt fuzzy.Match, selected bool, now time.Time) []s
 }
 
 // renderTmuxRow draws one named tmux session as its repo/branch/tool label,
-// with a status block pushed to the right edge: what is running in it, whether
-// anyone has it open, and how long since it last did anything.
+// with a status block pushed to the right edge: what is running in it, what
+// its agent last reported, whether it needs you or anyone has it open, and how
+// long since that changed.
 //
 // The label is the only thing the query matches, so the offsets start at zero
 // and the status block carries no highlighting — it changes on its own, and
@@ -847,10 +858,16 @@ func (m *Model) renderTmuxRow(s tmux.Session, matched []int, selected bool, now 
 // tmuxRowStatus is the right-hand block of a session row, returned both as
 // plain text (to measure) and styled (to draw).
 //
-// The marker cell is always one column wide, blank included, so the ages below
-// each other line up and the eye can run down them. "!" is a pending bell,
-// which is what an agent rings when it is waiting for you — the one thing in
-// this list worth spotting from across the room.
+// The agent's state comes next when its hooks have reported one: "waiting"
+// (blocked on a question) in the colour that asks for attention, "done" and
+// "working" quieter. The marker cell is always one column wide, blank
+// included, so the ages below each other line up and the eye can run down
+// them. "!" is tmux.Session.NeedsYou — an agent waiting, or a bell nobody has
+// looked at — the one thing in this list worth spotting from across the room.
+//
+// The age is how long the agent has been in its state when it has one, which
+// is the question a "waiting" raises; otherwise how long since the session
+// last did anything.
 //
 // This tree says so instead of showing a status, because none of it would tell
 // you anything you cannot see around you — and because the row is there to be
@@ -869,15 +886,28 @@ func tmuxRowStatus(s tmux.Session, self bool, now time.Time) (plain, styled stri
 		return strings.Join(texts, " "), strings.Join(out, " ")
 	}
 	add(s.Command, styleDim)
+	agent := s.AgentNow()
+	switch agent.State {
+	case tmux.AgentWaiting:
+		add(agent.State, styleChanged)
+	case tmux.AgentDone:
+		add(agent.State, styleOK)
+	case tmux.AgentWorking:
+		add(agent.State, styleDim)
+	}
 	switch {
-	case s.Alert:
+	case s.NeedsYou():
 		add("!", styleChanged)
 	case s.Attached > 0:
 		add("●", styleTitle)
 	default:
 		add(" ", styleBase)
 	}
-	add(relativeAge(s.Activity, now), styleDim)
+	since := s.Activity
+	if !agent.Since.IsZero() {
+		since = agent.Since
+	}
+	add(relativeAge(since, now), styleDim)
 	return strings.Join(texts, " "), strings.Join(out, " ")
 }
 

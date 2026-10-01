@@ -18,6 +18,7 @@ func (c *clipRecorder) CopyToClipboard(s string) error { c.text = s; return nil 
 func (*clipRecorder) Reveal(string) error              { return nil }
 func (*clipRecorder) OpenURL(string) error             { return nil }
 func (*clipRecorder) Trash(string) error               { return nil }
+func (*clipRecorder) Notify(string, string) error      { return nil }
 
 // "r" copies the rg rather than typing it into a tmux pane, so it reaches any
 // shell. It aims at a directory's own path and at a file's parent, and the path

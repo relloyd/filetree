@@ -56,8 +56,8 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   shell — in a *named* tmux session for the repo and branch of the selection
   (`ft/agent/<repo>/<branch>/<tool>`), in a popup over the tree. Detach and it
   keeps running; press the same key again and you are back in it. `T` lists
-  them across all your repos and worktrees, newest first with the ones ringing
-  a bell on top — `enter` reattaches in a popup, `ctrl+w` opens one in a pane
+  them across all your repos and worktrees, newest first with the ones waiting
+  for you on top — `enter` reattaches in a popup, `ctrl+w` opens one in a pane
   beside the tree without leaving the tree, and `ctrl+x` kills it.
 
   A session opened in a pane keeps its name and stays in the list, so `X` in the
@@ -350,55 +350,10 @@ filters on: rename a session out from under it and it drops off the list.
 The session outlives the tool: the command is `claude; exec $SHELL`, so
 quitting the agent leaves a shell in the same directory with the scrollback
 still there. `T` shows what is running in each one (`claude` while it works,
-your shell once it has stopped), how long since it last did anything, `●` for
-one you have open somewhere, and `!` for one with a terminal bell pending —
-which is how an agent says it is waiting for you, once it is set up to ring
-one (below).
-
-#### Knowing when an agent is waiting
-
-`!` is tmux's own bell flag. tmux sets it when a program rings the terminal
-bell in a session nobody is looking at, and clears it when you attach, so it
-means "wanted you while you were away, and you have not looked yet". `T` sorts
-those sessions to the top. Two things have to be true for it to appear:
-
-1. **The agent has to ring the bell.** Claude Code does not by default: its
-   `auto` notification channel sends a desktop-notification escape sequence
-   in Ghostty, iTerm2 and Kitty, and nothing at all elsewhere. Neither is a
-   bell. Ask for the bell in `~/.claude/settings.json`:
-
-   ```json
-   { "preferredNotifChannel": "terminal_bell" }
-   ```
-
-   This replaces the desktop notification in those three terminals rather
-   than adding to it. Copilot CLI does not ring a bell either. Its
-   notifications are hooks (`notification`, `agentStop`), so it will not show
-   `!` from settings alone.
-
-2. **tmux has to be watching for it.** `monitor-bell on` and `bell-action
-   any` are tmux's defaults, so this only goes wrong if your `~/.tmux.conf`
-   turned them off. Stating them does no harm:
-
-   ```tmux
-   set -g monitor-bell on
-   set -g bell-action any
-   ```
-
-`allow-passthrough` is the setting you will find recommended for agent
-notifications inside tmux, and it does help, but not here. It lets escape
-sequences through to your terminal, which is how a desktop notification
-gets out of a pane that is *on screen*. A detached session has no terminal to
-pass anything to, so passthrough cannot tell you about the agent you walked
-away from. That is the job of the bell and the `!`. Turn it on anyway, for
-the popup or split you do have open:
-
-```tmux
-set -g allow-passthrough on
-```
-
-`T` reads tmux when you open it and does not update while it is open, so
-press it again to see a newer bell.
+your shell once it has stopped), what the agent last reported (`working`,
+`waiting`, `done`), how long since that changed, `●` for one you have open
+somewhere, and `!` for one waiting for you — see
+[Knowing when an agent is waiting](#knowing-when-an-agent-is-waiting).
 
 These are ordinary `[commands]` entries: point them at any CLI, change the
 keys, or add a fourth. `{session}`, `{repo}`, `{branch}`, `{gitroot}` and
@@ -435,6 +390,124 @@ Outside a pane, `tmux` resolves a command against the most recently used
 session, so an unguarded `select-pane` or `resize-pane` would move the focus or
 change the size in a window you are not even looking at — and being silent by
 design, these are exactly the commands where you would never notice.
+
+#### Knowing when an agent is waiting
+
+An agent left running in a detached session can tell `ft` what it is doing,
+through its own lifecycle hooks. `ft` then shows it in three places:
+
+- **`T`**: each agent's row says `working`, `waiting` or `done` and how long it
+  has been that way, and the sessions waiting for you are marked `!` and sorted
+  to the top.
+- **The status bar**: `! 2 waiting`, from the tree, without opening anything.
+- **A desktop notification**: when an agent starts waiting or finishes in a
+  session nobody has open. One you are looking at has already told you.
+
+The tree re-reads the list every two seconds, so all of this keeps up without a
+key press, including an open `T`. The cursor stays on the session it was on
+while the rows re-sort around it.
+
+| State | Set when | `!` |
+|---|---|---|
+| `working` | you send a prompt, or a tool finishes | never |
+| `waiting` | it stops to ask: a permission, a question | always, until it moves on |
+| `done` | it finishes its turn | until you look at it |
+
+`!` on a finished agent is tmux's own bell flag. The hook rings the bell on the
+agent's pane, and tmux raises the flag only on a session nobody is viewing and
+clears it when you attach. So "done and you have read it" and "done and you
+have not" look different without `ft` remembering anything.
+
+##### Setting it up
+
+The hooks run `ft agent-hook <event>`, so `ft` has to be on the `PATH` they run
+with. For Claude Code, merge this into `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "ft agent-hook prompt" }] }],
+    "PostToolUse":      [{ "hooks": [{ "type": "command", "command": "ft agent-hook tool" }] }],
+    "Notification":     [{ "hooks": [{ "type": "command", "command": "ft agent-hook notify" }] }],
+    "Stop":             [{ "hooks": [{ "type": "command", "command": "ft agent-hook stop" }] }],
+    "SessionEnd":       [{ "hooks": [{ "type": "command", "command": "ft agent-hook end" }] }]
+  }
+}
+```
+
+For Copilot CLI, save this as `~/.copilot/hooks/ft.json`:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "userPromptSubmitted": [{ "type": "command", "bash": "ft agent-hook prompt", "timeoutSec": 5 }],
+    "postToolUse":         [{ "type": "command", "bash": "ft agent-hook tool",   "timeoutSec": 5 }],
+    "notification":        [{ "type": "command", "bash": "ft agent-hook notify", "timeoutSec": 5 }],
+    "agentStop":           [{ "type": "command", "bash": "ft agent-hook stop",   "timeoutSec": 5 }],
+    "sessionEnd":          [{ "type": "command", "bash": "ft agent-hook end",    "timeoutSec": 5 }]
+  }
+}
+```
+
+Any other agent with hooks can do the same with the same five events:
+
+- `prompt`, `tool` and `stop` mean what they say.
+- `notify` reads `notification_type` from the hook's JSON. `permission_prompt`
+  and `elicitation_dialog` mean waiting, and every other type is ignored.
+- `end` clears the state.
+
+There is nothing else to run: no daemon, no socket. A hook is one `tmux
+set-option` on its own session, a bell on its own pane, and, for a
+notification, `osascript`. Outside tmux it does nothing, so the same hooks are
+harmless in a plain terminal window.
+
+`[sessions] notify = false` turns the desktop notifications off and keeps the
+rest.
+
+Three rules worth knowing:
+
+- **One agent per session.** The state is kept on the session (the `@ft_agent`
+  option), and that is the unit `ft` names and attaches. Two agents sharing a
+  session overwrite each other.
+- **No event fires when you approve a permission.** The agent stays `waiting`
+  until the approved tool finishes and `tool` reports it working again.
+- **A state is dropped once the session is back at a shell.** An agent that
+  crashed before its `end` hook ran is not left showing `working` for ever.
+
+##### Without hooks
+
+The `!` also works from a plain terminal bell, with no hooks at all. For that,
+the agent has to ring the bell, and tmux has to be watching for it.
+
+Claude Code does not ring the bell by default. Its `auto` notification channel
+sends a desktop-notification escape sequence in Ghostty, iTerm2 and Kitty, and
+nothing at all elsewhere. To make it ring the bell, add
+`"preferredNotifChannel": "terminal_bell"` to `~/.claude/settings.json`. In
+those three terminals the bell then replaces the desktop notification, which is
+why the hooks are the better route: they ring the bell themselves and leave
+Claude's own notifications as they were. Copilot CLI has no bell setting.
+
+`monitor-bell on` and `bell-action any` are tmux's defaults, so the bell only
+fails to register if your `~/.tmux.conf` turned them off. Stating them does no
+harm:
+
+```tmux
+set -g monitor-bell on
+set -g bell-action any
+```
+
+`allow-passthrough` is the setting you will find recommended for agent
+notifications inside tmux, and it does help, but not with any of the above. It
+lets escape sequences through to your terminal, which is how an agent's own
+desktop notification gets out of a pane that is *on screen*. A detached session
+has no terminal to pass anything to. So passthrough cannot tell you about the
+agent you walked away from: that is the job of the hooks and the `!`. Turn it
+on anyway, for the popup or split you do have open:
+
+```tmux
+set -g allow-passthrough on
+```
 
 ### herdr
 
