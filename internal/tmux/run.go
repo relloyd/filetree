@@ -193,11 +193,15 @@ func SplitAttach(self, socket, name string, quote func(string) string) error {
 // column is never touched. -d leaves the focus in ft, as SplitAttach does, and
 // the quoting rules are the same because the attach still reaches
 // default-shell.
+//
+// No -l: half the pane is what split-window gives by default, and the
+// percentage form of -l is tmux 3.1 or later, so spelling it out would only
+// cost older servers the key.
 func SplitAttachBelow(pane, socket, name string, quote func(string) string) error {
 	if !Available() {
 		return ErrNotInstalled
 	}
-	return run("split-window", "-v", "-d", "-l", "50%", "-t", pane, AttachCommand(socket, name, quote))
+	return run("split-window", "-v", "-d", "-t", pane, AttachCommand(socket, name, quote))
 }
 
 // AttachCommand is the shell command a split pane runs to become a nested

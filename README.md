@@ -189,7 +189,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `alt+g` | lazygit for the selection's checkout in [herdr](#herdr) — reuses the one already open for it |
 | `ctrl+g` | the selected file's history in [herdr](#herdr) — lazygit filtered to that file, one tab per file |
 | `T` | list the tmux sessions `ft` owns — agents, shells, popups and trees: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+s` does the same in the bottom half of the pane to the tree's right — the one you were last in, if there are several — or beside the tree when nothing is to its right, `ctrl+x` kills it (asking first if it is attached elsewhere). Type a kind (`agent`, `shell`) to narrow the list; this tree is marked and refuses all four. The status bar lists the view's keys, dropping the last ones in a narrow pane |
-| `X` | detach the agent session sharing this window, handing its space back to the tree |
+| `X` | detach the agent session sharing this window, handing its space back to the tree — the one opened most recently, when several are stacked there |
 | `>` | re-root the tree to the selection — the directory itself, or a file's parent — so the tree and every search start there; `esc` returns to the project. Rooting deeper replaces the root rather than stacking, so one `esc` always comes home |
 | `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default command; an editor that takes over this pane reloads the config when it exits |

@@ -159,7 +159,9 @@ func (m *Model) attachSession() (tea.Model, tea.Cmd) {
 // there as a duplicate of the pane you already had, and "window-size latest"
 // would then reflow the agent between the two.
 func (m *Model) paneSession() (tea.Model, tea.Cmd) {
-	return m.showSessionInPane(m.openSessionPane)
+	return m.showSessionInPane(func(name string, _ []tmux.Pane) error {
+		return m.openSessionPane(name)
+	})
 }
 
 // belowSession is "ctrl+s": put the session in the bottom half of the pane to
@@ -176,8 +178,9 @@ func (m *Model) belowSession() (tea.Model, tea.Cmd) {
 
 // showSessionInPane is what "ctrl+w" and "ctrl+s" share: the guards, and the
 // focus-instead-of-reopen rule. open is the only part that differs — where
-// the new pane goes.
-func (m *Model) showSessionInPane(open func(name string) error) (tea.Model, tea.Cmd) {
+// the new pane goes — and is handed the pane list already read here, so one
+// key press asks tmux for it once.
+func (m *Model) showSessionInPane(open func(name string, panes []tmux.Pane) error) (tea.Model, tea.Cmd) {
 	s, ok := m.tmuxRow(m.fuzzySel)
 	if !ok {
 		return m, nil
@@ -189,13 +192,14 @@ func (m *Model) showSessionInPane(open func(name string) error) (tea.Model, tea.
 	if m.selfPane == "" {
 		return m, m.note("not running inside tmux", true)
 	}
-	if p, _, found := m.paneShowing(func(name string) bool { return name == s.Name }); found {
+	panes, clients := m.readPanes()
+	if p, _, found := tmux.PaneShowing(panes, clients, m.selfPane, func(name string) bool { return name == s.Name }); found {
 		if err := tmux.SelectPane(p.ID); err != nil {
 			return m, m.note(err.Error(), true)
 		}
 		return m, nil
 	}
-	if err := open(s.Name); err != nil {
+	if err := open(s.Name, panes); err != nil {
 		return m, m.note(err.Error(), true)
 	}
 	return m, nil
@@ -205,18 +209,28 @@ func (m *Model) showSessionInPane(open func(name string) error) (tea.Model, tea.
 // Nothing is remembered between calls: the answer is read from tmux each time,
 // so it survives an ft restart and is right even for a pane opened by hand.
 func (m *Model) paneShowing(match func(string) bool) (tmux.Pane, string, bool) {
+	panes, clients := m.readPanes()
+	return tmux.PaneShowing(panes, clients, m.selfPane, match)
+}
+
+// readPanes reads the server's panes and clients, which is what tells ft what
+// is showing beside it. A failed read is nil — nothing is on screen, as far as
+// ft can tell — rather than an error, because every caller has something
+// sensible to do without it: open a pane rather than focus one, or say there
+// is nothing to detach.
+func (m *Model) readPanes() ([]tmux.Pane, []tmux.Client) {
 	if m.selfPane == "" {
-		return tmux.Pane{}, "", false
+		return nil, nil
 	}
 	panes, err := tmux.ListPanes()
 	if err != nil {
-		return tmux.Pane{}, "", false
+		return nil, nil
 	}
 	clients, err := tmux.ListClients()
 	if err != nil {
-		return tmux.Pane{}, "", false
+		return panes, nil
 	}
-	return tmux.PaneShowing(panes, clients, m.selfPane, match)
+	return panes, clients
 }
 
 // openSessionPane splits the window and attaches the session in the new pane,
@@ -242,13 +256,11 @@ func (m *Model) openSessionPane(name string) error {
 
 // openSessionBelow splits the pane tmux.PaneRightOf picks and attaches the
 // session in its lower half, or falls back to openSessionPane when ft has
-// nothing to its right. The pane list is read at the moment of the key press,
-// as paneShowing reads it: panes come and go without ft hearing about it.
-func (m *Model) openSessionBelow(name string) error {
-	panes, err := tmux.ListPanes()
-	if err != nil {
-		return err
-	}
+// nothing to its right — or when the pane list could not be read, since a
+// split beside the tree is still the session on screen. panes is the list
+// showSessionInPane read at the moment of the key press: panes come and go
+// without ft hearing about it.
+func (m *Model) openSessionBelow(name string, panes []tmux.Pane) error {
 	p, ok := tmux.PaneRightOf(panes, m.selfPane)
 	if !ok {
 		return m.openSessionPane(name)

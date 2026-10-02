@@ -124,6 +124,27 @@ func TestPaneShowing(t *testing.T) {
 	}
 }
 
+// With sessions stacked beside ft, the newest pane is the one found — "X"
+// sends away what you opened last. Pane ids compare as numbers: as text, %10
+// would lose to %9.
+func TestPaneShowingPrefersNewest(t *testing.T) {
+	panes := []Pane{
+		{ID: "%1", WindowID: "@8", TTY: "/dev/ttys001", Command: "ft"},
+		{ID: "%10", WindowID: "@8", TTY: "/dev/ttys010", Command: "tmux"},
+		{ID: "%9", WindowID: "@8", TTY: "/dev/ttys009", Command: "tmux"},
+		{ID: "%2", WindowID: "@8", TTY: "/dev/ttys002", Command: "tmux"},
+	}
+	clients := []Client{
+		{TTY: "/dev/ttys002", Session: "ft/agent/a"},
+		{TTY: "/dev/ttys009", Session: "ft/agent/b"},
+		{TTY: "/dev/ttys010", Session: "ft/agent/c"},
+	}
+	p, name, ok := PaneShowing(panes, clients, "%1", func(s string) bool { return strings.HasPrefix(s, "ft/") })
+	if !ok || p.ID != "%10" || name != "ft/agent/c" {
+		t.Errorf("got %q/%q ok=%v, want %%10/ft/agent/c", p.ID, name, ok)
+	}
+}
+
 // ft must never find itself: its own pane is excluded by id, so even a client
 // on ft's own tty cannot be mistaken for an agent sharing the window.
 func TestPaneShowingExcludesSelf(t *testing.T) {

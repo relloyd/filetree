@@ -544,7 +544,10 @@ func TestSessionViewFooter(t *testing.T) {
 	m := tmuxPickerModel(t, session("ft/agent/a/main/claude"))
 	m.width = 80
 	got := plainText(m.renderStatus())
-	for _, want := range []string{"enter attach", "ctrl+w beside", "ctrl+s below", "ctrl+x kill", "esc back"} {
+	if !strings.Contains(got, "enter attach · ctrl+s below · ctrl+w beside") {
+		t.Errorf("footer %q should lead with attach, then the split-below key", got)
+	}
+	for _, want := range []string{"ctrl+x kill", "esc back"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("footer %q is missing %q", got, want)
 		}
@@ -560,13 +563,26 @@ func TestSessionViewFooter(t *testing.T) {
 		t.Errorf("footer %q should keep the waiting count beside the keys", got)
 	}
 
-	m.width = 30
+	// A sidebar keeps attach and the split-below key, and sheds the rest.
+	m.agentsWaiting = 0
+	m.width = 40
 	got = plainText(m.renderStatus())
 	if w := len([]rune(got)); w > m.width {
 		t.Errorf("footer is %d wide in a %d-column pane: %q", w, m.width, got)
 	}
-	if !strings.Contains(got, "enter attach") || strings.Contains(got, "esc back") {
-		t.Errorf("narrow footer %q should keep the first keys and shed the last", got)
+	if !strings.Contains(got, "enter attach · ctrl+s below") || strings.Contains(got, "ctrl+w") {
+		t.Errorf("40-column footer = %q, want attach and ctrl+s only", got)
+	}
+
+	// The last hint may end one column short of the edge: the bar keeps a
+	// one-column gap, not two. " enter attach · ctrl+s below" is 28 wide.
+	m.width = 29
+	if got := plainText(m.renderStatus()); !strings.Contains(got, "ctrl+s below") {
+		t.Errorf("29-column footer = %q, want ctrl+s to fit with a one-column gap", got)
+	}
+	m.width = 28
+	if got := plainText(m.renderStatus()); strings.Contains(got, "ctrl+s") {
+		t.Errorf("28-column footer = %q, want ctrl+s shed rather than touching the edge", got)
 	}
 
 	m.width = 80

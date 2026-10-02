@@ -338,7 +338,9 @@ func (m *Model) renderStatus() string {
 		// The tree's selected path means nothing over the session list, and
 		// this view's keys are its own — nothing else in ft has them — so the
 		// bar spends its room on those instead.
-		left = fitHints(sessionHints, m.width-rw-2)
+		// -1, not the path's -2: fitHints counts its own leading space, so
+		// only the gap before the right-hand side is left to reserve.
+		left = fitHints(sessionHints, m.width-rw-1)
 	case m.mode == modeFuzzy && m.finderCommand() != "":
 		// The tree cursor is not what you are looking at in the fuzzy
 		// finder, so the status bar shows the ripgrep command instead — the
@@ -368,14 +370,16 @@ func (m *Model) renderStatus() string {
 type keyHint struct{ key, desc string }
 
 // sessionHints are the "T" view's keys, most useful first: fitHints drops from
-// the end, so a sidebar-width bar keeps attach and the two pane keys and lets
-// esc — which every view shares — go first. They are the keys the modeFuzzy
-// switch hardcodes for srcTmux, not [keys] actions, so there is nothing to look
-// up.
+// the end. A 40-column bar has room for attach and one pane key, so the pane
+// key that leads is ctrl+s — splitting the editor is the one that keeps both
+// the tree and the editor at their widths, and the newer key is the one a
+// footer has to teach. esc, which every view shares, goes first. They are the
+// keys the modeFuzzy switch hardcodes for srcTmux, not [keys] actions, so
+// there is nothing to look up.
 var sessionHints = []keyHint{
 	{"enter", "attach"},
-	{"ctrl+w", "beside"},
 	{"ctrl+s", "below"},
+	{"ctrl+w", "beside"},
 	{"ctrl+x", "kill"},
 	{"esc", "back"},
 }
