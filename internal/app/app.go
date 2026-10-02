@@ -179,6 +179,11 @@ type Model struct {
 	// only this process knows where it is running.
 	selfPane string
 
+	// titleSent is the title last written to ft's tmux session, and
+	// titleBusy says a write is in flight. See publishTitle.
+	titleSent string
+	titleBusy bool
+
 	// finderPane is the resize ft made to its own pane for the finder, held
 	// only while the finder is open. See syncFinderPaneWidth.
 	finderPane finderPane
@@ -483,7 +488,7 @@ func expandsAnything(rels []string) bool {
 }
 
 func (m *Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{waitFs(m.watcher)}
+	cmds := []tea.Cmd{waitFs(m.watcher), m.publishTitle()}
 	cmds = append(cmds, m.ensureStatusesForExpanded()...)
 	// Without tmux there are no sessions to watch, and the poll would only
 	// report that once every two seconds for the life of the tree.
@@ -532,6 +537,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if entering, crossed := finderBoundary(before, m.mode); crossed {
 		m.syncFinderPaneWidth(entering)
 	}
+	if c := m.publishTitle(); c != nil {
+		cmd = tea.Batch(cmd, c)
+	}
 	return next, cmd
 }
 
@@ -576,6 +584,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseWheelMsg:
 		return m.handleWheel(tea.Mouse(msg))
+
+	case titleSetMsg:
+		m.titleBusy = false
+		m.titleSent = msg.title
+		return m, nil
 
 	case statusLoadedMsg:
 		delete(m.statusPending, msg.root)
