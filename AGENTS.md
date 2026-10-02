@@ -310,8 +310,10 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
     free name with `tmux.UniqueName` before `Wrap` execs — after the exec there
     is no process left to recover in.
   - The picker is a fourth `finderSource` (`srcTmux`), not a new mode — see the
-    bookmark view for the pattern; its ctrl+w/ctrl+x are hardcoded in the
-    modeFuzzy switch and listed in `finderReservedKeys`. It lists this tree
+    bookmark view for the pattern; its ctrl+w/ctrl+s/ctrl+x are hardcoded in the
+    modeFuzzy switch and listed in `finderReservedKeys` (ctrl+s is shared
+    with the bookmark view, which the switch tells apart by `finderSrc`), and
+    the status bar lists them from `sessionHints` while the view is open. It lists this tree
     too, from `tmux.SelfSession($TMUX_PANE)`: `attachSession`, `paneSession`
     and `killSession` all refuse that row, because attaching shows the tree
     inside its own popup and killing it kills ft, and `sortTmuxSessions` puts
@@ -340,6 +342,13 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
     stored, so it is still right after an ft restart, or for a pane opened by
     hand. It is also what makes `ctrl+w` focus an already-open pane instead of
     attaching a second client to it.
+  `ctrl+s` is the same nested client in a different place: the bottom half of
+  the pane to ft's right (`tmux.PaneRightOf`: last-active, then largest),
+  split with `-vd` and no `-f`, so ft's column is untouched and needs no
+  width restore; with nothing to the right it falls back to `ctrl+w`'s split.
+  Because that stacks sessions, `tmux.PaneShowing` returns the *newest*
+  matching pane (highest id, compared numerically), which is what makes `X`
+  detach the one you opened last.
   The split is `-fdh`, like the pane commands in the catalogue: `-d` leaves the
   focus in ft, since opening an agent is not the same as wanting to type at it,
   and a second `ctrl+w` on a session already on screen is what moves you into

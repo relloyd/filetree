@@ -334,6 +334,13 @@ func (m *Model) renderStatus() string {
 		left = styleError.Render(" " + m.statusMsg)
 	case m.statusMsg != "":
 		left = styleOK.Render(" " + m.statusMsg)
+	case m.mode == modeFuzzy && m.finderSrc == srcTmux:
+		// The tree's selected path means nothing over the session list, and
+		// this view's keys are its own — nothing else in ft has them — so the
+		// bar spends its room on those instead.
+		// -1, not the path's -2: fitHints counts its own leading space, so
+		// only the gap before the right-hand side is left to reserve.
+		left = fitHints(sessionHints, m.width-rw-1)
 	case m.mode == modeFuzzy && m.finderCommand() != "":
 		// The tree cursor is not what you are looking at in the fuzzy
 		// finder, so the status bar shows the ripgrep command instead — the
@@ -358,6 +365,52 @@ func (m *Model) renderStatus() string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
+// keyHint is one entry in a footer's list of keys: the key as it is typed, and
+// what it does in a word or two.
+type keyHint struct{ key, desc string }
+
+// sessionHints are the "T" view's keys, most useful first: fitHints drops from
+// the end. A 40-column bar has room for attach and one pane key, so the pane
+// key that leads is ctrl+s — splitting the editor is the one that keeps both
+// the tree and the editor at their widths, and the newer key is the one a
+// footer has to teach. esc, which every view shares, goes first. They are the
+// keys the modeFuzzy switch hardcodes for srcTmux, not [keys] actions, so
+// there is nothing to look up.
+var sessionHints = []keyHint{
+	{"enter", "attach"},
+	{"ctrl+s", "below"},
+	{"ctrl+w", "beside"},
+	{"ctrl+x", "kill"},
+	{"esc", "back"},
+}
+
+// fitHints renders as many whole hints as fit in room columns, in order, with a
+// leading space to match the status bar's other left-hand texts. A hint is
+// never cut in half: "ctrl+s bel" would read as a different key's description.
+func fitHints(hints []keyHint, room int) string {
+	const sep = " · "
+	var b strings.Builder
+	used := 1 // the leading space
+	for i, h := range hints {
+		w := lipgloss.Width(h.key) + 1 + lipgloss.Width(h.desc)
+		if i > 0 {
+			w += lipgloss.Width(sep)
+		}
+		if used+w > room {
+			break
+		}
+		if i > 0 {
+			b.WriteString(styleDim.Render(sep))
+		}
+		b.WriteString(styleTitle.Render(h.key) + " " + styleDim.Render(h.desc))
+		used += w
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return " " + b.String()
+}
+
 // Status-bar geometry. The path is served before the branch, so the branch gets
 // only what is left over once the path has minPathWidth columns, and drops out
 // of the bar entirely rather than shrink past the point of being readable at a
@@ -374,6 +427,16 @@ const (
 // whatever the branch can be given — so a narrow pane sheds them from the left
 // rather than losing the lot.
 func (m *Model) renderStatusRight() (string, int) {
+	if m.mode == modeFuzzy && m.finderSrc == srcTmux {
+		// Over the session list only the waiting count still means anything:
+		// the row counter, marks and branch all describe the tree behind it,
+		// and the list's own counter is on the query line already.
+		if n := m.agentsWaiting; n > 0 {
+			waiting := fmt.Sprintf("! %d waiting ", n)
+			return styleWaiting.Render(waiting), lipgloss.Width(waiting)
+		}
+		return "", 0
+	}
 	counter := fmt.Sprintf("%d/%d ", m.cursor+1, len(m.rows))
 	right, rw := styleDim.Render(counter), lipgloss.Width(counter)
 
@@ -1320,6 +1383,7 @@ func (m *Model) helpRows() []helpRow {
 		{key: m.actionKeys["detach-pane"], desc: "detach the ft session sharing this window"},
 
 		{finderKey: "ctrl+w", desc: "sessions: open beside the tree (X detaches)"},
+		{finderKey: "ctrl+s", desc: "sessions: open below the pane to the right"},
 
 		{finderKey: "ctrl+x", desc: "sessions: kill the highlighted one"},
 		{key: m.actionKeys["new-file"] + " / " + m.actionKeys["new-dir"], desc: "new file / directory"},

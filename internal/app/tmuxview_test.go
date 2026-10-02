@@ -508,3 +508,86 @@ func TestDetachWithNoAgentPaneIsQuiet(t *testing.T) {
 		t.Errorf("mode = %v, want normal", m.mode)
 	}
 }
+
+// fitHints keeps whole hints only, in order, and stops at the first that does
+// not fit — so a narrow bar loses the least useful keys, never half of one.
+func TestFitHints(t *testing.T) {
+	hints := []keyHint{{"enter", "attach"}, {"ctrl+w", "beside"}, {"esc", "back"}}
+	cases := []struct {
+		room int
+		want string
+	}{
+		{80, " enter attach · ctrl+w beside · esc back"},
+		{40, " enter attach · ctrl+w beside · esc back"}, // exactly fits
+		{39, " enter attach · ctrl+w beside"},
+		{29, " enter attach · ctrl+w beside"},
+		{28, " enter attach"},
+		{13, " enter attach"},
+		{12, ""},
+		{0, ""},
+	}
+	for _, tc := range cases {
+		got := plainText(fitHints(hints, tc.room))
+		if got != tc.want {
+			t.Errorf("fitHints(room %d) = %q, want %q", tc.room, got, tc.want)
+		}
+		if w := len([]rune(got)); w > tc.room && got != "" {
+			t.Errorf("fitHints(room %d) is %d wide", tc.room, w)
+		}
+	}
+}
+
+// Over the session list the status bar is the view's key reference, not the
+// tree's selection — and it gives way to a status message, and sheds keys
+// rather than wrapping in a sidebar.
+func TestSessionViewFooter(t *testing.T) {
+	m := tmuxPickerModel(t, session("ft/agent/a/main/claude"))
+	m.width = 80
+	got := plainText(m.renderStatus())
+	if !strings.Contains(got, "enter attach · ctrl+s below · ctrl+w beside") {
+		t.Errorf("footer %q should lead with attach, then the split-below key", got)
+	}
+	for _, want := range []string{"ctrl+x kill", "esc back"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("footer %q is missing %q", got, want)
+		}
+	}
+	// The tree's own row counter describes rows you cannot see from here.
+	if strings.Contains(got, "1/") {
+		t.Errorf("footer %q carries the tree's row counter", got)
+	}
+
+	m.agentsWaiting = 1
+	got = plainText(m.renderStatus())
+	if !strings.Contains(got, "! 1 waiting") || !strings.Contains(got, "enter attach") {
+		t.Errorf("footer %q should keep the waiting count beside the keys", got)
+	}
+
+	// A sidebar keeps attach and the split-below key, and sheds the rest.
+	m.agentsWaiting = 0
+	m.width = 40
+	got = plainText(m.renderStatus())
+	if w := len([]rune(got)); w > m.width {
+		t.Errorf("footer is %d wide in a %d-column pane: %q", w, m.width, got)
+	}
+	if !strings.Contains(got, "enter attach · ctrl+s below") || strings.Contains(got, "ctrl+w") {
+		t.Errorf("40-column footer = %q, want attach and ctrl+s only", got)
+	}
+
+	// The last hint may end one column short of the edge: the bar keeps a
+	// one-column gap, not two. " enter attach · ctrl+s below" is 28 wide.
+	m.width = 29
+	if got := plainText(m.renderStatus()); !strings.Contains(got, "ctrl+s below") {
+		t.Errorf("29-column footer = %q, want ctrl+s to fit with a one-column gap", got)
+	}
+	m.width = 28
+	if got := plainText(m.renderStatus()); strings.Contains(got, "ctrl+s") {
+		t.Errorf("28-column footer = %q, want ctrl+s shed rather than touching the edge", got)
+	}
+
+	m.width = 80
+	m.statusMsg = "Killed agent/a/main/claude"
+	if got := plainText(m.renderStatus()); strings.Contains(got, "enter attach") {
+		t.Errorf("a status message should take the bar, got %q", got)
+	}
+}

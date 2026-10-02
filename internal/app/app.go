@@ -762,6 +762,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.toggleBookmarkScope()
 				return m, nil
 			}
+			if m.finderSrc == srcTmux {
+				return m.belowSession()
+			}
 		case "ctrl+x":
 			if m.finderSrc == srcBookmark {
 				return m, m.forgetBookmark()
