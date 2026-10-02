@@ -90,8 +90,9 @@ var finderReservedKeys = []string{
 	"esc", "enter", "up", "down", "pgup", "pgdown",
 	"ctrl+p", "ctrl+n", "ctrl+u", "ctrl+d",
 	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+o",
-	"ctrl+s", "ctrl+x", // the bookmark view's scope and forget keys
-	"ctrl+w", // the session list's switch-client key
+	"ctrl+s", "ctrl+x", // the bookmark view's scope and forget keys; the session
+	// list's split-below and kill keys
+	"ctrl+w", // the session list's open-in-a-pane key
 }
 
 type General struct {

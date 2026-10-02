@@ -19,6 +19,14 @@ type Pane struct {
 	// two is the only way to ask "which of my panes is showing that session?"
 	// without keeping a note of what we opened.
 	TTY string
+
+	// Where the pane sits in its window, in cells, and whether it was the
+	// active pane before the current one (#{pane_last}). The split-below key
+	// needs both: geometry to tell which panes are to the right of ft, and
+	// "last" to prefer the one you were just in — tmux keeps no per-pane focus
+	// time, so that one flag is all the recency there is.
+	Left, Top, Width, Height int
+	Last                     bool
 }
 
 // paneFields are the properties ListPanes asks tmux for, in order. Tab-joined
@@ -30,6 +38,11 @@ var paneFields = []string{
 	"#{window_id}",
 	"#{pane_current_command}",
 	"#{pane_tty}",
+	"#{pane_left}",
+	"#{pane_top}",
+	"#{pane_width}",
+	"#{pane_height}",
+	"#{pane_last}",
 }
 
 // PaneFormat is the -F argument for list-panes.
@@ -57,6 +70,11 @@ func ParsePanes(out string) []Pane {
 			WindowID:  f[2],
 			Command:   f[3],
 			TTY:       f[4],
+			Left:      atoi(f[5]),
+			Top:       atoi(f[6]),
+			Width:     atoi(f[7]),
+			Height:    atoi(f[8]),
+			Last:      f[9] == "1",
 		})
 
 	}

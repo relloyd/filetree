@@ -185,6 +185,21 @@ func SplitAttach(self, socket, name string, quote func(string) string) error {
 	return run("split-window", "-h", "-f", "-d", "-t", self, AttachCommand(socket, name, quote))
 }
 
+// SplitAttachBelow opens name as a nested client in the bottom half of pane,
+// which is the pane PaneRightOf chose — normally the editor beside the tree.
+//
+// Unlike SplitAttach there is no -f: the split is meant to stay inside that
+// one pane, which is also why ft needs no width restore afterwards — its own
+// column is never touched. -d leaves the focus in ft, as SplitAttach does, and
+// the quoting rules are the same because the attach still reaches
+// default-shell.
+func SplitAttachBelow(pane, socket, name string, quote func(string) string) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	return run("split-window", "-v", "-d", "-l", "50%", "-t", pane, AttachCommand(socket, name, quote))
+}
+
 // AttachCommand is the shell command a split pane runs to become a nested
 // client on name. Pure, so the quoting it depends on can be table-tested: it
 // is handed to tmux as a shell-command and therefore reaches default-shell,

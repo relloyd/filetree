@@ -159,6 +159,25 @@ func (m *Model) attachSession() (tea.Model, tea.Cmd) {
 // there as a duplicate of the pane you already had, and "window-size latest"
 // would then reflow the agent between the two.
 func (m *Model) paneSession() (tea.Model, tea.Cmd) {
+	return m.showSessionInPane(m.openSessionPane)
+}
+
+// belowSession is "ctrl+s": put the session in the bottom half of the pane to
+// the right of the tree — normally the editor — so the tree keeps its column
+// and the editor keeps its width. With nothing to the right there is nothing
+// to divide, and it opens the session the way "ctrl+w" does.
+//
+// Everything else is ctrl+w's: a session already on screen is focused rather
+// than opened twice, the focus stays in ft, and "X" sends it away again —
+// detaching finds the pane by what it is showing, not by where it is.
+func (m *Model) belowSession() (tea.Model, tea.Cmd) {
+	return m.showSessionInPane(m.openSessionBelow)
+}
+
+// showSessionInPane is what "ctrl+w" and "ctrl+s" share: the guards, and the
+// focus-instead-of-reopen rule. open is the only part that differs — where
+// the new pane goes.
+func (m *Model) showSessionInPane(open func(name string) error) (tea.Model, tea.Cmd) {
 	s, ok := m.tmuxRow(m.fuzzySel)
 	if !ok {
 		return m, nil
@@ -176,7 +195,7 @@ func (m *Model) paneSession() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if err := m.openSessionPane(s.Name); err != nil {
+	if err := open(s.Name); err != nil {
 		return m, m.note(err.Error(), true)
 	}
 	return m, nil
@@ -219,6 +238,22 @@ func (m *Model) openSessionPane(name string) error {
 	}
 	m.keepSidebarWidth(before, window)
 	return nil
+}
+
+// openSessionBelow splits the pane tmux.PaneRightOf picks and attaches the
+// session in its lower half, or falls back to openSessionPane when ft has
+// nothing to its right. The pane list is read at the moment of the key press,
+// as paneShowing reads it: panes come and go without ft hearing about it.
+func (m *Model) openSessionBelow(name string) error {
+	panes, err := tmux.ListPanes()
+	if err != nil {
+		return err
+	}
+	p, ok := tmux.PaneRightOf(panes, m.selfPane)
+	if !ok {
+		return m.openSessionPane(name)
+	}
+	return tmux.SplitAttachBelow(p.ID, tmux.SocketPath(os.Getenv("TMUX")), name, config.ShellQuote)
 }
 
 // killSession is "ctrl+x". A detached session goes straight away — it is the

@@ -133,3 +133,81 @@ func TestPaneShowingExcludesSelf(t *testing.T) {
 		t.Error("ft found itself")
 	}
 }
+
+func TestPaneRightOf(t *testing.T) {
+	// The usual shape: ft (%1) a 40-column sidebar, helix (%2) beside it, and
+	// a window @9 elsewhere whose panes must never be chosen.
+	ft := Pane{ID: "%1", WindowID: "@8", Left: 0, Width: 40, Height: 50}
+	hx := Pane{ID: "%2", WindowID: "@8", Left: 41, Width: 159, Height: 50, Command: "hx"}
+	other := Pane{ID: "%9", WindowID: "@9", Left: 41, Width: 159, Height: 50, Last: true}
+
+	cases := []struct {
+		name  string
+		panes []Pane
+		self  string
+		want  string // "" for no pane
+	}{
+		{"editor beside the tree", []Pane{ft, hx, other}, "%1", "%2"},
+		{"alone in the window", []Pane{ft, other}, "%1", ""},
+		{"no self", []Pane{ft, hx}, "", ""},
+		{"unknown self", []Pane{ft, hx}, "%7", ""},
+		// A pane below ft, sharing its column, is not to the right of it.
+		{
+			"below is not right",
+			[]Pane{
+				{ID: "%1", WindowID: "@8", Left: 0, Width: 40, Height: 25},
+				{ID: "%3", WindowID: "@8", Left: 0, Top: 26, Width: 40, Height: 24, Last: true},
+			},
+			"%1", "",
+		},
+		// Nor is a pane to the left: ft is not always the first column.
+		{
+			"left is not right",
+			[]Pane{
+				{ID: "%4", WindowID: "@8", Left: 0, Width: 100, Height: 50, Last: true},
+				{ID: "%1", WindowID: "@8", Left: 101, Width: 40, Height: 50},
+			},
+			"%1", "",
+		},
+		// The pane you came from beats a bigger one: an agent stacked under
+		// the editor, last visited, is what gets split next.
+		{
+			"last active wins",
+			[]Pane{
+				ft,
+				{ID: "%2", WindowID: "@8", Left: 41, Width: 159, Height: 25},
+				{ID: "%5", WindowID: "@8", Left: 41, Top: 26, Width: 159, Height: 24, Last: true},
+			},
+			"%1", "%5",
+		},
+		// With no last-active candidate, the biggest one — the editor.
+		{
+			"then the largest",
+			[]Pane{
+				ft,
+				{ID: "%5", WindowID: "@8", Left: 41, Width: 159, Height: 12},
+				{ID: "%2", WindowID: "@8", Left: 41, Top: 13, Width: 159, Height: 37},
+			},
+			"%1", "%2",
+		},
+		// Equal sizes fall back to position, never to list order.
+		{
+			"then leftmost, then top",
+			[]Pane{
+				{ID: "%7", WindowID: "@8", Left: 120, Width: 78, Height: 24},
+				ft,
+				{ID: "%6", WindowID: "@8", Left: 41, Top: 26, Width: 78, Height: 24},
+				{ID: "%5", WindowID: "@8", Left: 41, Width: 78, Height: 24},
+			},
+			"%1", "%5",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, ok := PaneRightOf(tc.panes, tc.self)
+			if got := map[bool]string{true: p.ID, false: ""}[ok]; got != tc.want {
+				t.Errorf("PaneRightOf = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

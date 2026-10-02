@@ -58,7 +58,9 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
   keeps running; press the same key again and you are back in it. `T` lists
   them across all your repos and worktrees, newest first with the ones waiting
   for you on top — `enter` reattaches in a popup, `ctrl+w` opens one in a pane
-  beside the tree without leaving the tree, and `ctrl+x` kills it.
+  beside the tree without leaving the tree, `ctrl+s` opens it in the bottom
+  half of the pane to the tree's right (your editor, usually), and `ctrl+x`
+  kills it. The status bar lists these keys, as many as the pane has room for.
 
   A session opened in a pane keeps its name and stays in the list, so `X` in the
   tree detaches it again — whatever is in it carries on running, and the tree
@@ -186,7 +188,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `K` | open the selection (or marks) in the helix for this place in [herdr](#herdr) — reuses the editor you have, and takes you to it |
 | `alt+g` | lazygit for the selection's checkout in [herdr](#herdr) — reuses the one already open for it |
 | `ctrl+g` | the selected file's history in [herdr](#herdr) — lazygit filtered to that file, one tab per file |
-| `T` | list the tmux sessions `ft` owns — agents, shells, popups and trees: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+x` kills it (asking first if it is attached elsewhere). Type a kind (`agent`, `shell`) to narrow the list; this tree is marked and refuses all three |
+| `T` | list the tmux sessions `ft` owns — agents, shells, popups and trees: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+s` does the same in the bottom half of the pane to the tree's right — the one you were last in, if there are several — or beside the tree when nothing is to its right, `ctrl+x` kills it (asking first if it is attached elsewhere). Type a kind (`agent`, `shell`) to narrow the list; this tree is marked and refuses all four. The status bar lists the view's keys, dropping the last ones in a narrow pane |
 | `X` | detach the agent session sharing this window, handing its space back to the tree |
 | `>` | re-root the tree to the selection — the directory itself, or a file's parent — so the tree and every search start there; `esc` returns to the project. Rooting deeper replaces the root rather than stacking, so one `esc` always comes home |
 | `H` | collapse all (also clears marks) |

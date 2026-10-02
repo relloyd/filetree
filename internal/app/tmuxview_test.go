@@ -508,3 +508,70 @@ func TestDetachWithNoAgentPaneIsQuiet(t *testing.T) {
 		t.Errorf("mode = %v, want normal", m.mode)
 	}
 }
+
+// fitHints keeps whole hints only, in order, and stops at the first that does
+// not fit — so a narrow bar loses the least useful keys, never half of one.
+func TestFitHints(t *testing.T) {
+	hints := []keyHint{{"enter", "attach"}, {"ctrl+w", "beside"}, {"esc", "back"}}
+	cases := []struct {
+		room int
+		want string
+	}{
+		{80, " enter attach · ctrl+w beside · esc back"},
+		{40, " enter attach · ctrl+w beside · esc back"}, // exactly fits
+		{39, " enter attach · ctrl+w beside"},
+		{29, " enter attach · ctrl+w beside"},
+		{28, " enter attach"},
+		{13, " enter attach"},
+		{12, ""},
+		{0, ""},
+	}
+	for _, tc := range cases {
+		got := plainText(fitHints(hints, tc.room))
+		if got != tc.want {
+			t.Errorf("fitHints(room %d) = %q, want %q", tc.room, got, tc.want)
+		}
+		if w := len([]rune(got)); w > tc.room && got != "" {
+			t.Errorf("fitHints(room %d) is %d wide", tc.room, w)
+		}
+	}
+}
+
+// Over the session list the status bar is the view's key reference, not the
+// tree's selection — and it gives way to a status message, and sheds keys
+// rather than wrapping in a sidebar.
+func TestSessionViewFooter(t *testing.T) {
+	m := tmuxPickerModel(t, session("ft/agent/a/main/claude"))
+	m.width = 80
+	got := plainText(m.renderStatus())
+	for _, want := range []string{"enter attach", "ctrl+w beside", "ctrl+s below", "ctrl+x kill", "esc back"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("footer %q is missing %q", got, want)
+		}
+	}
+	// The tree's own row counter describes rows you cannot see from here.
+	if strings.Contains(got, "1/") {
+		t.Errorf("footer %q carries the tree's row counter", got)
+	}
+
+	m.agentsWaiting = 1
+	got = plainText(m.renderStatus())
+	if !strings.Contains(got, "! 1 waiting") || !strings.Contains(got, "enter attach") {
+		t.Errorf("footer %q should keep the waiting count beside the keys", got)
+	}
+
+	m.width = 30
+	got = plainText(m.renderStatus())
+	if w := len([]rune(got)); w > m.width {
+		t.Errorf("footer is %d wide in a %d-column pane: %q", w, m.width, got)
+	}
+	if !strings.Contains(got, "enter attach") || strings.Contains(got, "esc back") {
+		t.Errorf("narrow footer %q should keep the first keys and shed the last", got)
+	}
+
+	m.width = 80
+	m.statusMsg = "Killed agent/a/main/claude"
+	if got := plainText(m.renderStatus()); strings.Contains(got, "enter attach") {
+		t.Errorf("a status message should take the bar, got %q", got)
+	}
+}
