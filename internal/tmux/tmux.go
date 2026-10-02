@@ -48,3 +48,16 @@ func Available() bool {
 	_, err := exec.LookPath("tmux")
 	return err == nil
 }
+
+// WrapArgs is the argv Wrap execs, kept apart from the exec so it can be
+// tested: self is ft's own executable, root the tree's root, name the session
+// name ("" for an unnamed session). See Wrap for why it is shaped this way.
+func WrapArgs(self, root, name string) []string {
+	argv := []string{"tmux", "new-session"}
+	if name != "" {
+		argv = append(argv, "-s", name)
+	}
+	return append(argv, "-c", root, self, root,
+		";", "set-option", "set-titles", "on",
+		";", "set-option", "set-titles-string", TitleFormat)
+}

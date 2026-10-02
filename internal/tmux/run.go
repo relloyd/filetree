@@ -323,3 +323,35 @@ func ClearAgent(pane string) error {
 	}
 	return run("set-option", "-u", "-t", pane, AgentOption)
 }
+
+// TitleOption is the session option ft keeps its terminal title in: the
+// root's name and branch, from the model's windowTitle. It is a session option
+// rather than the pane's own title for the same reason AgentOption is: a
+// session's set-titles-string is evaluated against its *active* pane, so
+// "#{pane_title}" would hand the terminal tab to whichever pane has focus —
+// helix's title the moment you move into the editor beside the tree.
+const TitleOption = "@ft_title"
+
+// TitleFormat is the set-titles-string Wrap gives the session ft creates: the
+// title ft published, or, before it has published one (or after it has
+// exited, see ClearTitle), the active pane's own.
+const TitleFormat = "#{?" + TitleOption + ",#{" + TitleOption + "},#{pane_title}}"
+
+// SetTitle records the tree's title on the session holding pane. A bare pane
+// id, as for SetAgent: set-option refuses target()'s "=".
+func SetTitle(pane, title string) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	return run("set-option", "-t", pane, TitleOption, title)
+}
+
+// ClearTitle removes the title when the tree exits. The session can outlive
+// ft — a split it opened keeps it alive — and a tab still naming a tree that
+// has gone would be wrong, so the title falls back to the pane's own.
+func ClearTitle(pane string) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	return run("set-option", "-u", "-t", pane, TitleOption)
+}

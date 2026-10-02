@@ -27,6 +27,13 @@ import (
 // tmux(1)), so paths containing spaces need no quoting. No `--` separator is
 // used — tmux's argument parser is not getopt — which is safe because both
 // paths are absolute and so cannot be mistaken for options.
+//
+// The session also gets set-titles, which tmux leaves off by default, so the
+// title ft publishes (TitleOption) reaches the terminal's tab instead of
+// stopping at tmux. Set on this session only, chained onto new-session with
+// ";" as its own argument — what "\;" is on a command line — so it changes
+// nothing about any other session, and a tree started inside an existing
+// session leaves that session's settings alone.
 func Wrap(root, name string) error {
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
@@ -38,10 +45,5 @@ func Wrap(root, name string) error {
 	if err != nil {
 		return err
 	}
-	argv := []string{"tmux", "new-session"}
-	if name != "" {
-		argv = append(argv, "-s", name)
-	}
-	argv = append(argv, "-c", root, self, root)
-	return syscall.Exec(tmuxPath, argv, os.Environ())
+	return syscall.Exec(tmuxPath, WrapArgs(self, root, name), os.Environ())
 }

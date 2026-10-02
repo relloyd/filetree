@@ -133,6 +133,9 @@ func main() {
 	if stopIPC != nil {
 		stopIPC()
 	}
+	if pane := os.Getenv("TMUX_PANE"); pane != "" {
+		_ = tmux.ClearTitle(pane)
+	}
 	fatalIf(err)
 }
 

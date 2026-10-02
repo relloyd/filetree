@@ -1,6 +1,9 @@
 package tmux
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestShouldWrap(t *testing.T) {
 	// The one configuration that wraps: auto mode, a real terminal, tmux
@@ -33,4 +36,25 @@ func TestShouldWrap(t *testing.T) {
 func withEnv(e Env, f func(*Env)) Env {
 	f(&e)
 	return e
+}
+
+func TestWrapArgs(t *testing.T) {
+	titles := []string{
+		";", "set-option", "set-titles", "on",
+		";", "set-option", "set-titles-string", TitleFormat,
+	}
+	cases := []struct {
+		name string
+		want []string
+	}{
+		{"ft/tree/repo-1a2b3c4d", append([]string{"tmux", "new-session", "-s", "ft/tree/repo-1a2b3c4d",
+			"-c", "/my repo", "/bin/ft", "/my repo"}, titles...)},
+		{"", append([]string{"tmux", "new-session",
+			"-c", "/my repo", "/bin/ft", "/my repo"}, titles...)},
+	}
+	for _, tc := range cases {
+		if got := WrapArgs("/bin/ft", "/my repo", tc.name); !slices.Equal(got, tc.want) {
+			t.Errorf("WrapArgs(name %q) =\n  %q\nwant\n  %q", tc.name, got, tc.want)
+		}
+	}
 }

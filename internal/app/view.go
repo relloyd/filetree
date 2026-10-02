@@ -73,7 +73,7 @@ func (m *Model) View() tea.View {
 	v := tea.NewView(content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
-	v.WindowTitle = "ft — " + abbrevHome(m.tr.Root.Path)
+	v.WindowTitle = m.windowTitle()
 	return v
 }
 

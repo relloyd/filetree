@@ -105,6 +105,23 @@ split and hand-off commands work — no alias needed, and starting it inside an
 existing session (over ssh, say) just runs it there. Opt out per run with
 `ft --no-tmux`, or permanently with `tmux = "never"` under `[general]`.
 
+The terminal's tab is titled after the tree: `ft — filetree ⎇ main`, the
+root's name and, inside a repository, its branch (a short hash when HEAD is
+detached). It follows a re-root and a branch change. tmux keeps a program's
+title to itself unless `set-titles` is on, so the session `ft` relaunches into
+turns it on for itself and no other — and points it at the tree rather than the
+focused pane, so moving into an editor beside the tree leaves the tab alone.
+`ft` started inside a session of your own leaves that session's settings
+alone; to get the same title there, add this to `~/.tmux.conf`:
+
+```tmux
+set -g set-titles on
+set -g set-titles-string '#{?@ft_title,#{@ft_title},#{pane_title}}'
+```
+
+`@ft_title` is a session option, so with two trees in one session the last to
+change wins. Outside tmux the title is set directly.
+
 ## Dependencies
 
 Nothing here is mandatory: `ft` browses, marks, copies, moves, and trashes with

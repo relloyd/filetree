@@ -379,6 +379,18 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
     never stacks reads. A failed read keeps the last count rather than showing
     "all clear", and an open `T` re-sorts with the cursor following the
     session by name.
+- **The tab title reaches the terminal through tmux, not around it.**
+  `tea.View.WindowTitle` alone stops at tmux: it becomes the pane's
+  `pane_title`, and `set-titles` is off by default. So `tmux.Wrap` chains
+  `set-option set-titles on` and a `set-titles-string` of `tmux.TitleFormat`
+  onto the `new-session` (session options, so nothing else changes), and the
+  model publishes the same string to the session option `@ft_title`
+  (`publishTitle`, internal/app/title.go). The option rather than
+  `#{pane_title}` because the string is evaluated against the *active* pane —
+  focusing the editor split would hand the tab to helix. Writes are one chain,
+  like the session poll: the title changes twice in quick succession at
+  startup (name, then branch), and two concurrent `set-option`s can land out of
+  order. `main` unsets the option on exit, since the session can outlive ft.
 - **Not every tmux subcommand takes the `=` exact-match prefix `target()` adds.**
   `attach-session`, `kill-session`, `detach-client`, `join-pane` and
   `resize-pane` do; `set-option`, `display-message` and `capture-pane` resolve
