@@ -153,3 +153,25 @@ func TestEveryFinderEntryPointCrossesTheBoundary(t *testing.T) {
 		})
 	}
 }
+
+// A split measured while the finder has ft widened keeps the user's width, not
+// the finder's — otherwise ctrl+w from "T" keeps neither.
+func TestSidebarWidth(t *testing.T) {
+	cases := []struct {
+		name string
+		fp   finderPane
+		pane int
+		want int
+	}{
+		{"finder not widened", finderPane{}, 40, 40},
+		{"finder widened, untouched", finderPane{restore: 40, applied: 120}, 120, 40},
+		{"finder widened, then resized by hand", finderPane{restore: 40, applied: 120}, 90, 90},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sidebarWidth(tc.fp, tc.pane); got != tc.want {
+				t.Errorf("sidebarWidth(%+v, %d) = %d, want %d", tc.fp, tc.pane, got, tc.want)
+			}
+		})
+	}
+}

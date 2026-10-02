@@ -23,10 +23,13 @@ func paneOpeningCommand(run string) bool {
 		strings.Contains(run, "move-pane")
 }
 
-// paneWidths reads ft's own width and its window's, reporting zeroes for
-// anything it cannot measure. Zero is the "do nothing" value in
-// keepSidebarWidth, so an unreadable width degrades to leaving the pane alone
-// rather than to a resize based on a guess.
+// paneWidths reads the width ft should keep across a split, and its window's,
+// reporting zeroes for anything it cannot measure. Zero is the "do nothing"
+// value in keepSidebarWidth, so an unreadable width degrades to leaving the
+// pane alone rather than to a resize based on a guess.
+//
+// The width to keep is ft's own, except while the finder has widened it: see
+// sidebarWidth.
 func (m *Model) paneWidths() (pane, window int) {
 	if m.selfPane == "" {
 		return 0, 0
@@ -35,7 +38,7 @@ func (m *Model) paneWidths() (pane, window int) {
 	if err != nil {
 		return 0, 0
 	}
-	return p, w
+	return sidebarWidth(m.finderPane, p), w
 }
 
 // keepSidebarWidth re-applies the width ft had before a split it ran took

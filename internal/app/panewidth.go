@@ -97,3 +97,33 @@ func planFinderRestore(fp finderPane, pane int) (int, bool) {
 	}
 	return fp.restore, true
 }
+
+// sidebarWidth is the width a split should put ft back to, given its width now
+// and the finder's resize, if any.
+//
+// While the finder has ft widened, its current width is the finder's, not the
+// user's, and keeping *that* across a split is wrong twice over. A widened ft
+// is usually over half the window, so keepSidebarWidth decides there is no
+// sidebar and leaves it at whatever the split squeezed it to — and the
+// finder's own restore then backs off too, because the pane is no longer the
+// width it applied. ctrl+w from "T" left ft at 60 columns and the editor
+// beside it at 39 that way, for good.
+//
+// The user's width is the one the finder was going to restore, so that is
+// the width to keep. Putting it back straight after the split also does the
+// finder's restore early, and the finder's own restore then backs off — the
+// pane is no longer the width it applied — so the two cannot fight. A finder
+// left open by a command (ctrl+t) is narrow for the rest of the visit; the
+// alternative, holding it wide, takes its columns from the pane just opened,
+// and the restore later hands them to whichever pane is next to ft rather
+// than back to that one.
+//
+// A pane that is no longer the finder's width has been resized since, by the
+// user or by tmux, and is the user's width again — the same consent check
+// planFinderRestore makes.
+func sidebarWidth(fp finderPane, pane int) int {
+	if fp.applied != 0 && pane == fp.applied {
+		return fp.restore
+	}
+	return pane
+}
