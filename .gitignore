@@ -1,4 +1,7 @@
 /ft
+/dist/
+# Written by .github/scripts/third-party-notices.sh for each release.
+/THIRD_PARTY_NOTICES.txt
 coverage.out
 .DS_Store
 .task/

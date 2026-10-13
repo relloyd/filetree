@@ -21,13 +21,22 @@ import (
 	"github.com/relloyd/filetree/internal/tmux"
 )
 
+// version is set at release time with -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: ft [-no-tmux] [dir]\n       ft bookmark <file> <line> [label]\n       ft jump <file>\n       ft herdr-shell <dir>\n       ft herdr-edit <dir> <path>...\n       ft herdr-lazygit <dir>\n       ft herdr-blame <dir> <path>\n       ft agent-hook <prompt|tool|notify|stop|end>\n\nOpens a file tree for dir (default: current directory).\nThe other forms act on this one and exit. The first two are meant to be bound\nin an editor, e.g. helix:\n  :sh ft bookmark %%{buffer_name} %%{cursor_line}   record a place for the \"B\" view\n  :sh ft jump %%{buffer_name}                      move a running tree's cursor\nConfig: ~/.filetree/config.toml   State: ~/.filetree/state/\n")
+		fmt.Fprintf(os.Stderr, "usage: ft [-no-tmux] [dir]\n       ft -version\n       ft bookmark <file> <line> [label]\n       ft jump <file>\n       ft herdr-shell <dir>\n       ft herdr-edit <dir> <path>...\n       ft herdr-lazygit <dir>\n       ft herdr-blame <dir> <path>\n       ft agent-hook <prompt|tool|notify|stop|end>\n\nOpens a file tree for dir (default: current directory).\nThe other forms act on this one and exit. The first two are meant to be bound\nin an editor, e.g. helix:\n  :sh ft bookmark %%{buffer_name} %%{cursor_line}   record a place for the \"B\" view\n  :sh ft jump %%{buffer_name}                      move a running tree's cursor\nConfig: ~/.filetree/config.toml   State: ~/.filetree/state/\n")
 		flag.PrintDefaults()
 	}
 	noTmux := flag.Bool("no-tmux", false, "do not relaunch inside a new tmux session")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("ft", version)
+		return
+	}
 
 	// "ft bookmark <file> <line>" is unambiguous because the tree form takes
 	// exactly one argument, so a directory called "bookmark" still opens.

@@ -18,6 +18,28 @@ task install   # go install ./cmd/ft  -> ~/go/bin/ft
 All code must be `gofmt`-clean and `go vet`-clean, and tests must pass
 before any change is considered done.
 
+## Releasing
+
+Every push to `main` runs `.github/workflows/release.yml`. A pull request's
+title becomes its merge commit's subject, and `.github/scripts/next-version.sh`
+reads those subjects on main's first-parent line since the last tag: `feat`
+bumps the minor version, `fix` and `perf` bump the patch, and `type!:` or a
+`BREAKING CHANGE:` line is major (minor while the version is 0.x). Anything
+else releases nothing. So a pull request title must be a conventional-commit
+subject, and its type is a release decision. To release without one, run the
+workflow by hand from the Actions tab and pick the bump.
+
+GoReleaser (`.goreleaser.yaml`) uploads the archives to the GitHub release
+itself. Do not add an `actions/upload-artifact` step: release assets are free,
+and Actions artifact storage counts against the account's quota.
+
+Every archive carries `LICENSE` and `THIRD_PARTY_NOTICES.txt`, because the
+MIT and BSD licences of what is compiled in, Go's standard library included,
+ask for their notices to travel with the binary. GoReleaser's before hook runs
+`.github/scripts/third-party-notices.sh`, which reads the import graph at
+release time, so the file is never committed and never stale. The hook names
+the operating systems to read it for; keep them in step with `goos`.
+
 ## Critical gotcha: charm.land import paths
 
 The Charm v2 modules use vanity import paths. `go get

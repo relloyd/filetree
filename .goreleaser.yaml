@@ -1,0 +1,49 @@
+# GoReleaser builds and publishes ft's release archives. The release workflow
+# (.github/workflows/release.yml) tags main and runs it; nothing here is meant
+# to be run by hand except `goreleaser release --snapshot --clean` to see what
+# a release would contain.
+version: 2
+
+project_name: filetree
+
+before:
+  hooks:
+    # The licences of everything compiled in, which the MIT and BSD licences
+    # ask to travel with the binary. Name the same operating systems as goos.
+    - .github/scripts/third-party-notices.sh THIRD_PARTY_NOTICES.txt ./cmd/ft darwin
+
+builds:
+  - main: ./cmd/ft
+    binary: ft
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Tag }}
+    # Reproducible: the same commit builds the same bytes.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    # macOS only: internal/platform has no other implementation yet.
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+      - THIRD_PARTY_NOTICES.txt
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  # Lists the pull requests merged since the previous tag.
+  use: github-native
+
+release:
+  # A rerun of a release that failed part way uploads over what is there.
+  replace_existing_artifacts: true

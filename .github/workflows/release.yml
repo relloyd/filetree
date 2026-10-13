@@ -1,0 +1,87 @@
+# Tags main and publishes a GitHub release whenever a merged pull request
+# warrants one. .github/scripts/next-version.sh decides the version from the
+# pull request titles; a merge that is only docs, chore, ci or test releases
+# nothing.
+#
+# The binaries go straight to the release as release assets. Nothing is
+# uploaded with actions/upload-artifact, so a release uses none of the
+# account's Actions artifact storage.
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump (auto releases only if a pull request warrants it)
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+permissions:
+  contents: read
+
+# Two merges in quick succession must not both pick the same next version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    # ft builds for macOS only (internal/platform has no other
+    # implementation), so its tests have to run there too. macOS runner
+    # minutes are free on a public repository, like Linux ones.
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The version is worked out from the tags and the history since.
+          fetch-depth: 0
+
+      - id: version
+        name: Work out the version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          tag=$(.github/scripts/next-version.sh "$BUMP")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ -n "$tag" ]; then
+            echo "Releasing $tag" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No feat, fix or perf pull request since the last tag; nothing to release." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - if: steps.version.outputs.tag != ''
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - if: steps.version.outputs.tag != ''
+        name: Test
+        run: |
+          go vet ./...
+          go test -race ./...
+
+      - if: steps.version.outputs.tag != ''
+        name: Tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || git tag -a "$TAG" -m "$TAG"
+          git push origin "refs/tags/$TAG"
+
+      - if: steps.version.outputs.tag != ''
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: v2.18.2
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
