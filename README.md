@@ -95,6 +95,14 @@ Bubble Tea for macOS (Linux-ready via `internal/platform` build tags).
 
 ## Install
 
+Download the macOS archive for your Mac (`darwin_arm64` for Apple silicon,
+`darwin_amd64` for Intel) from the
+[releases page](https://github.com/relloyd/filetree/releases), and put the
+`ft` binary on your `PATH`. The binaries are not signed; if macOS stops one
+you downloaded with a browser, run `xattr -d com.apple.quarantine ft`.
+
+Or build it from a checkout:
+
 ```sh
 go install ./cmd/ft
 ft [dir]                  # defaults to the current directory
