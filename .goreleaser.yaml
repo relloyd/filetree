@@ -6,6 +6,12 @@ version: 2
 
 project_name: filetree
 
+before:
+  hooks:
+    # The licences of everything compiled in, which the MIT and BSD licences
+    # ask to travel with the binary. Name the same operating systems as goos.
+    - .github/scripts/third-party-notices.sh THIRD_PARTY_NOTICES.txt ./cmd/ft darwin
+
 builds:
   - main: ./cmd/ft
     binary: ft
@@ -26,6 +32,10 @@ builds:
 
 archives:
   - formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+      - THIRD_PARTY_NOTICES.txt
 
 checksum:
   name_template: checksums.txt
