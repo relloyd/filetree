@@ -199,6 +199,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `T` | list the tmux sessions `ft` owns — agents, shells, popups and trees: `enter` reattaches in a popup, `ctrl+w` opens one in a pane beside the tree and stays put (press it again to move into that pane), `ctrl+s` does the same in the bottom half of the pane to the tree's right — the one you were last in, if there are several — or beside the tree when nothing is to its right, `ctrl+x` kills it (asking first if it is attached elsewhere). Type a kind (`agent`, `shell`) to narrow the list; this tree is marked and refuses all four. The status bar lists the view's keys, dropping the last ones in a narrow pane |
 | `X` | detach the agent session sharing this window, handing its space back to the tree — the one opened most recently, when several are stacked there |
 | `>` | re-root the tree to the selection — the directory itself, or a file's parent — so the tree and every search start there; `esc` returns to the project. Rooting deeper replaces the root rather than stacking, so one `esc` always comes home |
+| `<` | switch between the roots you have used, most recent first — the first row is the root you were on before this one, so `<` `enter` flips between the last two; `ctrl+x` forgets one. See [Recent roots](#recent-roots) |
 | `H` | collapse all (also clears marks) |
 | `C` | edit `~/.filetree/config.toml` in the default command; an editor that takes over this pane reloads the config when it exits |
 | `alt+c` | re-read the config from disk — for when the editor is somewhere `ft` cannot see it finish, such as the `t` hand-off to another pane |
@@ -989,6 +990,35 @@ bring them back.
 This view has only the one input line. There is no `Type` filter — a hundred
 paths do not need a second way to narrow — and no `Grep`, since the files are
 scattered across the tree and there is no single directory to point `rg` at.
+
+### Recent roots
+
+**`<`** lists the roots this tree has stood on, most recent first, with how long
+ago beside each. The root you are on is left out, so the row the cursor starts
+on is the one you were on before — `<` `enter` takes you back, and the same two
+keys again bring you forward, the way alt-tab does. Type to narrow it as in `/`.
+
+What gets remembered is every root you re-root into with `>`, and the root
+`ft` was launched on, recorded at startup and whenever `esc` brings you home.
+The scratch and worktrees views are not: they have keys of their own, and the
+worktrees view is something you pass through. A checkout you root into from it
+— `w`, then `>` on the checkout — *is* remembered, so the next time it is one
+`<` away.
+
+Switching is a detour in the same sense `>` is: one `esc` still comes home to
+the root `ft` was launched on, wherever you have switched to since. That root is
+an ordinary row, marked `home`, and picking it is the same as `esc`. Each root
+keeps its own expansion, so one you switch back to opens the way you left it.
+
+The list belongs to the launch root — `<root>.roots.json` beside its state file
+— so every subtree, checkout and return trip from one project shares a list,
+and two `ft` sessions launched on the same root merge their visits rather than
+overwrite them. It holds the last `recent_roots_max` roots (20 by default).
+A root whose directory has gone is left out of the list but kept for
+`recent_roots_retention_days` (30 by default, `0` to keep them all) from the
+last time it was seen, since a branch switch can take a directory away and
+bring it back. A worktree removed with `d` is forgotten at once, and `ctrl+x`
+forgets the highlighted root.
 
 ### Line bookmarks
 

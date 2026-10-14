@@ -238,6 +238,16 @@ type Model struct {
 	tmuxErr     string // what List had to say, if anything
 	tmuxSelf    string // this tree's own session name; "" outside tmux
 
+	// The roots this tree has stood on ("<"). Re-read from the history file on
+	// every entry, since another ft launched on the same root shares it, and
+	// with the current root left out — so the first row is the one you came
+	// from. The query field is its own for the same reason as the others, and
+	// is emptied on entry: this is a switcher, not a search to come back to.
+	rootsInput   textinput.Model
+	rootsAll     []rootRow
+	rootsRows    []int
+	rootsMatched [][]int
+
 	// agentsWaiting is how many other sessions need you, from the background
 	// poll (agents.go). The status bar shows it, so a waiting agent is visible
 	// from the tree without opening "T".
@@ -376,6 +386,9 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 	m.tmuxInput = textinput.New()
 	m.tmuxInput.SetVirtualCursor(true)
 	m.tmuxInput.Placeholder = "kind, repo, branch or tool"
+	m.rootsInput = textinput.New()
+	m.rootsInput.SetVirtualCursor(true)
+	m.rootsInput.Placeholder = "part of a path"
 	m.helpInput = textinput.New()
 	m.helpInput.SetVirtualCursor(true)
 	m.helpInput.Placeholder = "type to filter"
@@ -471,6 +484,9 @@ func (m *Model) loadRoot(root string, seed []string) error {
 	if m.onRoot != nil {
 		m.onRoot(root)
 	}
+	// The same funnel, for the same reason: the "<" history hears about every
+	// root the tree stands on, the launch root at startup included.
+	m.recordRoot()
 	return nil
 }
 
@@ -567,6 +583,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.grepInput.SetWidth(w)
 		m.bmInput.SetWidth(w)
 		m.tmuxInput.SetWidth(w)
+		m.rootsInput.SetWidth(w)
 		m.helpInput.SetWidth(helpInputWidth(msg.Width))
 		m.clampScroll()
 		m.clampHelpScroll()
@@ -755,6 +772,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m.bookmarkJumpAndOpen()
 			case srcTmux:
 				return m.attachSession()
+			case srcRoots:
+				return m.switchToRecentRoot()
 			}
 			return m.fuzzyJump()
 		case "ctrl+s":
@@ -771,6 +790,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			if m.finderSrc == srcTmux {
 				return m.killSession()
+			}
+			if m.finderSrc == srcRoots {
+				return m, m.forgetRecentRoot()
 			}
 		case "ctrl+w":
 			// Only the session list claims this; everywhere else it stays
@@ -859,6 +881,12 @@ func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.finderSrc == srcTmux {
 		m.tmuxInput, cmd = m.tmuxInput.Update(msg)
 		m.rebuildTmuxRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return m, cmd
+	}
+	if m.finderSrc == srcRoots {
+		m.rootsInput, cmd = m.rootsInput.Update(msg)
+		m.rebuildRootRows()
 		m.fuzzySel, m.fuzzyScroll = 0, 0
 		return m, cmd
 	}
@@ -983,6 +1011,7 @@ func (m *Model) buildBindings() {
 		"worktrees":      m.toggleWorktrees,
 		"worktree-new":   m.worktreeNew,
 		"root-here":      m.rootHere,
+		"recent-roots":   m.startRecentRoots,
 	}
 	names := make([]string, 0, len(actions))
 	for action := range actions {

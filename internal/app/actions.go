@@ -1638,6 +1638,9 @@ func (m *Model) handleWorktreeRemoved(msg worktreeRemovedMsg) (tea.Model, tea.Cm
 		return m, m.note(msg.err.Error(), true)
 	}
 	m.unmark(msg.dest)
+	// Gone for good, unlike a directory a branch switch hides, so there is no
+	// reason to keep offering it in "<" for the retention window.
+	m.forgetRootsUnder(msg.dest)
 	parent := filepath.Dir(msg.dest)
 	if n := m.tr.FindByPath(parent); n != nil && n.Loaded {
 		_ = m.tr.Refresh(n)

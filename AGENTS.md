@@ -274,6 +274,13 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
   first run from `internal/config/starter.go` — keep starter and README in
   sync with behaviour changes).
 - State: `~/.filetree/state/<basename>-<hash8>.json`, one per tree root.
+- Recent roots (`<`): `~/.filetree/state/<basename>-<hash8>.roots.json`,
+  keyed by the *launch* root (`launchRoot`: `homeRoot`, else the current
+  root) so every root reached from one project shares one list. `recordRoot`
+  is called from `loadRoot`, the same funnel the root observer uses, and skips
+  the scratch and worktrees view dirs.
+  Picking the launch root must go through `leaveView`, not `enterView`, or
+  `homeRoot` ends up naming the root you are standing on.
 - Jump sockets: `~/.filetree/run/<pid>.sock`, one per running instance.
 - Command templates: `{path} {relpath} {dir} {root} {name}` plus mark vars
   `{marked} {marked1} {marked2}` are substituted shell-quoted; unknown

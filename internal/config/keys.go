@@ -67,6 +67,7 @@ var DefaultActionKeys = map[string]string{
 	"worktrees":     "w",
 	"worktree-new":  "W",
 	"root-here":     ">",
+	"recent-roots":  "<",
 }
 
 // actionNotes are the trailing comments the generated [keys] block carries,
@@ -90,6 +91,7 @@ var actionNotes = map[string]string{
 	"edit-config":   `opens it in the default command`,
 	"reload-config": `re-read it after editing somewhere ft cannot see`,
 	"root-here":     `re-root the tree to the selection; shift+enter too`,
+	"recent-roots":  `switch between the roots you have used, newest first`,
 }
 
 // Starter is the file written to ~/.filetree/config.toml on first run: the

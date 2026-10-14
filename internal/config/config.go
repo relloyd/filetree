@@ -46,6 +46,16 @@ const DefaultFuzzyMaxCandidates = 50000
 // state file's size rather than anything the user would feel.
 const DefaultRecentMax = 100
 
+// Recent-roots defaults ("<"). The list is for switching between the handful of
+// places you are working in, so it is short; a root whose directory has not
+// been seen for the retention window — a removed worktree, a deleted subtree —
+// is dropped, measured from the last sighting so a branch switch that hides a
+// directory for a while does not cost you the entry.
+const (
+	DefaultRecentRootsMax           = 20
+	DefaultRecentRootsRetentionDays = 30
+)
+
 // Bookmark defaults. A bookmark whose file has not been seen for the retention
 // window is dropped — long enough that a file hidden by a branch switch is
 // still there when you switch back, short enough that a rename or a deletion
@@ -91,7 +101,7 @@ var finderReservedKeys = []string{
 	"ctrl+p", "ctrl+n", "ctrl+u", "ctrl+d",
 	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+o",
 	"ctrl+s", "ctrl+x", // the bookmark view's scope and forget keys; the session
-	// list's split-below and kill keys
+	// list's split-below and kill keys; ctrl+x is also forget in "<"
 	"ctrl+w", // the session list's open-in-a-pane key
 }
 
@@ -126,6 +136,9 @@ type General struct {
 	FuzzyGrepMaxPerFile int    `toml:"fuzzy_grep_max_per_file"`
 	RecentMax           int    `toml:"recent_max"`
 	WatchDebounceMs     int    `toml:"watch_debounce_ms"`
+
+	RecentRootsMax           int `toml:"recent_roots_max"`
+	RecentRootsRetentionDays int `toml:"recent_roots_retention_days"`
 
 	BookmarkMax           int `toml:"bookmark_max"`
 	BookmarkRetentionDays int `toml:"bookmark_retention_days"`
@@ -199,16 +212,18 @@ func Default() *Config {
 			StickyParents: true,
 			FinderWidth:   DefaultFinderWidth,
 
-			Icons:                 "nerd",
-			LinkRef:               "commit",
-			Tmux:                  tmux.ModeAuto,
-			FuzzyMaxMatches:       DefaultFuzzyMaxMatches,
-			FuzzyMaxCandidates:    DefaultFuzzyMaxCandidates,
-			FuzzyGrepMaxPerFile:   DefaultFuzzyGrepMaxPerFile,
-			RecentMax:             DefaultRecentMax,
-			BookmarkMax:           DefaultBookmarkMax,
-			BookmarkRetentionDays: DefaultBookmarkRetentionDays,
-			WatchDebounceMs:       150,
+			Icons:                    "nerd",
+			LinkRef:                  "commit",
+			Tmux:                     tmux.ModeAuto,
+			FuzzyMaxMatches:          DefaultFuzzyMaxMatches,
+			FuzzyMaxCandidates:       DefaultFuzzyMaxCandidates,
+			FuzzyGrepMaxPerFile:      DefaultFuzzyGrepMaxPerFile,
+			RecentMax:                DefaultRecentMax,
+			RecentRootsMax:           DefaultRecentRootsMax,
+			RecentRootsRetentionDays: DefaultRecentRootsRetentionDays,
+			BookmarkMax:              DefaultBookmarkMax,
+			BookmarkRetentionDays:    DefaultBookmarkRetentionDays,
+			WatchDebounceMs:          150,
 		},
 		Scratch: Scratch{
 			Dir:       "~/.filetree/scratch",
@@ -233,6 +248,12 @@ func Default() *Config {
 // from a non-positive duration.
 func (c *Config) RetentionWindow() time.Duration {
 	return time.Duration(c.General.BookmarkRetentionDays) * 24 * time.Hour
+}
+
+// RootsRetentionWindow is how long a remembered root survives without its
+// directory being found. Zero means never expire.
+func (c *Config) RootsRetentionWindow() time.Duration {
+	return time.Duration(c.General.RecentRootsRetentionDays) * 24 * time.Hour
 }
 
 // mergeCommands folds the file's [commands] table into the catalogue already
@@ -388,6 +409,13 @@ func Load(path string) (*Config, error) {
 	// history that can never hold anything.
 	if cfg.General.RecentMax < 1 {
 		return nil, fmt.Errorf("%s: general.recent_max must be at least 1", path)
+	}
+	if cfg.General.RecentRootsMax < 1 {
+		return nil, fmt.Errorf("%s: general.recent_roots_max must be at least 1", path)
+	}
+	// Zero turns ageing out off, as it does for bookmarks.
+	if cfg.General.RecentRootsRetentionDays < 0 {
+		return nil, fmt.Errorf("%s: general.recent_roots_retention_days must not be negative", path)
 	}
 	if cfg.General.BookmarkMax < 1 {
 		return nil, fmt.Errorf("%s: general.bookmark_max must be at least 1", path)

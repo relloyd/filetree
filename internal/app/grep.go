@@ -203,6 +203,8 @@ func (m *Model) finderLen() int {
 		return len(m.bmRows)
 	case m.finderSrc == srcTmux:
 		return len(m.tmuxRows)
+	case m.finderSrc == srcRoots:
+		return len(m.rootsRows)
 	case m.grepping():
 		return len(m.grepRows)
 	default:
@@ -228,6 +230,9 @@ func (m *Model) finderPath(i int) string {
 		// A session has no path; its name is what identifies the row, and it
 		// is what the finder-resume machinery and the status bar read.
 		return m.tmuxAll[m.tmuxRows[i]].Name
+	case m.finderSrc == srcRoots:
+		// Absolute, and already the whole answer: finderAbs passes it through.
+		return m.rootsAll[m.rootsRows[i]].Path
 	case m.grepping():
 		return m.grepHits[m.grepRows[i]].Path
 	default:
@@ -256,6 +261,12 @@ func (m *Model) finderAbs(i int) string {
 	if m.finderSrc == srcTmux {
 		if s, ok := m.tmuxRow(i); ok {
 			return s.Dir
+		}
+		return ""
+	}
+	if m.finderSrc == srcRoots {
+		if r, ok := m.rootRow(i); ok {
+			return r.Path
 		}
 		return ""
 	}

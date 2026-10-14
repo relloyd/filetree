@@ -62,6 +62,7 @@ const (
 	srcRecent                       // this root's history of opened files
 	srcBookmark                     // this repo's line bookmarks
 	srcTmux                         // named tmux sessions for agent tools
+	srcRoots                        // roots this tree has stood on ("<")
 )
 
 // finderPick is a row the finder was left on, so reopening can put the
@@ -247,7 +248,9 @@ func (m *Model) enterFuzzy() (tea.Model, tea.Cmd) {
 	cmds := []tea.Cmd{m.focusFinderField(), m.restartFuzzyWalk()}
 	// Hits from before the trip away are stale, and stopGrep invalidated their
 	// generation, so a resumed content search is re-run rather than restored.
-	if m.grepping() {
+	// Not under "<": a Grep left in the tree's field has nothing to search
+	// there, and its results arriving would clamp the selection to their count.
+	if m.grepping() && m.finderSrc != srcRoots {
 		cmds = append(cmds, m.scheduleGrep())
 	}
 	return m, tea.Batch(cmds...)
@@ -260,6 +263,7 @@ func (m *Model) focusFinderField() tea.Cmd {
 	m.typeInput.Blur()
 	m.grepInput.Blur()
 	m.bmInput.Blur()
+	m.rootsInput.Blur()
 	return m.finderInput().Focus()
 }
 
@@ -278,6 +282,12 @@ func (m *Model) clearFinder() tea.Cmd {
 	if m.finderSrc == srcTmux {
 		m.tmuxInput.Reset()
 		m.rebuildTmuxRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return nil
+	}
+	if m.finderSrc == srcRoots {
+		m.rootsInput.Reset()
+		m.rebuildRootRows()
 		m.fuzzySel, m.fuzzyScroll = 0, 0
 		return nil
 	}
@@ -344,6 +354,12 @@ func (m *Model) restartFuzzyWalk() tea.Cmd {
 		// rather than streamed.
 		m.fuzzyWalking = false
 		m.loadTmuxSessions()
+		return nil
+	case srcRoots:
+		// Directories, not root-relative paths — most of them are outside the
+		// tree, which is the point — so these keep their own rows as well.
+		m.fuzzyWalking = false
+		m.loadRecentRoots()
 		return nil
 	}
 
@@ -603,6 +619,11 @@ func (m *Model) refuzzy() {
 		m.fuzzySel, m.fuzzyScroll = 0, 0
 		return
 	}
+	if m.finderSrc == srcRoots {
+		m.rebuildRootRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return
+	}
 	raw, prev := m.input.Value(), m.fuzzyQuery
 	m.fuzzyQuery = raw
 	q := parseFindQuery(raw)
@@ -684,7 +705,7 @@ func (m *Model) cycleFinderField(delta int) tea.Cmd {
 		m.cycleBookmarkSort()
 		return nil
 	}
-	if m.finderSrc == srcRecent || m.finderSrc == srcTmux {
+	if m.finderSrc == srcRecent || m.finderSrc == srcTmux || m.finderSrc == srcRoots {
 		return nil
 	}
 	n := int(finderFieldCount)
@@ -707,6 +728,9 @@ func (m *Model) finderInput() *textinput.Model {
 	}
 	if m.finderSrc == srcTmux {
 		return &m.tmuxInput
+	}
+	if m.finderSrc == srcRoots {
+		return &m.rootsInput
 	}
 	switch m.finderField {
 	case fieldType:
@@ -732,7 +756,7 @@ func (m *Model) fuzzyVisibleRows() int {
 // so an unused field costs no screen space.
 func (m *Model) finderHeaderLines() int {
 	n := 1
-	if m.finderSrc == srcRecent || m.finderSrc == srcBookmark || m.finderSrc == srcTmux {
+	if m.finderSrc == srcRecent || m.finderSrc == srcBookmark || m.finderSrc == srcTmux || m.finderSrc == srcRoots {
 		return n // one query line; none of these lists offers another field
 	}
 	if m.scopeDir != "" {
