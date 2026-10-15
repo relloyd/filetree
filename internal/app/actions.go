@@ -620,6 +620,13 @@ func (m *Model) runFinderCommand(name string) (tea.Model, tea.Cmd) {
 	// finder_key that opens an agent should open it for the file you are
 	// looking at, which in the bookmark view can be in another repo entirely.
 	dir := filepath.Dir(abs)
+	if m.finderSrc == srcRoots {
+		// A root row is a directory, and a directory is its own {dir} — the
+		// rule the tree applies to a selected directory. Its parent would also
+		// be the wrong place to look for a repository: a worktree checkout's
+		// parent is not one.
+		dir = abs
+	}
 	v := m.sessionVars(m.repoIdentFor(dir))
 	if config.NeedsRepo(c.Run) && v.Session == "" {
 		return m, m.note(fmt.Sprintf("%s needs a git repo", name), true)
@@ -1638,6 +1645,9 @@ func (m *Model) handleWorktreeRemoved(msg worktreeRemovedMsg) (tea.Model, tea.Cm
 		return m, m.note(msg.err.Error(), true)
 	}
 	m.unmark(msg.dest)
+	// Gone for good, unlike a directory a branch switch hides, so there is no
+	// reason to keep offering it in "<" for the retention window.
+	m.forgetRootsUnder(msg.dest)
 	parent := filepath.Dir(msg.dest)
 	if n := m.tr.FindByPath(parent); n != nil && n.Loaded {
 		_ = m.tr.Refresh(n)

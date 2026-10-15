@@ -180,6 +180,7 @@ func finderModel() *Model {
 		grepInput:     textinput.New(),
 		bmInput:       textinput.New(),
 		tmuxInput:     textinput.New(),
+		rootsInput:    textinput.New(),
 		helpInput:     textinput.New(),
 		cfg:           &config.Config{General: config.General{FuzzyMaxMatches: 200}},
 		repoRoots:     map[string]string{},

@@ -62,6 +62,7 @@ const (
 	srcRecent                       // this root's history of opened files
 	srcBookmark                     // this repo's line bookmarks
 	srcTmux                         // named tmux sessions for agent tools
+	srcRoots                        // roots this tree has stood on ("<")
 )
 
 // finderPick is a row the finder was left on, so reopening can put the
@@ -113,6 +114,11 @@ func (m *Model) fuzzyFactor() int {
 // are still in hand, but content-mode hits past the old cap were discarded and
 // have to be searched for again.
 func (m *Model) raiseFuzzyLimit() tea.Cmd {
+	if m.finderSrc == srcRoots {
+		// Never capped, so there is nothing to raise — and rebuilding the tree
+		// search's matches underneath this list would move its cursor.
+		return nil
+	}
 	m.fuzzyLimitFactor = m.fuzzyFactor() + 1
 	if m.grepping() {
 		return m.scheduleGrep()
@@ -208,9 +214,10 @@ func (m *Model) enterFuzzy() (tea.Model, tea.Cmd) {
 	//
 	// The bookmark view has no Type field, and must not inherit the tree's:
 	// leaving it compiled would tint bookmark rows gold wherever they happened
-	// to match a glob that is not being applied to them.
+	// to match a glob that is not being applied to them. Nor does "<", where
+	// the filter would also turn ctrl+y into an rg command for the tree.
 	m.fuzzyFilterRaw = ""
-	if m.finderSrc != srcBookmark {
+	if m.finderSrc != srcBookmark && m.finderSrc != srcRoots {
 		m.fuzzyFilterRaw = m.typeInput.Value()
 	}
 	if f, err := search.CompileFilter(m.fuzzyFilterRaw); err != nil {
@@ -260,6 +267,7 @@ func (m *Model) focusFinderField() tea.Cmd {
 	m.typeInput.Blur()
 	m.grepInput.Blur()
 	m.bmInput.Blur()
+	m.rootsInput.Blur()
 	return m.finderInput().Focus()
 }
 
@@ -278,6 +286,12 @@ func (m *Model) clearFinder() tea.Cmd {
 	if m.finderSrc == srcTmux {
 		m.tmuxInput.Reset()
 		m.rebuildTmuxRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return nil
+	}
+	if m.finderSrc == srcRoots {
+		m.rootsInput.Reset()
+		m.rebuildRootRows()
 		m.fuzzySel, m.fuzzyScroll = 0, 0
 		return nil
 	}
@@ -344,6 +358,12 @@ func (m *Model) restartFuzzyWalk() tea.Cmd {
 		// rather than streamed.
 		m.fuzzyWalking = false
 		m.loadTmuxSessions()
+		return nil
+	case srcRoots:
+		// Directories, not root-relative paths — most of them are outside the
+		// tree, which is the point — so these keep their own rows as well.
+		m.fuzzyWalking = false
+		m.loadRecentRoots()
 		return nil
 	}
 
@@ -603,6 +623,11 @@ func (m *Model) refuzzy() {
 		m.fuzzySel, m.fuzzyScroll = 0, 0
 		return
 	}
+	if m.finderSrc == srcRoots {
+		m.rebuildRootRows()
+		m.fuzzySel, m.fuzzyScroll = 0, 0
+		return
+	}
 	raw, prev := m.input.Value(), m.fuzzyQuery
 	m.fuzzyQuery = raw
 	q := parseFindQuery(raw)
@@ -684,7 +709,7 @@ func (m *Model) cycleFinderField(delta int) tea.Cmd {
 		m.cycleBookmarkSort()
 		return nil
 	}
-	if m.finderSrc == srcRecent || m.finderSrc == srcTmux {
+	if m.finderSrc == srcRecent || m.finderSrc == srcTmux || m.finderSrc == srcRoots {
 		return nil
 	}
 	n := int(finderFieldCount)
@@ -707,6 +732,9 @@ func (m *Model) finderInput() *textinput.Model {
 	}
 	if m.finderSrc == srcTmux {
 		return &m.tmuxInput
+	}
+	if m.finderSrc == srcRoots {
+		return &m.rootsInput
 	}
 	switch m.finderField {
 	case fieldType:
@@ -732,7 +760,7 @@ func (m *Model) fuzzyVisibleRows() int {
 // so an unused field costs no screen space.
 func (m *Model) finderHeaderLines() int {
 	n := 1
-	if m.finderSrc == srcRecent || m.finderSrc == srcBookmark || m.finderSrc == srcTmux {
+	if m.finderSrc == srcRecent || m.finderSrc == srcBookmark || m.finderSrc == srcTmux || m.finderSrc == srcRoots {
 		return n // one query line; none of these lists offers another field
 	}
 	if m.scopeDir != "" {

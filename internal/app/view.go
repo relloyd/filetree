@@ -334,13 +334,13 @@ func (m *Model) renderStatus() string {
 		left = styleError.Render(" " + m.statusMsg)
 	case m.statusMsg != "":
 		left = styleOK.Render(" " + m.statusMsg)
-	case m.mode == modeFuzzy && m.finderSrc == srcTmux:
-		// The tree's selected path means nothing over the session list, and
-		// this view's keys are its own — nothing else in ft has them — so the
-		// bar spends its room on those instead.
+	case m.mode == modeFuzzy && m.finderHints() != nil:
+		// The tree's selected path means nothing over the session list or the
+		// roots, and these views' keys are their own — nothing else in ft has
+		// them — so the bar spends its room on those instead.
 		// -1, not the path's -2: fitHints counts its own leading space, so
 		// only the gap before the right-hand side is left to reserve.
-		left = fitHints(sessionHints, m.width-rw-1)
+		left = fitHints(m.finderHints(), m.width-rw-1)
 	case m.mode == modeFuzzy && m.finderCommand() != "":
 		// The tree cursor is not what you are looking at in the fuzzy
 		// finder, so the status bar shows the ripgrep command instead — the
@@ -382,6 +382,25 @@ var sessionHints = []keyHint{
 	{"ctrl+w", "beside"},
 	{"ctrl+x", "kill"},
 	{"esc", "back"},
+}
+
+// rootsHints are the "<" view's keys, in the same spirit as sessionHints.
+var rootsHints = []keyHint{
+	{"enter", "switch"},
+	{"ctrl+x", "forget"},
+	{"esc", "back"},
+}
+
+// finderHints is the list of keys the status bar shows for a finder view that
+// has keys of its own, or nil for one that has none.
+func (m *Model) finderHints() []keyHint {
+	switch m.finderSrc {
+	case srcTmux:
+		return sessionHints
+	case srcRoots:
+		return rootsHints
+	}
+	return nil
 }
 
 // fitHints renders as many whole hints as fit in room columns, in order, with a
@@ -427,7 +446,7 @@ const (
 // whatever the branch can be given — so a narrow pane sheds them from the left
 // rather than losing the lot.
 func (m *Model) renderStatusRight() (string, int) {
-	if m.mode == modeFuzzy && m.finderSrc == srcTmux {
+	if m.mode == modeFuzzy && m.finderHints() != nil {
 		// Over the session list only the waiting count still means anything:
 		// the row counter, marks and branch all describe the tree behind it,
 		// and the list's own counter is on the query line already.
@@ -548,6 +567,11 @@ func (m *Model) renderFinderHeader() []string {
 		return []string{styleBase.MaxWidth(m.width).Render(
 			label(" Sessions ", fieldQuery) + m.tmuxInput.View() +
 				m.renderFinderCounter() + m.tmuxStatusNote())}
+	}
+	if m.finderSrc == srcRoots {
+		return []string{styleBase.MaxWidth(m.width).Render(
+			label(" Roots ", fieldQuery) + m.rootsInput.View() +
+				m.renderFinderCounter() + m.rootsStatusNote())}
 	}
 	var lines []string
 	if m.scopeDir != "" {
@@ -712,6 +736,14 @@ func (m *Model) renderFinderScope() string {
 // results were dropped at the match cap, and "×N" once the session limit has
 // been raised. It brightens at ×2 and above so a raised limit is obvious.
 func (m *Model) renderFinderCounter() string {
+	if m.finderSrc == srcRoots {
+		// A list read whole and never capped: none of the markers below can
+		// apply, and the walk state they read belongs to the tree search.
+		if n := m.finderLen(); n > 0 {
+			return styleDim.Render(fmt.Sprintf("  %d/%d", m.fuzzySel+1, n))
+		}
+		return ""
+	}
 	busy := m.fuzzyWalking
 	if m.grepping() {
 		busy = m.grepRunning
@@ -853,6 +885,11 @@ func (m *Model) renderFuzzy() string {
 		for i := m.fuzzyScroll; i < len(m.tmuxRows) && room(); i++ {
 			lines = append(lines, m.renderTmuxRow(m.tmuxAll[m.tmuxRows[i]], m.tmuxMatched[i], i == m.fuzzySel, now)...)
 		}
+	case m.finderSrc == srcRoots:
+		now := time.Now()
+		for i := m.fuzzyScroll; i < len(m.rootsRows) && room(); i++ {
+			lines = append(lines, m.renderRootRow(m.rootsAll[m.rootsRows[i]], m.rootsMatched[i], i == m.fuzzySel, now)...)
+		}
 	case m.grepping():
 		for i := m.fuzzyScroll; i < len(m.grepRows) && room(); i++ {
 			lines = append(lines, m.renderGrepRow(m.grepHits[m.grepRows[i]], i == m.fuzzySel)...)
@@ -889,6 +926,41 @@ func (m *Model) renderMatchRow(mt fuzzy.Match, selected bool, now time.Time) []s
 	return m.finderRow(line, used, true, 2, func(room int) (string, int) {
 		age := truncate(relativeAge(m.recentAt(mt.Str), now), room)
 		return styleDim.Render(age), lipgloss.Width(age)
+	})
+}
+
+// renderRootRow draws one remembered root: its label, and how long since the
+// tree stood there pushed to the right edge — the list is ordered by it, so
+// the ages explain the order, as they do in "b". The launch root says so,
+// since picking it is the same as Esc.
+//
+// The path gives way to that column rather than the other way round: the
+// launch root is the one row shown as a full path, so it is the one most
+// likely to be too long — and the word saying it is home is what tells you
+// what picking it does. The path keeps its tail, which is the end that
+// identifies it.
+func (m *Model) renderRootRow(r rootRow, matched []int, selected bool, now time.Time) []string {
+	prefix := "   "
+	if selected {
+		prefix = styleTitle.Render(" > ")
+	}
+	age := relativeAge(r.At, now)
+	if r.home {
+		age = strings.TrimSpace("home " + age)
+	}
+	// Three for the prefix, then finderRow's two-column margin and its one
+	// blank between the columns.
+	room := m.width - 3
+	if keep := room - lipgloss.Width(age) - 3; keep >= 12 {
+		room = keep // only when what is left of the path is still worth reading
+	}
+	shown, shownIdx := truncatePathLeft(r.label, matched, max(1, room))
+	line := prefix + highlightIn(shown, shownIdx, 0, styleBase)
+	used := 3 + lipgloss.Width(shown)
+
+	return m.finderRow(line, used, true, 2, func(room int) (string, int) {
+		text := truncate(age, room)
+		return styleDim.Render(text), lipgloss.Width(text)
 	})
 }
 
@@ -1357,6 +1429,8 @@ func (m *Model) helpRows() []helpRow {
 		// column is sized to its widest entry, and " / shift+enter" alone cost
 		// the table its second column at 150 columns wide.
 		{key: m.actionKeys["root-here"], desc: "re-root to the selection (or shift+enter)"},
+		{key: m.actionKeys["recent-roots"], desc: "recent roots, newest first; enter switches"},
+		{finderKey: "ctrl+x", desc: "roots: forget the highlighted one"},
 		{key: m.actionKeys["copy-here"] + " / " + m.actionKeys["move-here"], desc: "copy / move marked items here"},
 		{key: m.actionKeys["copy-abs"] + " / " + m.actionKeys["copy-rel"], desc: "copy absolute / git-relative path"},
 		{key: m.actionKeys["copy-grep"], desc: "copy an rg command for the selected dir"},
@@ -1444,8 +1518,14 @@ func relativeAge(t, now time.Time) string {
 	}
 }
 
+// abbrevHome writes the home directory as "~". Only at a path boundary: a bare
+// prefix test would turn /Users/bob2/proj into "~2/proj" for user bob.
 func abbrevHome(p string) string {
-	if home, err := os.UserHomeDir(); err == nil && home != "" && strings.HasPrefix(p, home) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == home || strings.HasPrefix(p, home+string(filepath.Separator)) {
 		return "~" + strings.TrimPrefix(p, home)
 	}
 	return p

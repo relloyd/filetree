@@ -51,6 +51,10 @@ watch_debounce_ms = 150
 #                          # field, so a generated file can't fill the list;
 #                          # 0 means no limit
 # recent_max = 100         # how many opened files "b" remembers per tree
+# recent_roots_max = 20    # how many roots "<" remembers per launch root
+# recent_roots_retention_days = 30
+#                          # a remembered root whose directory has not been
+#                          # seen for this long is dropped; 0 keeps them all
 # bookmark_max = 500       # how many line bookmarks a repo keeps ("B")
 # bookmark_retention_days = 30
 #                          # a bookmark whose file has not been seen for this

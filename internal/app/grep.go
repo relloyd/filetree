@@ -20,7 +20,12 @@ const grepDebounce = 150 * time.Millisecond
 // grepping reports whether the finder is in content mode. It is derived from
 // the Grep field rather than being a mode of its own, so View, handleKey and
 // the mouse handler keep their single modeFuzzy arm.
-func (m *Model) grepping() bool { return m.grepInput.Value() != "" }
+//
+// Only the tree search has a Grep field. The other finder views share the model
+// with it, and the pattern stays in grepInput while they are open — that is
+// what lets "f" resume it — so without the source check every consumer of this
+// would need its own exception for each of them.
+func (m *Model) grepping() bool { return m.finderSrc == srcTree && m.grepInput.Value() != "" }
 
 // grepMaxPerFile caps matches per file so one generated file cannot flood the
 // list. A configured 0 means no limit.
@@ -203,6 +208,8 @@ func (m *Model) finderLen() int {
 		return len(m.bmRows)
 	case m.finderSrc == srcTmux:
 		return len(m.tmuxRows)
+	case m.finderSrc == srcRoots:
+		return len(m.rootsRows)
 	case m.grepping():
 		return len(m.grepRows)
 	default:
@@ -228,6 +235,9 @@ func (m *Model) finderPath(i int) string {
 		// A session has no path; its name is what identifies the row, and it
 		// is what the finder-resume machinery and the status bar read.
 		return m.tmuxAll[m.tmuxRows[i]].Name
+	case m.finderSrc == srcRoots:
+		// Absolute, and already the whole answer: finderAbs passes it through.
+		return m.rootsAll[m.rootsRows[i]].Path
 	case m.grepping():
 		return m.grepHits[m.grepRows[i]].Path
 	default:
@@ -256,6 +266,12 @@ func (m *Model) finderAbs(i int) string {
 	if m.finderSrc == srcTmux {
 		if s, ok := m.tmuxRow(i); ok {
 			return s.Dir
+		}
+		return ""
+	}
+	if m.finderSrc == srcRoots {
+		if r, ok := m.rootRow(i); ok {
+			return r.Path
 		}
 		return ""
 	}

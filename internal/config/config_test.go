@@ -91,6 +91,12 @@ func TestLoadStarter(t *testing.T) {
 	if cfg.General.RecentMax != DefaultRecentMax {
 		t.Errorf("general.recent_max = %d, want %d", cfg.General.RecentMax, DefaultRecentMax)
 	}
+	if cfg.General.RecentRootsMax != DefaultRecentRootsMax {
+		t.Errorf("general.recent_roots_max = %d, want %d", cfg.General.RecentRootsMax, DefaultRecentRootsMax)
+	}
+	if cfg.General.RecentRootsRetentionDays != DefaultRecentRootsRetentionDays {
+		t.Errorf("general.recent_roots_retention_days = %d, want %d", cfg.General.RecentRootsRetentionDays, DefaultRecentRootsRetentionDays)
+	}
 }
 
 // Every finder_key the starter binds has to survive the finder's own reserved
@@ -303,6 +309,17 @@ func TestLoadValidation(t *testing.T) {
 		t.Errorf("recent_max = 25 should load: %v", err)
 	} else if cfg.General.RecentMax != 25 {
 		t.Errorf("recent_max = %d, want 25", cfg.General.RecentMax)
+	}
+	if _, err := loadTOML(t, "[general]\nrecent_roots_max = 0\n"); err == nil {
+		t.Error("zero recent_roots_max should fail")
+	}
+	if _, err := loadTOML(t, "[general]\nrecent_roots_retention_days = -1\n"); err == nil {
+		t.Error("negative recent_roots_retention_days should fail")
+	}
+	if cfg, err := loadTOML(t, "[general]\nrecent_roots_max = 5\nrecent_roots_retention_days = 0\n"); err != nil {
+		t.Errorf("recent_roots_max = 5, retention 0 should load: %v", err)
+	} else if cfg.General.RecentRootsMax != 5 || cfg.RootsRetentionWindow() != 0 {
+		t.Errorf("recent_roots_max = %d, window %v; want 5 and no expiry", cfg.General.RecentRootsMax, cfg.RootsRetentionWindow())
 	}
 	if cfg, err := loadTOML(t, "[general]\ntmux = \"never\"\n"); err != nil {
 		t.Errorf("tmux = never should load: %v", err)
