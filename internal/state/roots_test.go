@@ -1,9 +1,11 @@
 package state
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -168,5 +170,38 @@ func TestRootsRemoveThenOverwriteForgets(t *testing.T) {
 	}
 	if got := rootPaths(LoadRoots(dir, "/proj")); got != "/proj/b" {
 		t.Errorf("after forgetting: %v", got)
+	}
+}
+
+// Sessions on one launch root save concurrently — that is what the merge is
+// for — so no write may trample another's temporary file. With a shared name
+// one session truncates it while another renames it into place: a rename that
+// fails, or a half-written file LoadRoots throws away with the whole list.
+func TestRootsConcurrentSavesLeaveAValidFile(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	var wg sync.WaitGroup
+	errs := make(chan error, 40)
+	for i := range 40 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := NewRoots("/proj")
+			r.Visit(fmt.Sprintf("/proj/d%02d", i), now.Add(time.Duration(i)*time.Second), 100)
+			errs <- r.Save(dir, 100, now, 0)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("concurrent save: %v", err)
+		}
+	}
+	if got := LoadRoots(dir, "/proj"); len(got.Roots) == 0 {
+		t.Error("concurrent saves left a history that loads empty")
+	}
+	if leftovers, _ := filepath.Glob(filepath.Join(dir, "*.tmp")); len(leftovers) > 0 {
+		t.Errorf("temporary files left behind: %v", leftovers)
 	}
 }

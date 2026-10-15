@@ -3,11 +3,14 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/relloyd/filetree/internal/config"
 	"github.com/relloyd/filetree/internal/state"
 )
 
@@ -272,5 +275,158 @@ func TestRecentRootsEmptySaysSo(t *testing.T) {
 	pressEnter(m) // an empty list is not an error
 	if m.statusErr {
 		t.Errorf("enter on an empty list reported %q", m.statusMsg)
+	}
+}
+
+// seedRoot writes one entry into the launch root's history directly, with the
+// sighting a test needs — which no key press can produce.
+func seedRoot(t *testing.T, m *Model, home, path string, lastSeen time.Time) {
+	t.Helper()
+	r := state.LoadRoots(m.stateDir, home)
+	r.Roots = append(r.Roots, state.RecentRoot{Path: path, At: lastSeen, LastSeen: lastSeen})
+	if err := r.Overwrite(m.stateDir); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func historyHas(m *Model, home, path string) (state.RecentRoot, bool) {
+	for _, e := range state.LoadRoots(m.stateDir, home).Roots {
+		if e.Path == path {
+			return e, true
+		}
+	}
+	return state.RecentRoot{}, false
+}
+
+// A re-root sees only the root it lands on, so it must not expire anything:
+// judging the rest by a sighting only "<" refreshes would empty the list after
+// a month of not opening "<", directories and all still there. Expiry belongs
+// to opening "<", which has just looked for every entry.
+func TestRecentRootsExpireOnlyWhenEveryEntryWasLookedFor(t *testing.T) {
+	m, project := rootsModel(t)
+	m.cfg.General.RecentRootsRetentionDays = config.DefaultRecentRootsRetentionDays
+	other := filepath.Join(project, "other")
+	gone := filepath.Join(project, "no-such-dir")
+	longAgo := time.Now().Add(-40 * 24 * time.Hour)
+	seedRoot(t, m, project, other, longAgo)
+	seedRoot(t, m, project, gone, longAgo)
+
+	rootHereAt(t, m, filepath.Join(project, "sub"))
+	if _, ok := historyHas(m, project, other); !ok {
+		t.Fatal("a re-root expired a root whose directory exists")
+	}
+	if _, ok := historyHas(m, project, gone); !ok {
+		t.Fatal("a re-root expired a root it never looked for")
+	}
+
+	got := openRoots(t, m)
+	if !slices.Contains(got, other) || slices.Contains(got, gone) {
+		t.Errorf("< offers %v, want the existing root and not the missing one", got)
+	}
+	if e, ok := historyHas(m, project, other); !ok || time.Since(e.LastSeen) > time.Minute {
+		t.Errorf("existing root after < = %+v (kept %v), want its sighting refreshed", e, ok)
+	}
+	if _, ok := historyHas(m, project, gone); ok {
+		t.Error("a root missing for longer than the window survived opening <")
+	}
+}
+
+// Opening "<" is a switch, and a switch with nothing new to record must not
+// rewrite the file. A rename is what a write is, so the file's identity says
+// whether one happened.
+func TestOpeningRecentRootsTwiceWritesOnce(t *testing.T) {
+	m, project := rootsModel(t)
+	rootHereAt(t, m, filepath.Join(project, "sub"))
+	file := filepath.Join(m.stateDir, state.RootsFileName(project))
+
+	openRoots(t, m)
+	before, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+	openRoots(t, m)
+	after, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) {
+		t.Error("opening < with every sighting fresh rewrote the history")
+	}
+}
+
+// A finder_key command on a root row is about that directory: {dir} is the
+// root itself, as it is for a directory selected in the tree, not its parent.
+func TestRecentRootsCommandDirIsTheRoot(t *testing.T) {
+	m, project := rootsModel(t)
+	sub := filepath.Join(project, "sub")
+	rootHereAt(t, m, sub)
+	m.escKey()
+
+	m.cfg.Commands = map[string]config.Command{
+		"show": {Run: "printf '%s' {dir}", Mode: config.ModeBackground},
+	}
+	m.finderCmds = map[string]string{"ctrl+e": "show"}
+	if got := openRoots(t, m); len(got) != 1 || got[0] != sub {
+		t.Fatalf("< offers %v, want the subtree", got)
+	}
+	_, cmd := m.handleKey(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	if done := drainCmdDone(t, cmd); done.out != sub {
+		t.Errorf("{dir} = %q, want the root %q", done.out, sub)
+	}
+}
+
+// What the tree search left in its Grep and Type fields stays there for "f" to
+// resume, and none of it may reach "<": no ripgrep run behind the list, no
+// stale counter markers, no rg command for ctrl+y, and no ctrl+g moving the
+// cursor by rebuilding the tree's matches underneath it.
+func TestRecentRootsIgnoreTheTreeSearchFields(t *testing.T) {
+	m, project := rootsModel(t)
+	rootHereAt(t, m, filepath.Join(project, "sub"))
+	m.escKey()
+	rootHereAt(t, m, filepath.Join(project, "other"))
+	m.grepInput.SetValue("TODO")
+	m.typeInput.SetValue("*.go")
+	m.grepCapped = true
+
+	if got := openRoots(t, m); len(got) != 2 {
+		t.Fatalf("< offers %v, want two roots", got)
+	}
+	if m.grepping() || m.grepRunning {
+		t.Error("the tree's Grep pattern started a search under <")
+	}
+	if cmd := m.finderCommand(); cmd != "" {
+		t.Errorf("finderCommand = %q under <, want nothing for ctrl+y to copy", cmd)
+	}
+	if m.finderStacks() {
+		t.Error("rows stack as if showing grep hits")
+	}
+	m.moveFuzzySel(1)
+	m.handleKey(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	if m.fuzzySel != 1 {
+		t.Errorf("ctrl+g moved the cursor to %d", m.fuzzySel)
+	}
+	if c := m.renderFinderCounter(); strings.Contains(c, "max") || strings.Contains(c, "…") || strings.Contains(c, "×") {
+		t.Errorf("counter = %q, want a plain position", c)
+	}
+	// And the fields are still there for "f".
+	if m.grepInput.Value() != "TODO" || m.typeInput.Value() != "*.go" {
+		t.Error("opening < cleared the tree search's fields")
+	}
+}
+
+// "~" stands for the home directory only at a path boundary.
+func TestAbbrevHomeNeedsAPathBoundary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for in, want := range map[string]string{
+		home:                 "~",
+		home + "/code/proj":  "~/code/proj",
+		home + "2/proj":      home + "2/proj",
+		"/elsewhere/project": "/elsewhere/project",
+	} {
+		if got := abbrevHome(in); got != want {
+			t.Errorf("abbrevHome(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

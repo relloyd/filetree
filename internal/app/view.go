@@ -736,6 +736,14 @@ func (m *Model) renderFinderScope() string {
 // results were dropped at the match cap, and "×N" once the session limit has
 // been raised. It brightens at ×2 and above so a raised limit is obvious.
 func (m *Model) renderFinderCounter() string {
+	if m.finderSrc == srcRoots {
+		// A list read whole and never capped: none of the markers below can
+		// apply, and the walk state they read belongs to the tree search.
+		if n := m.finderLen(); n > 0 {
+			return styleDim.Render(fmt.Sprintf("  %d/%d", m.fuzzySel+1, n))
+		}
+		return ""
+	}
 	busy := m.fuzzyWalking
 	if m.grepping() {
 		busy = m.grepRunning
@@ -796,9 +804,6 @@ func (m *Model) finderNarrow() bool { return m.width < minFinderWide }
 // to hold "3d ago" would halve the list to say very little — so those stay on
 // one line and truncate instead.
 func (m *Model) finderStacks() bool {
-	if m.finderSrc == srcRoots {
-		return false // a Grep left in the tree's field does not apply here
-	}
 	return m.grepping() || m.finderSrc == srcBookmark
 }
 
@@ -1513,8 +1518,14 @@ func relativeAge(t, now time.Time) string {
 	}
 }
 
+// abbrevHome writes the home directory as "~". Only at a path boundary: a bare
+// prefix test would turn /Users/bob2/proj into "~2/proj" for user bob.
 func abbrevHome(p string) string {
-	if home, err := os.UserHomeDir(); err == nil && home != "" && strings.HasPrefix(p, home) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == home || strings.HasPrefix(p, home+string(filepath.Separator)) {
 		return "~" + strings.TrimPrefix(p, home)
 	}
 	return p

@@ -55,8 +55,18 @@ func (m *Model) recordRoot() {
 	// A history is a convenience: failing to write it is not worth a red line
 	// in the status bar on every re-root, which is the same call the file
 	// history makes.
-	_ = r.Save(m.stateDir, m.recentRootsMax(), now, m.recentRootsRetention())
+	//
+	// No expiry here (a zero retention): only the visited root's sighting is
+	// fresh at this point, so expiring would judge every other entry by when
+	// "<" last looked rather than by whether its directory exists — and a month
+	// without opening "<" would empty the list on the next re-root.
+	_ = r.Save(m.stateDir, m.recentRootsMax(), now, 0)
 }
+
+// sightingStale is how old a root's last sighting may get before opening "<"
+// writes a fresh one. Against a retention window measured in days, an hour of
+// slack costs nothing, and it saves a disk write on almost every switch.
+const sightingStale = time.Hour
 
 func (m *Model) recentRootsMax() int {
 	if m.cfg == nil || m.cfg.General.RecentRootsMax < 1 {
@@ -96,21 +106,29 @@ func (m *Model) startRecentRoots() (tea.Model, tea.Cmd) {
 // Each root is checked for on the way. One that exists has its sighting
 // refreshed, which is what holds the retention clock back; one that does not is
 // left out of the list but kept in the file, since a branch switch can bring it
-// back. Only once it has gone unseen for the whole window does Save drop it.
+// back. Only once it has gone unseen for the whole window is it dropped — and
+// this is the only place that happens, because it is the only place every
+// entry has just been looked for.
+//
+// The file is rewritten only when that changed something: a sighting more than
+// an hour stale, or an entry to expire. Opening "<" is a switch, and most
+// switches have nothing new to record.
 func (m *Model) loadRecentRoots() {
 	m.rootsAll, m.rootsRows, m.rootsMatched = nil, nil, nil
 	home, current := m.launchRoot(), m.tr.Root.Path
 	r := state.LoadRoots(m.stateDir, home)
 
 	now := time.Now()
-	seen := false
+	dirty := false
 	for i := range r.Roots {
 		e := &r.Roots[i]
 		fi, err := os.Stat(e.Path)
 		if err != nil || !fi.IsDir() {
 			continue
 		}
-		e.LastSeen, seen = now, true
+		if now.Sub(e.LastSeen) > sightingStale {
+			e.LastSeen, dirty = now, true
+		}
 		if e.Path == current {
 			continue // picking it would do nothing
 		}
@@ -120,7 +138,13 @@ func (m *Model) loadRecentRoots() {
 			home:       e.Path == home,
 		})
 	}
-	if seen {
+	// Expire after the loop, so what it judges is this visit's sightings. The
+	// rows are already built, and only a missing root can expire, so none of
+	// them goes with it.
+	if r.Expire(now, m.recentRootsRetention()) > 0 {
+		dirty = true
+	}
+	if dirty {
 		_ = r.Save(m.stateDir, m.recentRootsMax(), now, m.recentRootsRetention())
 	}
 	m.rebuildRootRows()

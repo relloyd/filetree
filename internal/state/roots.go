@@ -148,6 +148,11 @@ func (r *Roots) Save(stateDir string, maxLen int, now time.Time, retention time.
 // just-forgotten root straight back out of the file. The cost is a narrow race
 // — a visit another session records between this load and this write is lost —
 // which is a far better failure than a forget key that does nothing.
+//
+// The temporary file is unique to this write. Two sessions on one launch root
+// re-rooting at the same moment is the case the merge exists for, and with a
+// shared ".tmp" name one could truncate the file while the other renames it
+// into place, leaving JSON that LoadRoots discards along with the whole list.
 func (r *Roots) Overwrite(stateDir string) error {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return err
@@ -157,9 +162,23 @@ func (r *Roots) Overwrite(stateDir string) error {
 		return err
 	}
 	final := filepath.Join(stateDir, RootsFileName(r.Home))
-	tmp := final + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	f, err := os.CreateTemp(stateDir, RootsFileName(r.Home)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, final)
+	tmp := f.Name()
+	_, werr := f.Write(data)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Chmod(tmp, 0o644) // CreateTemp makes it 0600; match the other state files
+	}
+	if werr == nil {
+		werr = os.Rename(tmp, final)
+	}
+	if werr != nil {
+		os.Remove(tmp)
+	}
+	return werr
 }

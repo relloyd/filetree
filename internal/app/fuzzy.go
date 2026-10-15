@@ -114,6 +114,11 @@ func (m *Model) fuzzyFactor() int {
 // are still in hand, but content-mode hits past the old cap were discarded and
 // have to be searched for again.
 func (m *Model) raiseFuzzyLimit() tea.Cmd {
+	if m.finderSrc == srcRoots {
+		// Never capped, so there is nothing to raise — and rebuilding the tree
+		// search's matches underneath this list would move its cursor.
+		return nil
+	}
 	m.fuzzyLimitFactor = m.fuzzyFactor() + 1
 	if m.grepping() {
 		return m.scheduleGrep()
@@ -209,9 +214,10 @@ func (m *Model) enterFuzzy() (tea.Model, tea.Cmd) {
 	//
 	// The bookmark view has no Type field, and must not inherit the tree's:
 	// leaving it compiled would tint bookmark rows gold wherever they happened
-	// to match a glob that is not being applied to them.
+	// to match a glob that is not being applied to them. Nor does "<", where
+	// the filter would also turn ctrl+y into an rg command for the tree.
 	m.fuzzyFilterRaw = ""
-	if m.finderSrc != srcBookmark {
+	if m.finderSrc != srcBookmark && m.finderSrc != srcRoots {
 		m.fuzzyFilterRaw = m.typeInput.Value()
 	}
 	if f, err := search.CompileFilter(m.fuzzyFilterRaw); err != nil {
@@ -248,9 +254,7 @@ func (m *Model) enterFuzzy() (tea.Model, tea.Cmd) {
 	cmds := []tea.Cmd{m.focusFinderField(), m.restartFuzzyWalk()}
 	// Hits from before the trip away are stale, and stopGrep invalidated their
 	// generation, so a resumed content search is re-run rather than restored.
-	// Not under "<": a Grep left in the tree's field has nothing to search
-	// there, and its results arriving would clamp the selection to their count.
-	if m.grepping() && m.finderSrc != srcRoots {
+	if m.grepping() {
 		cmds = append(cmds, m.scheduleGrep())
 	}
 	return m, tea.Batch(cmds...)

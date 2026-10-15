@@ -20,7 +20,12 @@ const grepDebounce = 150 * time.Millisecond
 // grepping reports whether the finder is in content mode. It is derived from
 // the Grep field rather than being a mode of its own, so View, handleKey and
 // the mouse handler keep their single modeFuzzy arm.
-func (m *Model) grepping() bool { return m.grepInput.Value() != "" }
+//
+// Only the tree search has a Grep field. The other finder views share the model
+// with it, and the pattern stays in grepInput while they are open — that is
+// what lets "f" resume it — so without the source check every consumer of this
+// would need its own exception for each of them.
+func (m *Model) grepping() bool { return m.finderSrc == srcTree && m.grepInput.Value() != "" }
 
 // grepMaxPerFile caps matches per file so one generated file cannot flood the
 // list. A configured 0 means no limit.
