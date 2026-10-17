@@ -142,6 +142,7 @@ const (
 	opMove
 	opWorktree
 	opKillSession
+	opQuitSession
 )
 
 // pendingOp is a staged operation awaiting confirmation in modeConfirm.
@@ -153,6 +154,7 @@ type pendingOp struct {
 	repoRoot  string   // opWorktree: the repo owning the worktree
 	force     bool     // opWorktree: re-asking after a dirty-worktree refusal
 	session   string   // opKillSession: the tmux session to kill
+	busy      []string // opQuitSession: what the busy panes are running
 }
 
 type Model struct {
@@ -178,6 +180,13 @@ type Model struct {
 	// is captured once at startup for the same reason ipc.Serve captures it:
 	// only this process knows where it is running.
 	selfPane string
+
+	// ownsSession says ft relaunched itself into the tmux session it is in,
+	// so quitting may end that session (see quit). closeSession is the
+	// verdict main reads once the program has stopped: the kill has to come
+	// after everything else, since it takes this process down with it.
+	ownsSession  bool
+	closeSession bool
 
 	// titleSent is the title last written to ft's tmux session, and
 	// titleBusy says a write is in flight. See publishTitle.
@@ -408,6 +417,14 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 }
 
 // loadRoot points the model at a root directory and restores that root's
+// SetOwnsSession tells the model that quitting may end its tmux session. main
+// decides it, from tmux.OwnerFlag and the quit_closes_session setting.
+func (m *Model) SetOwnsSession(owns bool) { m.ownsSession = owns }
+
+// ClosesSession reports whether the quit that ended the program asked for
+// the tmux session to go with it.
+func (m *Model) ClosesSession() bool { return m.closeSession }
+
 // SetRootObserver registers f to be told the tree's root, now and on every
 // change. It is a setter rather than another parameter to New because the only
 // caller is main and every test would otherwise have to thread a nil through.
@@ -734,7 +751,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// ctrl+c used to be inert in them — so a new mode inherits this by handling
 	// esc and nothing else. It matters more now that ctrl+c is the only way out:
 	// a press must never be the one that discards a half-typed rename.
-	if s == "ctrl+c" && m.mode != modeNormal {
+	//
+	// The one exception is the quit confirmation, which a ctrl+c raised: a
+	// second press there is the answer, not a way back out.
+	if s == "ctrl+c" && m.mode != modeNormal && !m.confirmingQuit() {
 		s = "esc"
 	}
 

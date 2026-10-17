@@ -49,6 +49,13 @@ func Available() bool {
 	return err == nil
 }
 
+// OwnerFlag is the flag Wrap starts ft with inside the session it creates. It
+// is how that ft knows the session is its own, and so its to end on quit: the
+// session's name cannot say so, because a second ft started in one of its
+// splits would read the same name. Nothing but Wrap passes it, and the usage
+// text leaves it out.
+const OwnerFlag = "owns-session"
+
 // WrapArgs is the argv Wrap execs, kept apart from the exec so it can be
 // tested: self is ft's own executable, root the tree's root, name the session
 // name ("" for an unnamed session). See Wrap for why it is shaped this way.
@@ -57,7 +64,7 @@ func WrapArgs(self, root, name string) []string {
 	if name != "" {
 		argv = append(argv, "-s", name)
 	}
-	return append(argv, "-c", root, self, root,
+	return append(argv, "-c", root, self, "-"+OwnerFlag, root,
 		";", "set-option", "set-titles", "on",
 		";", "set-option", "set-titles-string", TitleFormat)
 }

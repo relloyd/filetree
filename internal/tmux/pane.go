@@ -80,3 +80,29 @@ func ParsePanes(out string) []Pane {
 	}
 	return panes
 }
+
+// BusyPanes returns the panes in self's session, other than self, that are
+// running something a kill-session would interrupt: anything but a shell at
+// its prompt. found is false when self is not in the list, and then there is
+// no session to speak of.
+//
+// Every window counts, not just ft's, because kill-session takes them all. A
+// pane running "tmux" is a nested client — ctrl+w and ctrl+s show an agent
+// that way — and killing it only detaches the client, so the agent behind it
+// keeps running and the pane is not busy.
+func BusyPanes(panes []Pane, self string) (busy []Pane, found bool) {
+	me, ok := findPane(panes, self)
+	if !ok {
+		return nil, false
+	}
+	for _, p := range panes {
+		if p.ID == me.ID || p.SessionID != me.SessionID {
+			continue
+		}
+		if isShell(p.Command) || p.Command == "tmux" {
+			continue
+		}
+		busy = append(busy, p)
+	}
+	return busy, true
+}

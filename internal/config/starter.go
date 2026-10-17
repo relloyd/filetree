@@ -38,6 +38,13 @@ watch_debounce_ms = 150
 #                          # split, popup, focus and resize commands work.
 #                          # "never": run as-is.
 #                          # "ft --no-tmux" turns it off for one run.
+# quit_closes_session = true
+#                          # quitting ft also ends the tmux session it
+#                          # relaunched into, splits and all; agent and popup
+#                          # sessions keep running. It asks first if a split
+#                          # is busy (an editor, say); "y" or ctrl+c again
+#                          # closes it anyway. A session you started yourself
+#                          # is never closed.
 # fuzzy_max_matches = 1000 # how many "/" results are ranked and kept; raising
 #                          # it costs sort time on huge trees, not render time.
 #                          # "ctrl+g" in the finder doubles, triples, ... this

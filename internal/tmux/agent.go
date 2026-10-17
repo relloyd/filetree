@@ -65,10 +65,16 @@ var shells = map[string]bool{
 	"dash": true, "ksh": true, "tcsh": true, "nu": true,
 }
 
+// isShell reports whether a #{pane_current_command} is a shell, allowing for
+// the "-zsh" a login shell calls itself and for a full path.
+func isShell(cmd string) bool {
+	return shells[filepath.Base(strings.TrimPrefix(cmd, "-"))]
+}
+
 // AgentNow is the state worth showing for a session: what its agent reported,
 // unless the session has gone back to a shell, in which case nothing.
 func (s Session) AgentNow() Agent {
-	if s.Agent.State == "" || shells[filepath.Base(strings.TrimPrefix(s.Command, "-"))] {
+	if s.Agent.State == "" || isShell(s.Command) {
 		return Agent{}
 	}
 	return s.Agent

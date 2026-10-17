@@ -501,6 +501,12 @@ func (m *Model) renderConfirm() string {
 		}
 		return styleError.Render(" Remove worktree " + name + "? (y/n)")
 	}
+	if p.kind == opQuitSession {
+		// Name what is running: "hx" is the one that may be holding unsaved
+		// changes, and it is what decides whether to say yes.
+		return styleError.Render(fmt.Sprintf(" Close this tmux session? %s still running.",
+			describeBusy(p.busy))) + styleTitle.Render(" (y/n, ctrl+c again closes)")
+	}
 	if p.kind == opKillSession {
 		// Naming the client count is the whole reason this one asks: a session
 		// attached elsewhere may be on another terminal entirely.
@@ -539,6 +545,27 @@ func (m *Model) renderConfirm() string {
 	}
 	return styleError.Render(fmt.Sprintf(" %s %d into %s — %d exist:", verb, len(p.items), tgt, p.conflicts)) +
 		styleTitle.Render(" [o]verwrite (to Trash) · [k]eep both · [n]o")
+}
+
+// describeBusy names the commands a quit would interrupt, counted when one
+// appears more than once: "hx", "hx ×2, delta".
+func describeBusy(cmds []string) string {
+	counts := map[string]int{}
+	var order []string
+	for _, c := range cmds {
+		if counts[c] == 0 {
+			order = append(order, c)
+		}
+		counts[c]++
+	}
+	parts := make([]string, len(order))
+	for i, c := range order {
+		parts[i] = c
+		if counts[c] > 1 {
+			parts[i] += fmt.Sprintf(" ×%d", counts[c])
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // renderFinderHeader draws the finder's input lines: the fuzzy query always,
@@ -1467,7 +1494,7 @@ func (m *Model) helpRows() []helpRow {
 		{key: m.actionKeys["edit-config"], desc: "edit config in the default command"},
 		{key: m.actionKeys["reload-config"], desc: "re-read the config from disk"},
 		{key: m.actionKeys["help"], desc: "toggle this help"},
-		{key: quitKeys, desc: "quit (ctrl+c leaves the finder or a prompt first)"},
+		{key: quitKeys, desc: "quit, ending ft's tmux session; overlays back out"},
 	}
 	// Catalogue order, not alphabetical: the commands are grouped by what they
 	// do — editing, hand-off, agent sessions, pane control, git — and that
