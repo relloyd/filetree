@@ -417,6 +417,20 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
     never stacks reads. A failed read keeps the last count rather than showing
     "all clear", and an open `T` re-sorts with the cursor following the
     session by name.
+- **Quit ends the session only when ft made it, and the kill is `main`'s last
+  act.** `tmux.Wrap` starts the inner ft with `-owns-session`
+  (`tmux.OwnerFlag`, hidden from the usage text), and that flag is the whole of
+  the ownership test. The session name cannot be: a second ft run from a split
+  inside a tree session reads the same `tree` kind, and would end its parent.
+  `quit` lists the session's panes and `tmux.BusyPanes` (pure, table-tested)
+  calls a pane busy unless it is at a shell or is a nested `tmux` client — a
+  `ctrl+w` pane only detaches, so its agent survives. Busy panes stage an
+  `opQuitSession` confirmation, and that confirmation is the one mode where
+  `handleKey` does *not* rewrite ctrl+c to esc: the second press is the answer.
+  The model only records the verdict (`ClosesSession`); `main` kills after the
+  program has stopped, the IPC socket has closed and state is saved, because
+  `kill-session` hangs up ft along with every other pane. Agent and popup
+  sessions are separate sessions and are never touched.
 - **The tab title reaches the terminal through tmux, not around it.**
   `tea.View.WindowTitle` alone stops at tmux: it becomes the pane's
   `pane_title`, and `set-titles` is off by default. So `tmux.Wrap` chains

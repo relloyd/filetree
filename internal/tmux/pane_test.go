@@ -1,6 +1,9 @@
 package tmux
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestParsePanes(t *testing.T) {
 	cases := []struct {
@@ -74,5 +77,41 @@ func TestPaneFormatMatchesFieldCount(t *testing.T) {
 	if PaneFormat != "#{pane_id}\t#{session_id}\t#{window_id}\t#{pane_current_command}\t#{pane_tty}"+
 		"\t#{pane_left}\t#{pane_top}\t#{pane_width}\t#{pane_height}\t#{pane_last}" {
 		t.Errorf("PaneFormat = %q", PaneFormat)
+	}
+}
+
+func TestBusyPanes(t *testing.T) {
+	panes := []Pane{
+		{ID: "%1", SessionID: "$1", Command: "ft"},
+		{ID: "%2", SessionID: "$1", Command: "zsh"},
+		{ID: "%3", SessionID: "$1", Command: "hx"},
+		{ID: "%4", SessionID: "$1", Command: "-zsh"},
+		{ID: "%5", SessionID: "$1", Command: "tmux"}, // a nested client: ctrl+w
+		{ID: "%6", SessionID: "$1", Command: "delta"},
+		{ID: "%7", SessionID: "$2", Command: "claude"}, // another session
+	}
+	cases := []struct {
+		name      string
+		self      string
+		want      []string
+		wantFound bool
+	}{
+		{"busy panes in ft's session only", "%1", []string{"%3", "%6"}, true},
+		{"self is never busy", "%3", []string{"%1", "%6"}, true},
+		{"alone in its session", "%7", nil, true},
+		{"self missing", "%9", nil, false},
+		{"outside tmux", "", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			busy, found := BusyPanes(panes, tc.self)
+			var got []string
+			for _, p := range busy {
+				got = append(got, p.ID)
+			}
+			if found != tc.wantFound || !slices.Equal(got, tc.want) {
+				t.Errorf("BusyPanes(%q) = %v, %v; want %v, %v", tc.self, got, found, tc.want, tc.wantFound)
+			}
+		})
 	}
 }

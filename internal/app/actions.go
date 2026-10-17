@@ -14,6 +14,7 @@ import (
 	"github.com/relloyd/filetree/internal/config"
 	"github.com/relloyd/filetree/internal/fsops"
 	"github.com/relloyd/filetree/internal/gitx"
+	"github.com/relloyd/filetree/internal/tmux"
 	"github.com/relloyd/filetree/internal/tree"
 )
 
@@ -282,6 +283,14 @@ func (m *Model) handleConfirmKey(s string) (tea.Model, tea.Cmd) {
 			case "n", "esc", "q":
 				return cancel()
 			}
+		}
+	case opQuitSession:
+		switch s {
+		case "y", "enter", "ctrl+c":
+			m.mode, m.pending = modeNormal, nil
+			return m.quitClosingSession()
+		case "n", "esc", "q":
+			return cancel()
 		}
 	case opKillSession:
 		// The picker is still underneath: this was asked from inside it, and
@@ -1678,8 +1687,42 @@ func (m *Model) toggleHelp() (tea.Model, tea.Cmd) {
 	return m, m.helpInput.Focus()
 }
 
+// quit ends the program. In a tmux session ft relaunched itself into, the
+// session ends too (main does the kill, see ClosesSession), but only after a
+// check: a pane running anything other than a shell — an editor holding
+// unsaved changes, say — gets a confirmation first. A pane list that cannot be
+// read quits without the kill rather than guessing.
 func (m *Model) quit() (tea.Model, tea.Cmd) {
+	if m.ownsSession && m.selfPane != "" {
+		panes, err := tmux.ListPanes()
+		if busy, found := tmux.BusyPanes(panes, m.selfPane); err == nil && found {
+			if len(busy) == 0 {
+				return m.quitClosingSession()
+			}
+			names := make([]string, len(busy))
+			for i, p := range busy {
+				names[i] = p.Command
+			}
+			m.pending = &pendingOp{kind: opQuitSession, busy: names}
+			m.mode = modeConfirm
+			return m, nil
+		}
+	}
+	return m.finishQuit()
+}
+
+func (m *Model) quitClosingSession() (tea.Model, tea.Cmd) {
+	m.closeSession = true
+	return m.finishQuit()
+}
+
+func (m *Model) finishQuit() (tea.Model, tea.Cmd) {
 	m.saveState()
 	m.watcher.Close()
 	return m, tea.Quit
+}
+
+// confirmingQuit reports whether the quit confirmation is on screen.
+func (m *Model) confirmingQuit() bool {
+	return m.mode == modeConfirm && m.pending != nil && m.pending.kind == opQuitSession
 }

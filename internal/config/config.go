@@ -128,6 +128,14 @@ type General struct {
 	// on the way out, and only if nothing else moved it in the meantime.
 	FinderWidth string `toml:"finder_width"`
 
+	// QuitClosesSession ends the tmux session ft relaunched itself into when
+	// ft quits, taking every split opened beside the tree with it. Only that
+	// session: ft started inside a session of your own leaves it alone. The
+	// agent and popup sessions are separate sessions and are never touched.
+	// Asks first when one of the panes is running something other than a
+	// shell, such as an editor that may hold unsaved changes.
+	QuitClosesSession bool `toml:"quit_closes_session"`
+
 	Icons               string `toml:"icons"`    // "nerd" or "plain"
 	LinkRef             string `toml:"link_ref"` // web links pin to "commit" or "branch"
 	Tmux                string `toml:"tmux"`     // "auto" (relaunch inside tmux) or "never"
@@ -215,6 +223,7 @@ func Default() *Config {
 			Icons:                    "nerd",
 			LinkRef:                  "commit",
 			Tmux:                     tmux.ModeAuto,
+			QuitClosesSession:        true,
 			FuzzyMaxMatches:          DefaultFuzzyMaxMatches,
 			FuzzyMaxCandidates:       DefaultFuzzyMaxCandidates,
 			FuzzyGrepMaxPerFile:      DefaultFuzzyGrepMaxPerFile,

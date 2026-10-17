@@ -203,3 +203,76 @@ func TestCtrlCNeverReachesTheFinderInput(t *testing.T) {
 		t.Errorf("finder query = %q, want it untouched at %q", got, "query")
 	}
 }
+
+// The quit confirmation is the one place ctrl+c is not rewritten to esc: it
+// was a ctrl+c that asked the question, and a second one is the answer.
+func TestQuitConfirmationAnswers(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		key       tea.KeyPressMsg
+		wantQuit  bool
+		wantClose bool
+	}{
+		{"ctrl+c again closes", ctrlC(), true, true},
+		{"y closes", tea.KeyPressMsg{Code: 'y', Text: "y"}, true, true},
+		{"enter closes", tea.KeyPressMsg{Code: tea.KeyEnter}, true, true},
+		{"n backs out", tea.KeyPressMsg{Code: 'n', Text: "n"}, false, false},
+		{"esc backs out", tea.KeyPressMsg{Code: tea.KeyEscape}, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := treeModel(t)
+			m.ownsSession = true
+			m.mode, m.pending = modeConfirm, &pendingOp{kind: opQuitSession, busy: []string{"hx"}}
+
+			if got := quits(pressKey(t, m, tc.key)); got != tc.wantQuit {
+				t.Fatalf("quit = %v, want %v", got, tc.wantQuit)
+			}
+			if got := m.ClosesSession(); got != tc.wantClose {
+				t.Errorf("ClosesSession = %v, want %v", got, tc.wantClose)
+			}
+			if !tc.wantQuit && (m.mode != modeNormal || m.pending != nil) {
+				t.Errorf("after backing out: mode %v, pending %+v; want the tree", m.mode, m.pending)
+			}
+		})
+	}
+}
+
+// A session ft did not create is never ft's to end, and neither is one it
+// cannot place itself in: both quit exactly as they always have.
+func TestQuitLeavesASessionItDoesNotOwn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		owns bool
+		pane string
+	}{
+		{"started inside a session of your own", false, "%1"},
+		{"owner, but no pane to find the session by", true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := treeModel(t)
+			m.ownsSession, m.selfPane = tc.owns, tc.pane
+
+			if !quits(pressKey(t, m, ctrlC())) {
+				t.Fatal("ctrl+c did not quit")
+			}
+			if m.ClosesSession() {
+				t.Error("quit asked for a session it does not own to be closed")
+			}
+		})
+	}
+}
+
+func TestDescribeBusy(t *testing.T) {
+	for _, tc := range []struct {
+		in   []string
+		want string
+	}{
+		{[]string{"hx"}, "hx"},
+		{[]string{"hx", "delta"}, "hx, delta"},
+		{[]string{"hx", "delta", "hx"}, "hx ×2, delta"},
+	} {
+		if got := describeBusy(tc.in); got != tc.want {
+			t.Errorf("describeBusy(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

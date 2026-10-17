@@ -48,9 +48,9 @@ func TestWrapArgs(t *testing.T) {
 		want []string
 	}{
 		{"ft/tree/repo-1a2b3c4d", append([]string{"tmux", "new-session", "-s", "ft/tree/repo-1a2b3c4d",
-			"-c", "/my repo", "/bin/ft", "/my repo"}, titles...)},
+			"-c", "/my repo", "/bin/ft", "-owns-session", "/my repo"}, titles...)},
 		{"", append([]string{"tmux", "new-session",
-			"-c", "/my repo", "/bin/ft", "/my repo"}, titles...)},
+			"-c", "/my repo", "/bin/ft", "-owns-session", "/my repo"}, titles...)},
 	}
 	for _, tc := range cases {
 		if got := WrapArgs("/bin/ft", "/my repo", tc.name); !slices.Equal(got, tc.want) {
