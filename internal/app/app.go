@@ -769,6 +769,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		s = "esc"
 	}
 
+	// A chord belongs to the tree. One left half-typed when something async
+	// raised a prompt or a confirmation — a worktree removal asking to force,
+	// say — would otherwise sit unseen behind it and take the first key typed
+	// after it closes.
+	if m.mode != modeNormal {
+		m.chord = ""
+	}
+
 	switch m.mode {
 	case modeHelp:
 		return m.handleHelpKey(msg, s)
@@ -1008,6 +1016,17 @@ func (m *Model) buildBindings() {
 	// moving one of them is the case it cannot see.
 	for _, action := range []string{"finder-next-field", "finder-prev-field", "finder-more", "finder-copy-command", "finder-clear"} {
 		key := m.actionKeys[action]
+		// The finder matches these against one key press, and its inputs
+		// take every key as text, so a chord here could never be typed. Back
+		// to the default rather than nothing: these have no other key.
+		if strings.Contains(key, " ") {
+			m.keyConflicts = append(m.keyConflicts, keyConflict{
+				key: key, refused: "keys." + action,
+				detail: fmt.Sprintf("the finder takes one key; keys.%s stays on %q", action, defaultActionKeys[action]),
+			})
+			key = defaultActionKeys[action]
+			m.actionKeys[action] = key
+		}
 		if name, taken := m.finderCmds[key]; taken && key != "" {
 			m.keyConflicts = append(m.keyConflicts, keyConflict{
 				key: key, kept: "keys." + action, refused: "commands." + name,

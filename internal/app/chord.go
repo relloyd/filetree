@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -85,7 +86,12 @@ func keyLabel(k string) string {
 //     whoever wrote "n right" knew what its first key was.
 //
 // The same rule covers one chord being the prefix of another: "n x" bound and
-// "n x y" bound leaves "n x" as the prefix.
+// "n x y" bound leaves "n x" as the prefix. And a chord that continues with
+// esc or ctrl+c is refused outright, since those cancel before anything is
+// looked up.
+//
+// Whatever loses is unbound in m.actionKeys too, so the help page does not go
+// on listing a key that no longer does what it says.
 func (m *Model) settleChords(b map[string]func() (tea.Model, tea.Cmd), owner map[string]string) {
 	m.chordPrefixes = map[string]bool{}
 	seqs := make([]string, 0)
@@ -102,8 +108,23 @@ func (m *Model) settleChords(b map[string]func() (tea.Model, tea.Cmd), owner map
 		}
 		return seqs[i] < seqs[j]
 	})
+	unbind := func(key string) {
+		if _, name, ok := strings.Cut(owner[key], "."); ok && m.actionKeys[name] == key {
+			m.actionKeys[name] = ""
+		}
+		delete(b, key)
+		delete(owner, key)
+	}
 	for _, key := range seqs {
 		parts := strings.Fields(key)
+		if slices.Contains(parts[1:], "esc") || slices.Contains(parts[1:], "ctrl+c") {
+			m.keyConflicts = append(m.keyConflicts, keyConflict{
+				key: key, refused: owner[key],
+				detail: "esc and ctrl+c cancel a chord, so cannot continue one",
+			})
+			unbind(key)
+			continue
+		}
 		refused := false
 		for i := 1; i < len(parts); i++ {
 			prefix := strings.Join(parts[:i], " ")
@@ -116,8 +137,7 @@ func (m *Model) settleChords(b map[string]func() (tea.Model, tea.Cmd), owner map
 					key: key, kept: held, refused: owner[key],
 					detail: fmt.Sprintf("%q is navigation, so cannot start a chord", prefix),
 				})
-				delete(b, key)
-				delete(owner, key)
+				unbind(key)
 				refused = true
 				break
 			}
@@ -125,8 +145,7 @@ func (m *Model) settleChords(b map[string]func() (tea.Model, tea.Cmd), owner map
 				key: prefix, kept: owner[key], refused: held,
 				detail: fmt.Sprintf("%s never runs: %q starts a chord", held, prefix),
 			})
-			delete(b, prefix)
-			delete(owner, prefix)
+			unbind(prefix)
 		}
 		if refused {
 			continue
@@ -235,4 +254,19 @@ func (m *Model) chordHints() []keyHint {
 		hints = append(hints, keyHint{label, labels[k]})
 	}
 	return append(hints, keyHint{"esc", "cancel"})
+}
+
+// shellRightDesc is the help line for shell-right, which is also where the
+// page says that hjkl work inside a chord — but only while the key is a chord
+// ending in an arrow. Moved to "N", the note would describe nothing.
+func (m *Model) shellRightDesc() string {
+	const desc = "shell beside the tree"
+	parts := strings.Fields(m.actionKeys["shell-right"])
+	if len(parts) < 2 {
+		return desc
+	}
+	if _, arrow := arrowGlyphs[parts[len(parts)-1]]; !arrow {
+		return desc
+	}
+	return desc + "; hjkl work as arrows"
 }

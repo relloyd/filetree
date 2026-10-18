@@ -751,6 +751,11 @@ func TestCommandsCanBeDisabled(t *testing.T) {
 	if _, err := loadTOML(t, "[commands]\ndisabled = [\"shell-vsplit\", \"shell-vsplit-adjacent\"]\n"); err != nil {
 		t.Errorf("disabling a retired command: %v", err)
 	}
+	// The same for an overlay that moved the old key: there is nothing left
+	// for it to change.
+	if _, err := loadTOML(t, "[commands.shell-vsplit]\nkey = \"ctrl+n\"\n"); err != nil {
+		t.Errorf("overlaying a retired command: %v", err)
+	}
 	if _, err := loadTOML(t, "[commands]\ndisabled = [\"nope\"]\n"); err == nil {
 		t.Error("disabling an unknown command should fail")
 	}

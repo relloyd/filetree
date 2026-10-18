@@ -1556,7 +1556,7 @@ func (m *Model) helpRows() []helpRow {
 		{finderKey: "ctrl+x", desc: "bookmarks: forget the highlighted one"},
 		// The "n" chord's arrows. Its fifth key, the popup, is a command and
 		// is listed with them below.
-		{key: keyLabel(m.actionKeys["shell-right"]), desc: "shell beside the tree; hjkl work as arrows"},
+		{key: keyLabel(m.actionKeys["shell-right"]), desc: m.shellRightDesc()},
 		{key: keyLabel(m.actionKeys["shell-down"]) + " / " + keyLabel(m.actionKeys["shell-up"]), desc: "shell below / above the pane to the right"},
 		{key: keyLabel(m.actionKeys["shell-left"]), desc: "shell at the window's left edge"},
 		{key: m.actionKeys["tmux-sessions"], desc: "tmux sessions ft owns; enter reattaches"},

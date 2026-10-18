@@ -107,8 +107,9 @@ var finderReservedKeys = []string{
 }
 
 // retiredCommands are built-ins a release has removed. A config still naming
-// one in `disabled` was right when it was written, and an unknown name there
-// stops ft starting, so these are let through rather than refused.
+// one — in `disabled`, or as a [commands.<name>] overlay moving its key — was
+// right when it was written, and either would now stop ft starting, so these
+// are let through rather than refused.
 var retiredCommands = []string{
 	"shell-vsplit",          // "n": now "n left"/"n right" and the rest of the n chord
 	"shell-vsplit-adjacent", // "N": now "n right"
@@ -324,6 +325,13 @@ func mergeCommands(cfg *Config, md toml.MetaData, raw map[string]toml.Primitive,
 			return fmt.Errorf("%s: commands.%s: %w", path, name, err)
 		}
 		c.Name = name
+		if c.Run == "" && !known && slices.Contains(retiredCommands, name) {
+			// An overlay of a built-in that has since gone — a moved key, say.
+			// There is nothing left for it to change, and refusing it would
+			// stop ft starting. One with a run of its own is a command in its
+			// own right, and is kept below like any other.
+			continue
+		}
 		if c.Run == "" {
 			return fmt.Errorf("%s: commands.%s: missing run", path, name)
 		}

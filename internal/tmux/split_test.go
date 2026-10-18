@@ -18,6 +18,10 @@ func TestPlanShell(t *testing.T) {
 	// ft | a stack of two, the lower one last-active.
 	top := Pane{ID: "%5", WindowID: "@1", Left: 41, Top: 0, Width: 159, Height: 25}
 	bottom := Pane{ID: "%6", WindowID: "@1", Left: 41, Top: 26, Width: 159, Height: 24, Last: true}
+	// editor | ft, with ft at the right edge: nothing to its right, but a
+	// window split at the edge would take the editor's columns.
+	onLeft := Pane{ID: "%7", WindowID: "@1", Left: 0, Top: 0, Width: 159, Height: 50}
+	ftRight := Pane{ID: "%1", WindowID: "@1", Left: 160, Top: 0, Width: 40, Height: 50}
 	// Another window's pane, positioned exactly where an editor would be.
 	elsewhere := Pane{ID: "%9", WindowID: "@2", Left: 41, Top: 0, Width: 159, Height: 50}
 
@@ -47,6 +51,8 @@ func TestPlanShell(t *testing.T) {
 		{"nothing right: above falls back", []Pane{ft}, Above, edge},
 		{"another window does not count", []Pane{ft, elsewhere}, Beside, edge},
 		{"left edge alone", []Pane{ft}, LeftEdge, left},
+		{"nothing right, editor left: split ft itself", []Pane{onLeft, ftRight}, Below, Split{Target: "%1", Flags: []string{"-h"}}},
+		{"nothing right, editor left: beside too", []Pane{onLeft, ftRight}, Beside, Split{Target: "%1", Flags: []string{"-h"}}},
 
 		// An unreadable pane list still opens something rather than nothing.
 		{"no pane list", nil, Below, edge},

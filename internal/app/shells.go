@@ -1,8 +1,6 @@
 package app
 
 import (
-	"path/filepath"
-
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/relloyd/filetree/internal/tmux"
@@ -19,23 +17,17 @@ import (
 // allowed a few milliseconds of tmux.
 //
 // A pane list that cannot be read is not fatal: PlanShell given nothing opens
-// the right-hand pane, which is still a shell beside the tree.
+// the right-hand pane, which is still a shell beside the tree. LeftEdge needs
+// no list at all, so it does not pay for a server-wide one.
 func (m *Model) openShell(side tmux.Side) func() (tea.Model, tea.Cmd) {
 	return func() (tea.Model, tea.Cmd) {
 		if m.selfPane == "" {
 			return m, m.note("not running inside tmux", true)
 		}
-		n := m.selected()
-		if n == nil {
-			return m, nil
-		}
-		dir := n.Path
-		if !n.IsDir {
-			dir = filepath.Dir(n.Path)
-		}
-		panes, err := tmux.ListPanes()
-		if err != nil {
-			panes = nil
+		dir := m.createTargetDir()
+		var panes []tmux.Pane
+		if side != tmux.LeftEdge {
+			panes, _ = tmux.ListPanes() // nil on error, which PlanShell handles
 		}
 		plan := tmux.PlanShell(panes, m.selfPane, side)
 		// Read before the split, while the window still has the shape the

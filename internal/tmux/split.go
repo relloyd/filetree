@@ -42,9 +42,16 @@ type Split struct {
 // splits, so the two keys agree about which pane is "the one on the right".
 //
 // With nothing to the right, every side but LeftEdge opens the right-hand pane
-// instead: a shell beside the tree is what all three were reaching for. That
-// split is full height at the right edge, so a narrow ft beside nothing still
-// gets a column of its own, and is the one case that needs its width put back.
+// instead: a shell beside the tree is what all three were reaching for. How
+// depends on what else is in the window:
+//
+//   - ft alone, or a pane list that could not be read: a full-height split at
+//     the right edge, taking 70%. The one case that needs ft's width put back.
+//   - ft at the right edge with panes to its left: ft's own pane is divided
+//     instead. A full-window split there would take its columns from the
+//     editor on the left, and restoring ft's width afterwards would leave that
+//     editor a sliver; dividing ft costs the tree half its width but touches
+//     nothing you were not already using for the tree.
 func PlanShell(panes []Pane, self string, side Side) Split {
 	var (
 		p  Pane
@@ -66,9 +73,26 @@ func PlanShell(panes []Pane, self string, side Side) Split {
 			return Split{Target: p.ID, Flags: flags}
 		}
 	}
+	if hasCompany(panes, self) {
+		return Split{Target: self, Flags: []string{"-h"}}
+	}
 	// -l 70% is the share "t" gives the editor it opens the same way. The
 	// percentage form needs tmux 3.1, which "t" has asked for all along.
 	return Split{Target: self, Flags: []string{"-h", "-f", "-l", "70%"}, KeepWidth: true}
+}
+
+// hasCompany reports whether self shares its window with another pane.
+func hasCompany(panes []Pane, self string) bool {
+	me, found := findPane(panes, self)
+	if !found {
+		return false
+	}
+	for _, p := range panes {
+		if p.WindowID == me.WindowID && p.ID != self {
+			return true
+		}
+	}
+	return false
 }
 
 // paneTouchingRight is the pane across ft's right border: in its window,

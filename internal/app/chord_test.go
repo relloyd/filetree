@@ -221,3 +221,77 @@ func TestKeyLabel(t *testing.T) {
 		}
 	}
 }
+
+// A chord left half-typed when something async raised a confirmation must not
+// take the first key typed after the confirmation closes.
+func TestChordDoesNotSurviveAnotherMode(t *testing.T) {
+	m := treeModel(t)
+	pressKey(t, m, letter('n'))
+	m.mode = modeConfirm // as handleWorktreeRemoved does, between two key presses
+	m.pending = &pendingOp{kind: opTrash}
+	pressKey(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.chord != "" {
+		t.Fatalf("chord = %q after the confirmation, want it dropped", m.chord)
+	}
+	before := m.cursor
+	pressKey(t, m, letter('j'))
+	if m.cursor == before {
+		t.Error("j after the confirmation finished the old chord instead of moving down")
+	}
+}
+
+// esc and ctrl+c cancel before anything is looked up, so a chord continuing
+// with either could never run; it is refused and said so.
+func TestChordCannotContinueWithEsc(t *testing.T) {
+	m := treeModel(t)
+	m.cfg.Keys = map[string]string{"collapse-all": "n esc"}
+	m.buildBindings()
+	if !mentions(m.keyConflicts, "n esc", "keys.collapse-all") {
+		t.Errorf("n esc went unreported: %v", m.keyConflicts)
+	}
+	if got := m.actionKeys["collapse-all"]; got != "" {
+		t.Errorf("collapse-all = %q, want no key now that its chord is refused", got)
+	}
+}
+
+// What settleChords takes away is taken off the help page too.
+func TestChordLoserLeavesTheHelpPage(t *testing.T) {
+	c, _ := touchCommand(t, "n")
+	m := chordModel(t, map[string]config.Command{"old-n": c})
+	m.cfg.CommandOrder = []string{"old-n"}
+	if got := m.actionKeys["old-n"]; got != "" {
+		t.Errorf("old-n = %q, want it unbound once the chord took n", got)
+	}
+	for _, r := range m.helpRows() {
+		if r.desc == "run: old-n" {
+			t.Errorf("help still lists old-n on %q", r.key)
+		}
+	}
+}
+
+// The finder matches its own keys one press at a time, so a chord for one of
+// them is refused and the default kept.
+func TestFinderActionsTakeNoChords(t *testing.T) {
+	m := treeModel(t)
+	m.cfg.Keys = map[string]string{"finder-more": "ctrl+a m"}
+	m.buildBindings()
+	if !mentions(m.keyConflicts, "ctrl+a m", "keys.finder-more") {
+		t.Errorf("the finder chord went unreported: %v", m.keyConflicts)
+	}
+	if got, want := m.actionKeys["finder-more"], defaultActionKeys["finder-more"]; got != want {
+		t.Errorf("finder-more = %q, want its default %q", got, want)
+	}
+}
+
+// The hjkl note belongs to the chord, not to the action.
+func TestShellRightHelpFollowsItsKey(t *testing.T) {
+	m := treeModel(t)
+	if d := m.shellRightDesc(); !strings.Contains(d, "hjkl") {
+		t.Errorf("default desc = %q, want the hjkl note", d)
+	}
+	m.cfg.Keys = map[string]string{"shell-right": "N"}
+	m.buildBindings()
+	if d := m.shellRightDesc(); strings.Contains(d, "hjkl") {
+		t.Errorf("desc on N = %q, want no hjkl note", d)
+	}
+}

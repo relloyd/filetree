@@ -297,7 +297,7 @@ automatically, so they work out of the box.
 | `e` | `ctrl+e` | open the selection — or everything marked — in helix; works on directories too (helix shows its file picker) |
 | `t` | `ctrl+t` | smart hand-off to a pane beside `ft`: opens the files in a helix already running in the window (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
 | `v` | | open the selection, or everything marked, in helix in a new full-height split at the right edge — repeatable, one pane per press |
-| `n` `→` | | open a shell in the selection's directory, in a new pane immediately right of the tree — between it and the pane already there, which gives up the columns, so the tree keeps its width. With nothing to the right, a full-height split at the right edge |
+| `n` `→` | | open a shell in the selection's directory, in a new pane immediately right of the tree — between it and the pane already there, which gives up the columns, so the tree keeps its width. With nothing to the right, a full-height split at the right edge — or, when the tree is itself at the right edge with an editor to its left, a split of the tree's own pane, so the editor keeps its columns |
 | `n` `↓` / `n` `↑` | | the same shell in the bottom / top half of the pane to the tree's right — the one you were last in, if there are several; beside the tree when nothing is to its right |
 | `n` `←` | | the same shell full height at the window's left edge, with the tree pushed right at its own width |
 | `n` `space` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree — in a session named after the directory, so detaching from it and pressing the key again comes back to it |
