@@ -1,11 +1,15 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/relloyd/filetree/internal/config"
 )
@@ -201,5 +205,184 @@ func TestCtrlCNeverReachesTheFinderInput(t *testing.T) {
 	}
 	if got := m.input.Value(); got != "query" {
 		t.Errorf("finder query = %q, want it untouched at %q", got, "query")
+	}
+}
+
+// The quit confirmation is the one place ctrl+c is not rewritten to esc: it
+// was a ctrl+c that asked the question, and a second one is the answer. The
+// same goes for quit's own key when [keys] gives it one — even "q", which
+// otherwise backs out of a confirmation.
+func TestQuitConfirmationAnswers(t *testing.T) {
+	q := tea.KeyPressMsg{Code: 'q', Text: "q"}
+	for _, tc := range []struct {
+		name      string
+		quitKey   string
+		key       tea.KeyPressMsg
+		wantQuit  bool
+		wantClose bool
+	}{
+		{"ctrl+c again closes", "", ctrlC(), true, true},
+		{"y closes", "", tea.KeyPressMsg{Code: 'y', Text: "y"}, true, true},
+		{"enter closes", "", tea.KeyPressMsg{Code: tea.KeyEnter}, true, true},
+		{"n backs out", "", tea.KeyPressMsg{Code: 'n', Text: "n"}, false, false},
+		{"esc backs out", "", tea.KeyPressMsg{Code: tea.KeyEscape}, false, false},
+		{"q backs out while quit has no key", "", q, false, false},
+		{"q closes once quit is bound to it", "q", q, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := treeModel(t)
+			if tc.quitKey != "" {
+				m.cfg.Keys = map[string]string{"quit": tc.quitKey}
+				m.buildBindings()
+			}
+			m.ownedSession = "$1"
+			m.mode, m.pending = modeConfirm, &pendingOp{kind: opQuitSession, busy: []string{"hx"}}
+
+			if got := quits(pressKey(t, m, tc.key)); got != tc.wantQuit {
+				t.Fatalf("quit = %v, want %v", got, tc.wantQuit)
+			}
+			if got := m.ClosesSession() == "$1"; got != tc.wantClose {
+				t.Errorf("ClosesSession = %q, want closing %v", m.ClosesSession(), tc.wantClose)
+			}
+			if !tc.wantQuit && (m.mode != modeNormal || m.pending != nil) {
+				t.Errorf("after backing out: mode %v, pending %+v; want the tree", m.mode, m.pending)
+			}
+		})
+	}
+}
+
+// A session ft did not create is never ft's to end, nor is one it cannot place
+// itself in, nor any once the setting is off — including turned off by a
+// config reload after startup. All of them quit exactly as they always have,
+// and none of them reaches tmux to find out.
+func TestQuitLeavesTheSessionAlone(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		session string
+		pane    string
+		setting bool
+	}{
+		{"started inside a session of your own", "", "%1", true},
+		{"owner, but no pane to find the session by", "$1", "", true},
+		{"setting off", "$1", "%1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := treeModel(t)
+			m.ownedSession, m.selfPane = tc.session, tc.pane
+			m.cfg.General.QuitClosesSession = tc.setting
+
+			if !quits(pressKey(t, m, ctrlC())) {
+				t.Fatal("ctrl+c did not quit")
+			}
+			if got := m.ClosesSession(); got != "" {
+				t.Errorf("quit asked for session %q to be closed", got)
+			}
+		})
+	}
+}
+
+// The help says ctrl+c ends the session only where it does.
+func TestQuitHelpFollowsTheSetting(t *testing.T) {
+	desc := func(m *Model) string {
+		for _, r := range m.helpRows() {
+			if r.key == m.quitKeys() {
+				return r.desc
+			}
+		}
+		t.Fatal("no quit row in the help")
+		return ""
+	}
+	m := treeModel(t)
+	m.cfg.General.QuitClosesSession = true
+	if got := desc(m); strings.Contains(got, "session") {
+		t.Errorf("not the owner, but the help says %q", got)
+	}
+	m.ownedSession, m.selfPane = "$1", "%1"
+	if got := desc(m); !strings.Contains(got, "session") {
+		t.Errorf("owner, but the help says %q", got)
+	}
+	m.cfg.General.QuitClosesSession = false
+	if got := desc(m); strings.Contains(got, "session") {
+		t.Errorf("setting off, but the help says %q", got)
+	}
+}
+
+func TestQuitConfirmationSaysWhy(t *testing.T) {
+	for _, tc := range []struct {
+		busy   []string
+		others int
+		want   string
+	}{
+		{[]string{"hx"}, 0, "hx still running."},
+		{nil, 1, "attached elsewhere."},
+		{[]string{"hx", "hx"}, 2, "hx ×2 still running; attached in 2 other places."},
+	} {
+		m := treeModel(t)
+		m.mode, m.pending = modeConfirm, &pendingOp{kind: opQuitSession, busy: tc.busy, others: tc.others}
+		// One Render call wraps the whole sentence, so it is contiguous
+		// even with the styling left in.
+		if got := m.renderConfirm(); !strings.Contains(got, tc.want) {
+			t.Errorf("busy %v, others %d: prompt %q, want it to say %q", tc.busy, tc.others, got, tc.want)
+		}
+	}
+}
+
+func TestDescribeBusy(t *testing.T) {
+	for _, tc := range []struct {
+		in   []string
+		want string
+	}{
+		{[]string{"hx"}, "hx"},
+		{[]string{"hx", "delta"}, "hx, delta"},
+		{[]string{"hx", "delta", "hx"}, "hx ×2, delta"},
+	} {
+		if got := describeBusy(tc.in); got != tc.want {
+			t.Errorf("describeBusy(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// In a sidebar the prompt wraps over the bottom of the tree instead of being
+// cut at the pane's edge, and the frame stays the pane's height, so nothing
+// scrolls. The keys must survive whole: they are the answer.
+func TestQuitConfirmationFitsANarrowPane(t *testing.T) {
+	for _, tc := range []struct {
+		width, height int
+		wantLines     int // status lines
+	}{
+		{120, 20, 1}, // fits on one line, as before
+		{60, 20, 3},
+		{30, 20, 4},
+		// Tiny: the prompt wants more than the whole body, so a reason line
+		// gives way and the keys stay. Not narrower than 30, which is where
+		// the header's own buttons stop fitting.
+		{30, 4, 3},
+	} {
+		t.Run(fmt.Sprintf("%dx%d", tc.width, tc.height), func(t *testing.T) {
+			m := treeModel(t)
+			m.width, m.height = tc.width, tc.height
+			m.mode, m.pending = modeConfirm, &pendingOp{kind: opQuitSession, busy: []string{"hx", "delta"}, others: 1}
+
+			lines := strings.Split(m.View().Content, "\n")
+			if len(lines) != tc.height {
+				t.Fatalf("frame is %d lines, want the pane's %d", len(lines), tc.height)
+			}
+			for i, l := range lines {
+				if w := lipgloss.Width(l); w > tc.width {
+					t.Errorf("line %d is %d wide in a %d-column pane: %q", i, w, tc.width, l)
+				}
+			}
+			status := strings.Split(m.fitConfirm(m.renderConfirm()), "\n")
+			if len(status) != tc.wantLines {
+				t.Errorf("status took %d lines, want %d: %q", len(status), tc.wantLines, status)
+			}
+			plain := ansi.Strip(strings.Join(lines, "\n"))
+			if !strings.Contains(plain, "Close this tmux session?") {
+				t.Errorf("the question is missing:\n%s", plain)
+			}
+			if last := ansi.Strip(lines[len(lines)-1]); !strings.Contains(last, "again closes)") {
+				t.Errorf("last line %q does not end with the keys", last)
+			}
+		})
 	}
 }

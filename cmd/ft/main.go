@@ -27,9 +27,10 @@ var version = "dev"
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: ft [-no-tmux] [dir]\n       ft -version\n       ft bookmark <file> <line> [label]\n       ft jump <file>\n       ft herdr-shell <dir>\n       ft herdr-edit <dir> <path>...\n       ft herdr-lazygit <dir>\n       ft herdr-blame <dir> <path>\n       ft agent-hook <prompt|tool|notify|stop|end>\n\nOpens a file tree for dir (default: current directory).\nThe other forms act on this one and exit. The first two are meant to be bound\nin an editor, e.g. helix:\n  :sh ft bookmark %%{buffer_name} %%{cursor_line}   record a place for the \"B\" view\n  :sh ft jump %%{buffer_name}                      move a running tree's cursor\nConfig: ~/.filetree/config.toml   State: ~/.filetree/state/\n")
-		flag.PrintDefaults()
+		printPublicDefaults()
 	}
 	noTmux := flag.Bool("no-tmux", false, "do not relaunch inside a new tmux session")
+	ownsSession := flag.Bool(tmux.OwnerFlag, false, "set by the tmux relaunch: this session is ft's to end on quit")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -118,6 +119,11 @@ func main() {
 
 	m, err := app.New(cfg, cfgDir, abs, platform.New())
 	fatalIf(err)
+	if *ownsSession {
+		// Read now, while the pane is certainly still in the session Wrap
+		// created; by quit time it may have been moved somewhere else.
+		m.SetOwnedSession(tmux.SessionID(os.Getenv("TMUX_PANE")))
+	}
 
 	p := tea.NewProgram(m)
 	// After the tmux wrap on purpose. Wrap is a syscall.Exec, so a socket
@@ -136,16 +142,40 @@ func main() {
 		stopIPC = func() { _ = srv.Close() }
 	}
 
-	_, err = p.Run()
+	final, err := p.Run()
 	// Not deferred: fatalIf exits, and os.Exit does not run deferred calls, so
 	// a failing run would leave the socket behind on every crash.
 	if stopIPC != nil {
 		stopIPC()
 	}
 	if pane := os.Getenv("TMUX_PANE"); pane != "" {
+		// Last of all: killing the session hangs up this process along with
+		// every other pane in it, so nothing after the kill can be relied on
+		// to run. The title needs no clearing then, since its session is gone.
+		if fm, ok := final.(*app.Model); ok && err == nil && fm.ClosesSession() != "" {
+			if tmux.KillID(fm.ClosesSession()) == nil {
+				return
+			}
+		}
 		_ = tmux.ClearTitle(pane)
 	}
 	fatalIf(err)
+}
+
+// printPublicDefaults is flag.PrintDefaults without tmux.OwnerFlag, which
+// only the relaunch passes and nobody should type.
+func printPublicDefaults() {
+	public := flag.NewFlagSet("ft", flag.ContinueOnError)
+	public.SetOutput(flag.CommandLine.Output())
+	flag.VisitAll(func(f *flag.Flag) {
+		if f.Name != tmux.OwnerFlag {
+			public.Var(f.Value, f.Name, f.Usage)
+			// Var takes the default from the value as it stands, which after
+			// a parse error is whatever was already typed.
+			public.Lookup(f.Name).DefValue = f.DefValue
+		}
+	})
+	public.PrintDefaults()
 }
 
 // treeSessionName names the session ft is about to put itself in: the tree

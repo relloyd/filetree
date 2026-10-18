@@ -69,7 +69,8 @@ func (m *Model) View() tea.View {
 	default:
 		body = m.renderTree()
 	}
-	content := m.renderHeader() + "\n" + body + "\n" + m.renderStatus()
+	status := m.renderStatus()
+	content := m.renderHeader() + "\n" + borrowLines(body, strings.Count(status, "\n")) + status
 	v := tea.NewView(content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
@@ -319,7 +320,7 @@ func (m *Model) renderStatus() string {
 		}
 		return styleTitle.Render(labels[m.prompt]) + m.input.View()
 	case modeConfirm:
-		return m.renderConfirm()
+		return m.fitConfirm(m.renderConfirm())
 	}
 
 	// The right-hand side is built first, because what it costs decides how
@@ -501,6 +502,30 @@ func (m *Model) renderConfirm() string {
 		}
 		return styleError.Render(" Remove worktree " + name + "? (y/n)")
 	}
+	if p.kind == opQuitSession {
+		// Name what would be interrupted: "hx" is the one that may be holding
+		// unsaved changes, and another client may be someone else's terminal.
+		var why []string
+		if len(p.busy) > 0 {
+			why = append(why, describeBusy(p.busy)+" still running")
+		}
+		switch {
+		case p.others == 1:
+			why = append(why, "attached elsewhere")
+		case p.others > 1:
+			why = append(why, fmt.Sprintf("attached in %d other places", p.others))
+		}
+		ask := " Close this tmux session?"
+		reason := " " + strings.Join(why, "; ") + "."
+		keys := " (y/n, " + m.quitKeys() + " again closes)"
+		if lipgloss.Width(ask+reason+keys) <= m.width {
+			return styleError.Render(ask+reason) + styleTitle.Render(keys)
+		}
+		// ft is usually a sidebar, where one line would lose everything after
+		// the question. A line each keeps the keys whole on the last line;
+		// fitConfirm wraps any of them that is still too long.
+		return styleError.Render(ask) + "\n" + styleError.Render(reason) + "\n" + styleTitle.Render(keys)
+	}
 	if p.kind == opKillSession {
 		// Naming the client count is the whole reason this one asks: a session
 		// attached elsewhere may be on another terminal entirely.
@@ -539,6 +564,76 @@ func (m *Model) renderConfirm() string {
 	}
 	return styleError.Render(fmt.Sprintf(" %s %d into %s — %d exist:", verb, len(p.items), tgt, p.conflicts)) +
 		styleTitle.Render(" [o]verwrite (to Trash) · [k]eep both · [n]o")
+}
+
+// fitConfirm wraps a confirmation to the pane. The status bar is one line
+// and everything past the pane's edge is cut, which in a sidebar is most of a
+// sentence; a prompt that is about to be answered is worth the space. Lines
+// after the first are indented a column to line up under the leading space
+// every prompt starts with. View makes the room (borrowLines), and a prompt
+// that would take more than the whole body keeps its last line, which is
+// where the keys are.
+func (m *Model) fitConfirm(s string) string {
+	w := max(1, m.width-1)
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		for i, l := range strings.Split(lipgloss.Wrap(line, w, ""), "\n") {
+			if i > 0 {
+				l = " " + l
+			}
+			out = append(out, l)
+		}
+	}
+	if most := m.treeHeight() + 1; len(out) > most {
+		out = append(out[:most-1], out[len(out)-1])
+	}
+	return strings.Join(out, "\n")
+}
+
+// borrowLines makes room for a status bar of n+1 lines by dropping n from the
+// bottom of the body, so the frame stays exactly the pane's height without
+// treeHeight (and so scrolling) knowing anything about it: a confirmation is
+// short-lived, and only ever covers rows nothing can click while it is up.
+// It returns the body with its trailing newline, or none when nothing is left.
+func borrowLines(body string, n int) string {
+	if n <= 0 {
+		return body + "\n"
+	}
+	lines := strings.Split(body, "\n")
+	if n >= len(lines) {
+		return ""
+	}
+	return strings.Join(lines[:len(lines)-n], "\n") + "\n"
+}
+
+// quitKeys is every key that quits: ctrl+c, and the quit action's own key
+// when [keys] gives it one — it ships unbound, like reload.
+func (m *Model) quitKeys() string {
+	if k := m.actionKeys["quit"]; k != "" {
+		return k + " / ctrl+c"
+	}
+	return "ctrl+c"
+}
+
+// describeBusy names the commands a quit would interrupt, counted when one
+// appears more than once: "hx", "hx ×2, delta".
+func describeBusy(cmds []string) string {
+	counts := map[string]int{}
+	var order []string
+	for _, c := range cmds {
+		if counts[c] == 0 {
+			order = append(order, c)
+		}
+		counts[c]++
+	}
+	parts := make([]string, len(order))
+	for i, c := range order {
+		parts[i] = c
+		if counts[c] > 1 {
+			parts[i] += fmt.Sprintf(" ×%d", counts[c])
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // renderFinderHeader draws the finder's input lines: the fuzzy query always,
@@ -1402,9 +1497,9 @@ func (m *Model) helpRows() []helpRow {
 	if k := m.actionKeys["reload"]; k != "" {
 		reloadKeys = k + " / F5"
 	}
-	quitKeys := "ctrl+c" // nor does quit, for the same reason
-	if k := m.actionKeys["quit"]; k != "" {
-		quitKeys = k + " / ctrl+c"
+	quitDesc := "quit (ctrl+c leaves the finder or a prompt first)"
+	if m.closesOnQuit() {
+		quitDesc = "quit, ending ft's tmux session; overlays back out"
 	}
 	// The four finder-local actions take the second key column rather than a
 	// "in the fuzzy finder:" prefix on every description: the column and its
@@ -1467,7 +1562,7 @@ func (m *Model) helpRows() []helpRow {
 		{key: m.actionKeys["edit-config"], desc: "edit config in the default command"},
 		{key: m.actionKeys["reload-config"], desc: "re-read the config from disk"},
 		{key: m.actionKeys["help"], desc: "toggle this help"},
-		{key: quitKeys, desc: "quit (ctrl+c leaves the finder or a prompt first)"},
+		{key: m.quitKeys(), desc: quitDesc},
 	}
 	// Catalogue order, not alphabetical: the commands are grouped by what they
 	// do — editing, hand-off, agent sessions, pane control, git — and that

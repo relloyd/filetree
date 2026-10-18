@@ -14,6 +14,7 @@ import (
 	"github.com/relloyd/filetree/internal/config"
 	"github.com/relloyd/filetree/internal/fsops"
 	"github.com/relloyd/filetree/internal/gitx"
+	"github.com/relloyd/filetree/internal/tmux"
 	"github.com/relloyd/filetree/internal/tree"
 )
 
@@ -282,6 +283,17 @@ func (m *Model) handleConfirmKey(s string) (tea.Model, tea.Cmd) {
 			case "n", "esc", "q":
 				return cancel()
 			}
+		}
+	case opQuitSession:
+		// The quit key is checked first: pressing it again is the answer, and
+		// one remapped to "q" would otherwise land on the cancel below.
+		if s == "y" || s == "enter" || s == "ctrl+c" || s == m.actionKeys["quit"] {
+			m.mode, m.pending = modeNormal, nil
+			return m.quitClosingSession()
+		}
+		switch s {
+		case "n", "esc", "q":
+			return cancel()
 		}
 	case opKillSession:
 		// The picker is still underneath: this was asked from inside it, and
@@ -1678,8 +1690,60 @@ func (m *Model) toggleHelp() (tea.Model, tea.Cmd) {
 	return m, m.helpInput.Focus()
 }
 
+// quit ends the program. In a tmux session ft relaunched itself into, the
+// session ends too (main does the kill, see ClosesSession), but only after a
+// check: a pane running anything other than a shell — an editor holding
+// unsaved changes, say — or another client showing the session gets a
+// confirmation first. A pane list that cannot be read, or a tree pane that
+// has been moved out of the session it created, quits without the kill
+// rather than guessing.
+//
+// The pane list is read inline rather than in a tea.Cmd. It takes a few
+// milliseconds, the quit has to wait for it either way, and ft's own keys
+// arrive through the same tmux server: one too stuck to answer would never
+// have delivered this ctrl+c.
 func (m *Model) quit() (tea.Model, tea.Cmd) {
+	if !m.closesOnQuit() {
+		return m.finishQuit()
+	}
+	panes, err := tmux.ListPanes()
+	if err != nil {
+		return m.finishQuit()
+	}
+	check, ok := tmux.CheckQuit(panes, m.selfPane, m.ownedSession)
+	if !ok {
+		return m.finishQuit()
+	}
+	if len(check.Busy) == 0 && check.Others == 0 {
+		return m.quitClosingSession()
+	}
+	names := make([]string, len(check.Busy))
+	for i, p := range check.Busy {
+		names[i] = p.Command
+	}
+	m.pending = &pendingOp{kind: opQuitSession, busy: names, others: check.Others}
+	m.mode = modeConfirm
+	return m, nil
+}
+
+// closesOnQuit reports whether quitting would end ft's tmux session. The
+// setting is read here rather than at startup so a config reload counts.
+func (m *Model) closesOnQuit() bool {
+	return m.ownedSession != "" && m.selfPane != "" && m.cfg.General.QuitClosesSession
+}
+
+func (m *Model) quitClosingSession() (tea.Model, tea.Cmd) {
+	m.closeSession = m.ownedSession
+	return m.finishQuit()
+}
+
+func (m *Model) finishQuit() (tea.Model, tea.Cmd) {
 	m.saveState()
 	m.watcher.Close()
 	return m, tea.Quit
+}
+
+// confirmingQuit reports whether the quit confirmation is on screen.
+func (m *Model) confirmingQuit() bool {
+	return m.mode == modeConfirm && m.pending != nil && m.pending.kind == opQuitSession
 }

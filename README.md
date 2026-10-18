@@ -115,6 +115,17 @@ split and hand-off commands work — no alias needed, and starting it inside an
 existing session (over ssh, say) just runs it there. Opt out per run with
 `ft --no-tmux`, or permanently with `tmux = "never"` under `[general]`.
 
+Quitting (`ctrl+c`) a tree that relaunched itself also ends that session, so
+the splits it opened beside itself — the `t`/`v`/`n`/`N`/`D` panes, a session
+shown with `ctrl+w`/`ctrl+s`, any window you added — close with it. The agent
+sessions (`c`, `x`, `alt+s`) and the popup sessions (`alt+n`, `L`, `M`, `alt+d`)
+are sessions of their own and keep running; `T` still lists them. If a pane
+is running something other than a shell, an editor that may hold unsaved
+changes say, or the session is also open in another terminal, ft says so and
+asks first: `y` or a second `ctrl+c` closes, `n` or `esc` goes back to the
+tree. A session you started yourself is never closed, and
+`quit_closes_session = false` under `[general]` turns this off.
+
 The terminal's tab is titled after the tree: `ft — filetree ⎇ main`, the
 root's name and, inside a repository, its branch (a short hash when HEAD is
 detached). It follows a re-root and a branch change. tmux keeps a program's
@@ -204,7 +215,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `C` | edit `~/.filetree/config.toml` in the default command; an editor that takes over this pane reloads the config when it exits |
 | `alt+c` | re-read the config from disk — for when the editor is somewhere `ft` cannot see it finish, such as the `t` hand-off to another pane |
 | `?` | help — **type to filter** it, scroll for what is off the page, `esc` closes |
-| `ctrl+c` | quit — from the finder, a prompt or a confirmation the first press backs out to the tree, and the next one quits |
+| `ctrl+c` | quit — from the finder, a prompt or a confirmation the first press backs out to the tree, and the next one quits. In the tmux session ft relaunched into, the session closes too (see above) |
 
 Every key above — and every command below — is remappable by name in the
 `[keys]` section of the config, one line each:
