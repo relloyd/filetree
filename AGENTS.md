@@ -253,6 +253,11 @@ Design rules that keep this maintainable:
   no-op), which is what stops `G` on a deep tree oscillating. Clicks go through
   `rowAtY`, which returns the *real* row index for a pinned line, so selection,
   double-click and the chevron hit test need no case of their own.
+  A confirmation too long for the status line is the one thing that takes
+  rows from the body *without* going through `treeHeight()`: `fitConfirm`
+  wraps it and `View` drops that many lines off the bottom of the body
+  (`borrowLines`). It is short-lived and covers rows no click reaches while
+  it is up, so scrolling and paging never need to know.
 - New keybindings are wired in `buildBindings` (internal/app/app.go); make
 
   them remappable via the `[keys]` action map and list them in the `?` help

@@ -1,12 +1,15 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/relloyd/filetree/internal/config"
 )
@@ -336,5 +339,50 @@ func TestDescribeBusy(t *testing.T) {
 		if got := describeBusy(tc.in); got != tc.want {
 			t.Errorf("describeBusy(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// In a sidebar the prompt wraps over the bottom of the tree instead of being
+// cut at the pane's edge, and the frame stays the pane's height, so nothing
+// scrolls. The keys must survive whole: they are the answer.
+func TestQuitConfirmationFitsANarrowPane(t *testing.T) {
+	for _, tc := range []struct {
+		width, height int
+		wantLines     int // status lines
+	}{
+		{120, 20, 1}, // fits on one line, as before
+		{60, 20, 3},
+		{30, 20, 4},
+		// Tiny: the prompt wants more than the whole body, so a reason line
+		// gives way and the keys stay. Not narrower than 30, which is where
+		// the header's own buttons stop fitting.
+		{30, 4, 3},
+	} {
+		t.Run(fmt.Sprintf("%dx%d", tc.width, tc.height), func(t *testing.T) {
+			m := treeModel(t)
+			m.width, m.height = tc.width, tc.height
+			m.mode, m.pending = modeConfirm, &pendingOp{kind: opQuitSession, busy: []string{"hx", "delta"}, others: 1}
+
+			lines := strings.Split(m.View().Content, "\n")
+			if len(lines) != tc.height {
+				t.Fatalf("frame is %d lines, want the pane's %d", len(lines), tc.height)
+			}
+			for i, l := range lines {
+				if w := lipgloss.Width(l); w > tc.width {
+					t.Errorf("line %d is %d wide in a %d-column pane: %q", i, w, tc.width, l)
+				}
+			}
+			status := strings.Split(m.fitConfirm(m.renderConfirm()), "\n")
+			if len(status) != tc.wantLines {
+				t.Errorf("status took %d lines, want %d: %q", len(status), tc.wantLines, status)
+			}
+			plain := ansi.Strip(strings.Join(lines, "\n"))
+			if !strings.Contains(plain, "Close this tmux session?") {
+				t.Errorf("the question is missing:\n%s", plain)
+			}
+			if last := ansi.Strip(lines[len(lines)-1]); !strings.Contains(last, "again closes)") {
+				t.Errorf("last line %q does not end with the keys", last)
+			}
+		})
 	}
 }

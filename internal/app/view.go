@@ -69,7 +69,8 @@ func (m *Model) View() tea.View {
 	default:
 		body = m.renderTree()
 	}
-	content := m.renderHeader() + "\n" + body + "\n" + m.renderStatus()
+	status := m.renderStatus()
+	content := m.renderHeader() + "\n" + borrowLines(body, strings.Count(status, "\n")) + status
 	v := tea.NewView(content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
@@ -319,7 +320,7 @@ func (m *Model) renderStatus() string {
 		}
 		return styleTitle.Render(labels[m.prompt]) + m.input.View()
 	case modeConfirm:
-		return m.renderConfirm()
+		return m.fitConfirm(m.renderConfirm())
 	}
 
 	// The right-hand side is built first, because what it costs decides how
@@ -514,8 +515,16 @@ func (m *Model) renderConfirm() string {
 		case p.others > 1:
 			why = append(why, fmt.Sprintf("attached in %d other places", p.others))
 		}
-		return styleError.Render(" Close this tmux session? "+strings.Join(why, "; ")+".") +
-			styleTitle.Render(" (y/n, "+m.quitKeys()+" again closes)")
+		ask := " Close this tmux session?"
+		reason := " " + strings.Join(why, "; ") + "."
+		keys := " (y/n, " + m.quitKeys() + " again closes)"
+		if lipgloss.Width(ask+reason+keys) <= m.width {
+			return styleError.Render(ask+reason) + styleTitle.Render(keys)
+		}
+		// ft is usually a sidebar, where one line would lose everything after
+		// the question. A line each keeps the keys whole on the last line;
+		// fitConfirm wraps any of them that is still too long.
+		return styleError.Render(ask) + "\n" + styleError.Render(reason) + "\n" + styleTitle.Render(keys)
 	}
 	if p.kind == opKillSession {
 		// Naming the client count is the whole reason this one asks: a session
@@ -555,6 +564,46 @@ func (m *Model) renderConfirm() string {
 	}
 	return styleError.Render(fmt.Sprintf(" %s %d into %s — %d exist:", verb, len(p.items), tgt, p.conflicts)) +
 		styleTitle.Render(" [o]verwrite (to Trash) · [k]eep both · [n]o")
+}
+
+// fitConfirm wraps a confirmation to the pane. The status bar is one line
+// and everything past the pane's edge is cut, which in a sidebar is most of a
+// sentence; a prompt that is about to be answered is worth the space. Lines
+// after the first are indented a column to line up under the leading space
+// every prompt starts with. View makes the room (borrowLines), and a prompt
+// that would take more than the whole body keeps its last line, which is
+// where the keys are.
+func (m *Model) fitConfirm(s string) string {
+	w := max(1, m.width-1)
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		for i, l := range strings.Split(lipgloss.Wrap(line, w, ""), "\n") {
+			if i > 0 {
+				l = " " + l
+			}
+			out = append(out, l)
+		}
+	}
+	if most := m.treeHeight() + 1; len(out) > most {
+		out = append(out[:most-1], out[len(out)-1])
+	}
+	return strings.Join(out, "\n")
+}
+
+// borrowLines makes room for a status bar of n+1 lines by dropping n from the
+// bottom of the body, so the frame stays exactly the pane's height without
+// treeHeight (and so scrolling) knowing anything about it: a confirmation is
+// short-lived, and only ever covers rows nothing can click while it is up.
+// It returns the body with its trailing newline, or none when nothing is left.
+func borrowLines(body string, n int) string {
+	if n <= 0 {
+		return body + "\n"
+	}
+	lines := strings.Split(body, "\n")
+	if n >= len(lines) {
+		return ""
+	}
+	return strings.Join(lines[:len(lines)-n], "\n") + "\n"
 }
 
 // quitKeys is every key that quits: ctrl+c, and the quit action's own key
