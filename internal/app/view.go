@@ -502,10 +502,20 @@ func (m *Model) renderConfirm() string {
 		return styleError.Render(" Remove worktree " + name + "? (y/n)")
 	}
 	if p.kind == opQuitSession {
-		// Name what is running: "hx" is the one that may be holding unsaved
-		// changes, and it is what decides whether to say yes.
-		return styleError.Render(fmt.Sprintf(" Close this tmux session? %s still running.",
-			describeBusy(p.busy))) + styleTitle.Render(" (y/n, ctrl+c again closes)")
+		// Name what would be interrupted: "hx" is the one that may be holding
+		// unsaved changes, and another client may be someone else's terminal.
+		var why []string
+		if len(p.busy) > 0 {
+			why = append(why, describeBusy(p.busy)+" still running")
+		}
+		switch {
+		case p.others == 1:
+			why = append(why, "attached elsewhere")
+		case p.others > 1:
+			why = append(why, fmt.Sprintf("attached in %d other places", p.others))
+		}
+		return styleError.Render(" Close this tmux session? "+strings.Join(why, "; ")+".") +
+			styleTitle.Render(" (y/n, "+m.quitKeys()+" again closes)")
 	}
 	if p.kind == opKillSession {
 		// Naming the client count is the whole reason this one asks: a session
@@ -545,6 +555,15 @@ func (m *Model) renderConfirm() string {
 	}
 	return styleError.Render(fmt.Sprintf(" %s %d into %s — %d exist:", verb, len(p.items), tgt, p.conflicts)) +
 		styleTitle.Render(" [o]verwrite (to Trash) · [k]eep both · [n]o")
+}
+
+// quitKeys is every key that quits: ctrl+c, and the quit action's own key
+// when [keys] gives it one — it ships unbound, like reload.
+func (m *Model) quitKeys() string {
+	if k := m.actionKeys["quit"]; k != "" {
+		return k + " / ctrl+c"
+	}
+	return "ctrl+c"
 }
 
 // describeBusy names the commands a quit would interrupt, counted when one
@@ -1429,9 +1448,9 @@ func (m *Model) helpRows() []helpRow {
 	if k := m.actionKeys["reload"]; k != "" {
 		reloadKeys = k + " / F5"
 	}
-	quitKeys := "ctrl+c" // nor does quit, for the same reason
-	if k := m.actionKeys["quit"]; k != "" {
-		quitKeys = k + " / ctrl+c"
+	quitDesc := "quit (ctrl+c leaves the finder or a prompt first)"
+	if m.closesOnQuit() {
+		quitDesc = "quit, ending ft's tmux session; overlays back out"
 	}
 	// The four finder-local actions take the second key column rather than a
 	// "in the fuzzy finder:" prefix on every description: the column and its
@@ -1494,7 +1513,7 @@ func (m *Model) helpRows() []helpRow {
 		{key: m.actionKeys["edit-config"], desc: "edit config in the default command"},
 		{key: m.actionKeys["reload-config"], desc: "re-read the config from disk"},
 		{key: m.actionKeys["help"], desc: "toggle this help"},
-		{key: quitKeys, desc: "quit, ending ft's tmux session; overlays back out"},
+		{key: m.quitKeys(), desc: quitDesc},
 	}
 	// Catalogue order, not alphabetical: the commands are grouped by what they
 	// do — editing, hand-off, agent sessions, pane control, git — and that

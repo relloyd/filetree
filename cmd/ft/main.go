@@ -119,7 +119,11 @@ func main() {
 
 	m, err := app.New(cfg, cfgDir, abs, platform.New())
 	fatalIf(err)
-	m.SetOwnsSession(*ownsSession && cfg.General.QuitClosesSession)
+	if *ownsSession {
+		// Read now, while the pane is certainly still in the session Wrap
+		// created; by quit time it may have been moved somewhere else.
+		m.SetOwnedSession(tmux.SessionID(os.Getenv("TMUX_PANE")))
+	}
 
 	p := tea.NewProgram(m)
 	// After the tmux wrap on purpose. Wrap is a syscall.Exec, so a socket
@@ -148,8 +152,8 @@ func main() {
 		// Last of all: killing the session hangs up this process along with
 		// every other pane in it, so nothing after the kill can be relied on
 		// to run. The title needs no clearing then, since its session is gone.
-		if fm, ok := final.(*app.Model); ok && err == nil && fm.ClosesSession() {
-			if name := tmux.SelfSession(pane); name != "" && tmux.Kill(name) == nil {
+		if fm, ok := final.(*app.Model); ok && err == nil && fm.ClosesSession() != "" {
+			if tmux.KillID(fm.ClosesSession()) == nil {
 				return
 			}
 		}
@@ -166,6 +170,9 @@ func printPublicDefaults() {
 	flag.VisitAll(func(f *flag.Flag) {
 		if f.Name != tmux.OwnerFlag {
 			public.Var(f.Value, f.Name, f.Usage)
+			// Var takes the default from the value as it stands, which after
+			// a parse error is whatever was already typed.
+			public.Lookup(f.Name).DefValue = f.DefValue
 		}
 	})
 	public.PrintDefaults()

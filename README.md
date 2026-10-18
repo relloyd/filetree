@@ -121,9 +121,10 @@ shown with `ctrl+w`/`ctrl+s`, any window you added — close with it. The agent
 sessions (`c`, `x`, `alt+s`) and the popup sessions (`alt+n`, `L`, `M`, `alt+d`)
 are sessions of their own and keep running; `T` still lists them. If a pane
 is running something other than a shell, an editor that may hold unsaved
-changes say, ft names it and asks first: `y` or a second `ctrl+c` closes, `n`
-or `esc` goes back to the tree. A session you started yourself is never
-closed, and `quit_closes_session = false` under `[general]` turns this off.
+changes say, or the session is also open in another terminal, ft says so and
+asks first: `y` or a second `ctrl+c` closes, `n` or `esc` goes back to the
+tree. A session you started yourself is never closed, and
+`quit_closes_session = false` under `[general]` turns this off.
 
 The terminal's tab is titled after the tree: `ft — filetree ⎇ main`, the
 root's name and, inside a repository, its branch (a short hash when HEAD is

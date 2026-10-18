@@ -122,6 +122,46 @@ func SelfSession(pane string) string {
 	return strings.TrimSpace(stdout.String())
 }
 
+// SessionID is the id ("$3") of the session a pane belongs to, read the same
+// way as SelfSession. An id rather than a name because it is what ft keeps
+// from startup to quit: a session can be renamed in between, and an id cannot.
+// Anything unreadable is "".
+func SessionID(pane string) string {
+	if pane == "" || !Available() {
+		return ""
+	}
+	var stdout bytes.Buffer
+	c := exec.Command("tmux", "display-message", "-p", "-t", pane, "#{session_id}")
+	c.Stdout = &stdout
+	if err := c.Run(); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(stdout.String())
+}
+
+// KillID ends a session by its id ("$3"). An id needs no "=" exact-match
+// prefix — "$3" can only mean one session — and the same "already gone is not
+// an error" rule as Kill applies.
+func KillID(id string) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	if !strings.HasPrefix(id, "$") {
+		return errors.New("not a session id: " + id)
+	}
+	var stderr bytes.Buffer
+	c := exec.Command("tmux", "kill-session", "-t", id)
+	c.Stderr = &stderr
+	if err := c.Run(); err != nil {
+		msg := stderr.String()
+		if noServer(msg) || strings.Contains(msg, "can't find session") {
+			return nil
+		}
+		return tmuxError(err, msg)
+	}
+	return nil
+}
+
 // ListPanes returns every pane on the server, across all sessions.
 //
 // "-a" is what makes this server-wide: without it tmux lists the panes of the

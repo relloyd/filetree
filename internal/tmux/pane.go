@@ -27,6 +27,13 @@ type Pane struct {
 	// time, so that one flag is all the recency there is.
 	Left, Top, Width, Height int
 	Last                     bool
+
+	// Dead is #{pane_dead}: the program has exited and remain-on-exit is
+	// keeping the pane on screen. SessionAttached is #{session_attached}, a
+	// property of the pane's *session*: how many clients are showing it. Both
+	// are what a quit needs to know before it ends the session.
+	Dead            bool
+	SessionAttached int
 }
 
 // paneFields are the properties ListPanes asks tmux for, in order. Tab-joined
@@ -43,6 +50,8 @@ var paneFields = []string{
 	"#{pane_width}",
 	"#{pane_height}",
 	"#{pane_last}",
+	"#{pane_dead}",
+	"#{session_attached}",
 }
 
 // PaneFormat is the -F argument for list-panes.
@@ -75,34 +84,52 @@ func ParsePanes(out string) []Pane {
 			Width:     atoi(f[7]),
 			Height:    atoi(f[8]),
 			Last:      f[9] == "1",
+
+			Dead:            f[10] == "1",
+			SessionAttached: atoi(f[11]),
 		})
 
 	}
 	return panes
 }
 
-// BusyPanes returns the panes in self's session, other than self, that are
-// running something a kill-session would interrupt: anything but a shell at
-// its prompt. found is false when self is not in the list, and then there is
-// no session to speak of.
+// QuitCheck is what ending a session would interrupt.
+type QuitCheck struct {
+	// Busy are the panes running something other than a shell at its prompt.
+	Busy []Pane
+	// Others is how many clients besides the one quitting are showing the
+	// session: another terminal attached to it, or another ft's picker.
+	Others int
+}
+
+// CheckQuit reads, from one pane list, what killing session would interrupt.
+// ok is false unless self is a pane of session: a pane moved into another
+// session (join-pane, move-pane) takes ft with it, and the session it is in
+// now is not the one it created.
 //
 // Every window counts, not just ft's, because kill-session takes them all. A
 // pane running "tmux" is a nested client — ctrl+w and ctrl+s show an agent
 // that way — and killing it only detaches the client, so the agent behind it
-// keeps running and the pane is not busy.
-func BusyPanes(panes []Pane, self string) (busy []Pane, found bool) {
+// keeps running and the pane is not busy. Nor is a dead pane, or one whose
+// command tmux cannot name: there is nothing to say about either.
+//
+// Others assumes the quit was typed into a client showing this session, so
+// one attached client is the one quitting. With none attached at all (keys
+// sent by "tmux send-keys") there is nobody else either.
+func CheckQuit(panes []Pane, self, session string) (QuitCheck, bool) {
 	me, ok := findPane(panes, self)
-	if !ok {
-		return nil, false
+	if !ok || session == "" || me.SessionID != session {
+		return QuitCheck{}, false
 	}
+	check := QuitCheck{Others: max(0, me.SessionAttached-1)}
 	for _, p := range panes {
-		if p.ID == me.ID || p.SessionID != me.SessionID {
+		if p.ID == me.ID || p.SessionID != session || p.Dead || p.Command == "" {
 			continue
 		}
 		if isShell(p.Command) || p.Command == "tmux" {
 			continue
 		}
-		busy = append(busy, p)
+		check.Busy = append(check.Busy, p)
 	}
-	return busy, true
+	return check, true
 }

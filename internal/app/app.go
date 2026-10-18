@@ -155,6 +155,7 @@ type pendingOp struct {
 	force     bool     // opWorktree: re-asking after a dirty-worktree refusal
 	session   string   // opKillSession: the tmux session to kill
 	busy      []string // opQuitSession: what the busy panes are running
+	others    int      // opQuitSession: other clients showing the session
 }
 
 type Model struct {
@@ -181,12 +182,14 @@ type Model struct {
 	// only this process knows where it is running.
 	selfPane string
 
-	// ownsSession says ft relaunched itself into the tmux session it is in,
-	// so quitting may end that session (see quit). closeSession is the
-	// verdict main reads once the program has stopped: the kill has to come
-	// after everything else, since it takes this process down with it.
-	ownsSession  bool
-	closeSession bool
+	// ownedSession is the id ("$3") of the tmux session ft relaunched itself
+	// into, read at startup; "" when ft did not create its session. Whether
+	// quitting ends it is decided at quit time (closesOnQuit), so a config
+	// reload in between is honoured. closeSession is the verdict main reads
+	// once the program has stopped: the kill has to come after everything
+	// else, since it takes this process down with it.
+	ownedSession string
+	closeSession string
 
 	// titleSent is the title last written to ft's tmux session, and
 	// titleBusy says a write is in flight. See publishTitle.
@@ -416,14 +419,13 @@ func New(cfg *config.Config, cfgDir, root string, plat platform.Platform) (*Mode
 	return m, nil
 }
 
-// loadRoot points the model at a root directory and restores that root's
-// SetOwnsSession tells the model that quitting may end its tmux session. main
-// decides it, from tmux.OwnerFlag and the quit_closes_session setting.
-func (m *Model) SetOwnsSession(owns bool) { m.ownsSession = owns }
+// SetOwnedSession records the id of the tmux session ft created for itself,
+// which quitting may end. main reads it at startup when tmux.OwnerFlag is set.
+func (m *Model) SetOwnedSession(id string) { m.ownedSession = id }
 
-// ClosesSession reports whether the quit that ended the program asked for
-// the tmux session to go with it.
-func (m *Model) ClosesSession() bool { return m.closeSession }
+// ClosesSession is the id of the tmux session the quit that ended the program
+// asked to go with it, or "" for none.
+func (m *Model) ClosesSession() string { return m.closeSession }
 
 // SetRootObserver registers f to be told the tree's root, now and on every
 // change. It is a setter rather than another parameter to New because the only
@@ -435,6 +437,7 @@ func (m *Model) SetRootObserver(f func(root string)) {
 	}
 }
 
+// loadRoot points the model at a root directory and restores that root's
 // persisted state (expansion, selection, scroll, toggle overrides). On
 // error the model keeps its previous root, so view switches fail safely.
 //

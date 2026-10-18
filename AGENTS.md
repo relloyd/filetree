@@ -105,7 +105,12 @@ Design rules that keep this maintainable:
   `internal/gitx` for `git`, `internal/search` for `rg`. Argument building
   and output parsing stay pure and table-tested (`search/args.go`,
   `search/parse.go`); the process spawn lives alone (`search/exec.go`). The
-  app only sequences them in async `tea.Cmd`s.
+  app only sequences git and rg in async `tea.Cmd`s, because their cost grows
+  with the repository. A tmux call made in answer to a key press may run
+  inline (`ctrl+w`, `X`, the `T` kill, the quit check all do): it takes a few
+  milliseconds, and ft's own input arrives through that same server, so a
+  tmux too stuck to answer has already stopped ft's keys. Only a read on a
+  timer, like the agent poll, goes off the loop.
 - The finder's file-type filter is compiled once, in `internal/search`, and
   used by both the walk (`Filter.Match`) and ripgrep (`Filter.Globs` becomes
   `-g` args) — so a filtered file list and a filtered content search can never
@@ -419,16 +424,21 @@ entries missing upstream (hcl, terragrunt, helm, …) are added in
     session by name.
 - **Quit ends the session only when ft made it, and the kill is `main`'s last
   act.** `tmux.Wrap` starts the inner ft with `-owns-session`
-  (`tmux.OwnerFlag`, hidden from the usage text), and that flag is the whole of
-  the ownership test. The session name cannot be: a second ft run from a split
-  inside a tree session reads the same `tree` kind, and would end its parent.
-  `quit` lists the session's panes and `tmux.BusyPanes` (pure, table-tested)
-  calls a pane busy unless it is at a shell or is a nested `tmux` client — a
-  `ctrl+w` pane only detaches, so its agent survives. Busy panes stage an
-  `opQuitSession` confirmation, and that confirmation is the one mode where
-  `handleKey` does *not* rewrite ctrl+c to esc: the second press is the answer.
-  The model only records the verdict (`ClosesSession`); `main` kills after the
-  program has stopped, the IPC socket has closed and state is saved, because
+  (`tmux.OwnerFlag`, hidden from the usage text), and `main` turns that into
+  the session's *id*, read at startup (`SetOwnedSession`). The session name
+  cannot be the test: a second ft run from a split inside a tree session reads
+  the same `tree` kind, and would end its parent. The id is kept rather than
+  re-read at quit because the pane can be moved (`join-pane`) into a session
+  of yours, and `tmux.CheckQuit` (pure, table-tested) refuses when it has.
+  `CheckQuit` also calls a pane busy unless it is at a shell, dead, or a
+  nested `tmux` client — a `ctrl+w` pane only detaches, so its agent survives
+  — and counts the session's *other* attached clients. Either one stages an
+  `opQuitSession` confirmation, the one mode where `handleKey` does *not*
+  rewrite ctrl+c to esc, and where the quit action's own key also answers:
+  the second press is the answer. `quit_closes_session` is read at quit time
+  (`closesOnQuit`), not at startup, so a config reload counts. The model only
+  records the verdict (`ClosesSession`); `main` kills by id after the program
+  has stopped, the IPC socket has closed and state is saved, because
   `kill-session` hangs up ft along with every other pane. Agent and popup
   sessions are separate sessions and are never touched.
 - **The tab title reaches the terminal through tmux, not around it.**
