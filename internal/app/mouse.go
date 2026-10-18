@@ -9,6 +9,7 @@ import (
 const doubleClickWindow = 400 * time.Millisecond
 
 func (m *Model) handleWheel(mo tea.Mouse) (tea.Model, tea.Cmd) {
+	m.chord = "" // reaching for the mouse is not finishing a chord
 	delta := 0
 	switch mo.Button {
 	case tea.MouseWheelUp:
@@ -29,6 +30,7 @@ func (m *Model) handleWheel(mo tea.Mouse) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleClick(mo tea.Mouse) (tea.Model, tea.Cmd) {
+	m.chord = ""
 	if mo.Button != tea.MouseLeft {
 		return m, nil
 	}

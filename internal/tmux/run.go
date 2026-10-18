@@ -244,6 +244,31 @@ func SplitAttachBelow(pane, socket, name string, quote func(string) string) erro
 	return run("split-window", "-v", "-d", "-t", pane, AttachCommand(socket, name, quote))
 }
 
+// SplitShell makes the split PlanShell chose, starting the new pane's shell
+// in dir. There is no command, so the pane runs default-shell and nothing
+// reaches a shell as text: every argument, the directory included, is argv.
+//
+// No -d, unlike the session splits: a shell is opened to be typed at, so the
+// focus goes with it, as it always did from the old "n" and "N".
+//
+// Argv is not the whole of it: tmux expands -c as a *format*, so a directory
+// named "#(cmd)" would run cmd, and "x#{session_name}" opens somewhere else
+// entirely (measured on tmux 3.6a). FormatLiteral is what makes it a path.
+func SplitShell(s Split, dir string) error {
+	if !Available() {
+		return ErrNotInstalled
+	}
+	args := append([]string{"split-window"}, s.Flags...)
+	return run(append(args, "-t", s.Target, "-c", FormatLiteral(dir))...)
+}
+
+// FormatLiteral escapes s for an argument tmux expands as a format, so it
+// reads back as the text it is. "#" is the only character formats give a
+// meaning to, and "##" is tmux's own spelling of a literal one.
+func FormatLiteral(s string) string {
+	return strings.ReplaceAll(s, "#", "##")
+}
+
 // AttachCommand is the shell command a split pane runs to become a nested
 // client on name. Pure, so the quoting it depends on can be table-tested: it
 // is handed to tmux as a shell-command and therefore reaches default-shell,

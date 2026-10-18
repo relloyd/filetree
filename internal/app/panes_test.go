@@ -47,7 +47,7 @@ func TestPaneOpeningCommand(t *testing.T) {
 // cheaper than missing the one that does.
 func TestBuiltinsThatOpenPanesAreSpotted(t *testing.T) {
 	cmds := config.Default().Commands
-	for _, name := range []string{"tmux-handoff", "helix-vsplit", "shell-vsplit", "shell-vsplit-adjacent", "diff"} {
+	for _, name := range []string{"tmux-handoff", "helix-vsplit", "diff"} {
 		c, ok := cmds[name]
 		if !ok {
 			t.Fatalf("%s is not in the catalogue", name)

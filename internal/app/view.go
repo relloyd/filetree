@@ -331,6 +331,12 @@ func (m *Model) renderStatus() string {
 
 	var left string
 	switch {
+	case m.chord != "":
+		// Ahead of any message: half a chord typed is the one state in which
+		// the next key means something other than usual, so it is the thing
+		// the bar must not hide.
+		lead := styleTitle.Render(" " + keyLabel(m.chord) + " …")
+		left = lead + fitHints(m.chordHints(), m.width-rw-1-lipgloss.Width(lead))
 	case m.statusMsg != "" && m.statusErr:
 		left = styleError.Render(" " + m.statusMsg)
 	case m.statusMsg != "":
@@ -1548,6 +1554,11 @@ func (m *Model) helpRows() []helpRow {
 		// description above — which was the longest line on the page.
 		{finderKey: "ctrl+s", desc: "bookmarks: widen to every project"},
 		{finderKey: "ctrl+x", desc: "bookmarks: forget the highlighted one"},
+		// The "n" chord's arrows. Its fifth key, the popup, is a command and
+		// is listed with them below.
+		{key: keyLabel(m.actionKeys["shell-right"]), desc: m.shellRightDesc()},
+		{key: keyLabel(m.actionKeys["shell-down"]) + " / " + keyLabel(m.actionKeys["shell-up"]), desc: "shell below / above the pane to the right"},
+		{key: keyLabel(m.actionKeys["shell-left"]), desc: "shell at the window's left edge"},
 		{key: m.actionKeys["tmux-sessions"], desc: "tmux sessions ft owns; enter reattaches"},
 		{key: m.actionKeys["detach-pane"], desc: "detach the ft session sharing this window"},
 
@@ -1586,7 +1597,7 @@ func (m *Model) helpRows() []helpRow {
 		if desc == "" {
 			desc = "run: " + name
 		}
-		rows = append(rows, row{key: key, finderKey: c.FinderKey, desc: desc})
+		rows = append(rows, row{key: keyLabel(key), finderKey: c.FinderKey, desc: desc})
 	}
 	return rows
 }

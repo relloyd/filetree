@@ -68,6 +68,15 @@ var DefaultActionKeys = map[string]string{
 	"worktree-new":  "W",
 	"root-here":     ">",
 	"recent-roots":  "<",
+
+	// The "n" chord: n, then an arrow, says where a new shell goes. hjkl
+	// stand in for the arrows inside any chord, as they do in the tree, so
+	// "n l" needs no entry of its own. The popup is "n space", which is the
+	// shell-popup command's key rather than an action's.
+	"shell-right": "n right",
+	"shell-down":  "n down",
+	"shell-up":    "n up",
+	"shell-left":  "n left",
 }
 
 // actionNotes are the trailing comments the generated [keys] block carries,
@@ -92,6 +101,11 @@ var actionNotes = map[string]string{
 	"reload-config": `re-read it after editing somewhere ft cannot see`,
 	"root-here":     `re-root the tree to the selection; shift+enter too`,
 	"recent-roots":  `switch between the roots you have used, newest first`,
+
+	"shell-right": `shell beside the tree; ft keeps its width`,
+	"shell-down":  `shell below the pane to the right`,
+	"shell-up":    `shell above the pane to the right`,
+	"shell-left":  `shell full height at the window's left edge`,
 }
 
 // Starter is the file written to ~/.filetree/config.toml on first run: the
