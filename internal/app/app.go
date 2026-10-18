@@ -352,6 +352,14 @@ type Model struct {
 	bindings   map[string]func() (tea.Model, tea.Cmd)
 	actionKeys map[string]string
 
+	// bindingOwner is who holds each key in bindings, named as the config
+	// names it ("keys.rename", "commands.shell-popup"), so the chord hints can
+	// say what a key runs. chordPrefixes is every proper prefix of a bound
+	// chord, and chord the prefix typed so far ("" when none). See chord.go.
+	bindingOwner  map[string]string
+	chordPrefixes map[string]bool
+	chord         string
+
 	// keyConflicts is what buildBindings had to refuse: reported once in the
 	// status bar and listed in full under the help key.
 	keyConflicts []keyConflict
@@ -865,8 +873,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updateFinderInput(msg)
 	}
 
+	if m.chord != "" {
+		return m.continueChord(s)
+	}
 	if fn, ok := m.bindings[s]; ok {
 		return fn()
+	}
+	if m.chordPrefixes[s] {
+		return m.startChord(s)
 	}
 	return m, nil
 }
@@ -941,6 +955,7 @@ func (m *Model) buildBindings() {
 	b := map[string]func() (tea.Model, tea.Cmd){}
 	owner := map[string]string{}
 	m.keyConflicts = nil
+	m.chord = "" // a reload mid-chord would otherwise finish it against the old table
 
 	claim := func(key, who string, fn func() (tea.Model, tea.Cmd)) {
 		if key == "" {
@@ -957,12 +972,15 @@ func (m *Model) buildBindings() {
 	// Commands share the action key namespace, so they are resolved before
 	// anything is claimed: a command's key comes out of m.actionKeys, which is
 	// what lets "[keys] claude-popup = ..." move it.
+	//
+	// Keys are made canonical first, so a chord written with two spaces is the
+	// same chord as one written with one, both here and in m.actionKeys.
 	cmdKeys := make(map[string]string, len(m.cfg.Commands))
 	for name, c := range m.cfg.Commands {
-		cmdKeys[name] = c.Key
+		cmdKeys[name] = canonKey(c.Key)
 	}
 	defaults, nameClashes := mergeCommandKeys(defaultActionKeys, cmdKeys)
-	keys, conflicts := resolveActionKeys(defaults, m.cfg.Keys)
+	keys, conflicts := resolveActionKeys(defaults, canonKeys(m.cfg.Keys))
 	m.actionKeys = keys
 	m.keyConflicts = append(m.keyConflicts, nameClashes...)
 	m.keyConflicts = append(m.keyConflicts, conflicts...)
@@ -1035,6 +1053,10 @@ func (m *Model) buildBindings() {
 		"worktree-new":   m.worktreeNew,
 		"root-here":      m.rootHere,
 		"recent-roots":   m.startRecentRoots,
+		"shell-right":    m.openShell(tmux.Beside),
+		"shell-down":     m.openShell(tmux.Below),
+		"shell-up":       m.openShell(tmux.Above),
+		"shell-left":     m.openShell(tmux.LeftEdge),
 	}
 	names := make([]string, 0, len(actions))
 	for action := range actions {
@@ -1074,7 +1096,8 @@ func (m *Model) buildBindings() {
 			claim(key, "navigation", nav.fn)
 		}
 	}
-	m.bindings = b
+	m.settleChords(b, owner)
+	m.bindings, m.bindingOwner = b, owner
 }
 
 // sortedCommands is the command names in a fixed order, so which of two

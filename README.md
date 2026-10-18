@@ -116,9 +116,9 @@ existing session (over ssh, say) just runs it there. Opt out per run with
 `ft --no-tmux`, or permanently with `tmux = "never"` under `[general]`.
 
 Quitting (`ctrl+c`) a tree that relaunched itself also ends that session, so
-the splits it opened beside itself — the `t`/`v`/`n`/`N`/`D` panes, a session
+the splits it opened beside itself — the `t`/`v`/`D` panes and the `n` shells, a session
 shown with `ctrl+w`/`ctrl+s`, any window you added — close with it. The agent
-sessions (`c`, `x`, `alt+s`) and the popup sessions (`alt+n`, `L`, `M`, `alt+d`)
+sessions (`c`, `x`, `alt+s`) and the popup sessions (`n space`, `L`, `M`, `alt+d`)
 are sessions of their own and keep running; `T` still lists them. If a pane
 is running something other than a shell, an editor that may hold unsaved
 changes say, or the session is also open in another terminal, ft says so and
@@ -152,7 +152,7 @@ one surfaces as an error in the status bar rather than a failure to start.
 | Tool | Enables | Optional? |
 |---|---|---|
 | `git` | status colours, `•` dirty markers, gitignore greying, `⎇ branch` in the status bar, `Y` git-relative paths, `u`/`U` web links, `w`/`W` worktrees, `alt+d` diffs | optional, but most of the git awareness is dark without it |
-| `tmux` | the `t`/`v`/`n`/`N` split and hand-off commands, the `alt+n`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
+| `tmux` | the `t`/`v` split and hand-off commands, the `n` shells, the `n space`/`L`/`alt+d` popups, the `c`/`x`/`alt+s` agent sessions and the `T` list of them, `ctrl+l` to focus the pane to the right, `ctrl+j`/`ctrl+k` to resize this one, `alt+h` to even the widths out, the `/` finder's `finder_width` widening, and the auto-relaunch above | optional |
 | `herdr` ([herdr](https://herdr.dev)) | the `J`, `K`, `alt+g` and `ctrl+g` hand-offs into herdr workspaces | optional; everything else works without it |
 | `hx` ([helix](https://helix-editor.com)) | the starter's default command — Enter, `e`, `S` scratch files and `C` edit-config all run `commands.default` | optional; point `commands.default` at any editor |
 | `rg` ([ripgrep](https://github.com/BurntSushi/ripgrep)) | the `/` finder's `Grep` content search, and running the command `r` copies | optional; without it the finder still searches file names |
@@ -236,6 +236,24 @@ status bar, and lists them at the top of `?`. The navigation keys (arrows,
 not remappable and cannot be taken; anything that tries is reported the same
 way.
 
+A key can also be a **chord**: two or more keys written with a space between
+them, such as `"n right"`. The first key does nothing on its own; it waits, and
+the status bar lists what can follow it. The `n` shells are the chord that
+ships, and inside any chord `hjkl` stand in for the arrows, so `n` `l` is
+`n` `→` unless something binds `"n l"` itself. There is no timeout: `esc` or
+`ctrl+c` cancels, as does any key that completes nothing — that key is
+swallowed rather than run, since it was typed as the end of a chord. A key
+bound on its own cannot also start a chord, and the chord keeps it; a chord
+starting on a navigation key is refused instead. Both are reported like any
+other conflict. `finder_key` takes single keys only, since the finder's inputs
+are always taking the next key as text.
+
+```toml
+[keys]
+shell-right = "N"      # a chord's member back on a single key
+shell-popup = "alt+n"  # and the popup where it used to be
+```
+
 `shift+enter` does the same as `>`. It only reaches `ft` on terminals that
 report modified keys, and inside tmux that needs `set -s extended-keys on` in
 your `~/.tmux.conf` — it is off by default, and without it tmux hands the chord
@@ -279,13 +297,14 @@ automatically, so they work out of the box.
 | `e` | `ctrl+e` | open the selection — or everything marked — in helix; works on directories too (helix shows its file picker) |
 | `t` | `ctrl+t` | smart hand-off to a pane beside `ft`: opens the files in a helix already running in the window (`:open`), types the `hx` command if a shell is waiting, or creates a split otherwise |
 | `v` | | open the selection, or everything marked, in helix in a new full-height split at the right edge — repeatable, one pane per press |
-| `n` | | open a shell in a new full-height split at the right edge, in the selection's directory |
-| `N` | | the same shell in a split beside the tree, dividing the current pane rather than the window |
-| `alt+n` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree — in a session named after the directory, so detaching from it and pressing the key again comes back to it |
+| `n` `→` | | open a shell in the selection's directory, in a new pane immediately right of the tree — between it and the pane already there, which gives up the columns, so the tree keeps its width. With nothing to the right, a full-height split at the right edge |
+| `n` `↓` / `n` `↑` | | the same shell in the bottom / top half of the pane to the tree's right — the one you were last in, if there are several; beside the tree when nothing is to its right |
+| `n` `←` | | the same shell full height at the window's left edge, with the tree pushed right at its own width |
+| `n` `space` | | the same shell in a popup over the window, for something to run and dismiss rather than keep beside the tree — in a session named after the directory, so detaching from it and pressing the key again comes back to it |
 | `c` | | Claude Code in a named tmux session for the selection's repo and branch, in a popup — created on the first press, reattached on every one after |
 | `x` | | the same for the Copilot CLI |
 | `alt+s` | | the same for a plain shell, started at the repo root — for long-running work such as a dev server, listed in `T` beside the agents |
-| `J` | | the herdr counterpart of `n`: a shell for the place under the cursor in [herdr](#herdr) — focuses one that is already open, and otherwise opens one beside the tree, in the workspace that holds the code, or in a new workspace of its own |
+| `J` | | the herdr counterpart of `n` `→`: a shell for the place under the cursor in [herdr](#herdr) — focuses one that is already open, and otherwise opens one beside the tree, in the workspace that holds the code, or in a new workspace of its own |
 | `K` | `ctrl+r` | the herdr counterpart of `t`: open the selection — or everything marked — in the helix belonging to this place, wherever in herdr that is |
 | `alt+g` | | the herdr counterpart of `L`: lazygit for the checkout, in a tab of its own rather than a popup |
 | `ctrl+g` | | the herdr counterpart of `M`: lazygit filtered to the selected file's history |
@@ -306,7 +325,8 @@ first opening yet another helix until you visited one by hand. `t` prefers a
 running helix over a waiting shell, since sending to an editor already open
 reuses it where typing `hx` at a shell starts a second one.
 
-A command that opens a pane — `t`'s fallback split, `v`, `n`, `N`, `D` — takes
+A command that opens a pane — `t`'s fallback split, `v`, `D`, and the full-height
+`n` shells (`n` `←`, and `n` `→` with nothing to its right) — takes
 its columns from *every* pane in the window, so a 30-column tree beside an
 editor used to come back at 18. `ft` now measures its own width immediately
 before the split and puts it back afterwards, the way `ctrl+w` always has, so
@@ -661,7 +681,7 @@ panes, and either goes to the one it finds or makes somewhere for a new one:
 
 | Key | tmux counterpart | Program | Reusing one means |
 |---|---|---|---|
-| `J` | `n` | your shell | going to it, with the selection's path on the clipboard |
+| `J` | `n` `→` | your shell | going to it, with the selection's path on the clipboard |
 | `K` | `t` | helix | opening the files in it with `:open`, then going to it |
 | `alt+g` | `L` | lazygit | going to it, and nothing else |
 | `ctrl+g` | `M` | lazygit, on one file | going to that file's view, and nothing else |
@@ -800,7 +820,7 @@ Worth knowing:
   push them to a pane both work on the same set. `esc` clears them. Set
   `clear_marks_after_command = true` under `[general]` to have them consumed
   instead, matching `d`/`p`/`m` — that only fires for a command that named the
-  marks *and* took them as its target, so `n` or a fresh scratch file leaves
+  marks *and* took them as its target, so an `n` shell or a fresh scratch file leaves
   them alone.
 - **A mark whose file has gone is dropped** and unmarked rather than opened as
   an empty buffer; if none survive, the command does not run.
@@ -990,7 +1010,7 @@ opening a file when its template names it with `{paths}`, `{path}` or
 `{relpath}` — a marked set records every file in it. So
 `enter`, `e`, `t`, `v`, `K` and `alt+d` are remembered — reading a file's diff
 counts as having had it open, and so does reading its history with `M` or
-`ctrl+g` — while `n`/`N`/`alt+n` and `J` (a shell in `{dir}`), `L` and
+`ctrl+g` — while the `n` shells and `J` (a shell in `{dir}`), `L` and
 `alt+g` (lazygit in `{dir}`), `D` (a diff of marked paths) and the
 `ctrl+l`/`ctrl+j`/`ctrl+k`/`alt+h` pane commands are not.
 Directories are never recorded, and neither is `C` — its file lives outside the

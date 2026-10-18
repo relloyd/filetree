@@ -262,6 +262,18 @@ Design rules that keep this maintainable:
 
   them remappable via the `[keys]` action map and list them in the `?` help
   overlay (view.go) and README.
+- **A key with a space in it is a chord** (`"n right"`), and it is an ordinary
+  entry in `m.bindings` keyed by the whole sequence — so `[keys]`, the
+  conflict report and the help page need nothing special. What chords add is
+  in `internal/app/chord.go`: `m.chordPrefixes` (every proper prefix of a
+  bound sequence, computed by `settleChords` after all claims), and `m.chord`,
+  the prefix typed so far, consulted at the bottom of `handleKey` in
+  `modeNormal` only. A prefix displaces a single-key binding on the same key
+  unless that key is navigation, in which case the chord is refused. `hjkl`
+  are tried as arrows inside a chord only when the letter itself completes
+  nothing. The `n` shells are actions rather than templates because
+  `tmux.PlanShell` has to read the layout to pick the pane; `n space` (the
+  popup) is still a catalogue command, which is why a chord can mix the two.
 - ctrl+c is the only guaranteed way out, and `handleKey` rewrites it to `"esc"`
   before the mode switch whenever the mode is not `modeNormal`. So a new mode
   gets "the first press backs out, the next one quits" for free by handling

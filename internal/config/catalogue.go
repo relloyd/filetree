@@ -109,29 +109,13 @@ esac
 		Key:  "v",
 	},
 
-	// Open a shell in a new pane immediately to the right of the filetree
-	// pane, splitting ft's own space. Any existing pane to the right is pushed
-	// further right — use this when you want to insert a pane next to ft
-	// without disturbing the existing layout.
-	{
-		Name: "shell-vsplit-adjacent",
-		Desc: "shell in a split beside the tree",
-		Run:  `tmux split-window -h -c {dir}`,
-		Mode: ModeBackground,
-		Key:  "N",
-	},
+	// The shells beside the tree are not here: "n" followed by an arrow opens
+	// one in that direction, which needs the window's layout to decide which
+	// pane to divide, so they are actions (shell-right and friends, in
+	// internal/app/shells.go) rather than templates. The popup is the one
+	// member of that chord that is still a plain command, on "n space".
 
-	// Open a shell in a new full-height split at the right edge of the window,
-	// regardless of what panes already exist there.
-	{
-		Name: "shell-vsplit",
-		Desc: "shell in a split at the right edge",
-		Run:  `tmux split-window -fh -c {dir}`,
-		Mode: ModeBackground,
-		Key:  "n",
-	},
-
-	// The same shell, in a popup over the whole window instead of a split —
+	// A shell in a popup over the whole window instead of a split —
 	// for a command you want to run and dismiss rather than keep beside the
 	// tree. The popup runs its own tmux session, so it has its own panes and
 	// its own scrollback, and closing that session (exit / ctrl+d) closes the
@@ -146,7 +130,7 @@ esac
 		Desc: "shell in a popup over the window",
 		Run:  `tmux display-popup -E -w 92% -h 92% "tmux new-session -A -s {prefix}shell/{dirkey} -c {dir}"`,
 		Mode: ModeBackground,
-		Key:  "alt+n",
+		Key:  "n space",
 	},
 
 	// Agent sessions: a coding agent parked in a *named* tmux session, one per
@@ -213,8 +197,8 @@ esac
 
 	// The first command that drives herdr rather than tmux: a shell for the
 	// place under the cursor, focused if one is already open and created if not.
-	// It sits beside "n" rather than replacing it, so the two can be pressed in
-	// turn and compared before anything else moves.
+	// It sits beside the "n" chord rather than replacing it, so the two can be
+	// pressed in turn and compared before anything else moves.
 	//
 	// Reuse is scoped to the *checkout*, not the repository, which is what makes
 	// it worktree-aware: a linked worktree has a root of its own, so a shell in

@@ -80,11 +80,12 @@ type Command struct {
 
 	Run  string `toml:"run"`  // template; see ExpandCommand
 	Mode string `toml:"mode"` // "interactive" or "background" (default)
-	Key  string `toml:"key"`  // optional dedicated keybinding
+	Key  string `toml:"key"`  // optional dedicated keybinding; "n x" is a chord
 
 	// FinderKey runs the command from inside the "/" finder, against the
-	// highlighted result row rather than the tree selection. Chords only:
-	// a bare key would be swallowed by the finder's text inputs.
+	// highlighted result row rather than the tree selection. Modifier chords
+	// only (ctrl+e): a bare key would be swallowed by the finder's text
+	// inputs. Nor a sequence like key's "n x", refused at load.
 	FinderKey string `toml:"finder_key"`
 
 	// Desc is the one-line description the "?" help shows. The catalogue
@@ -103,6 +104,14 @@ var finderReservedKeys = []string{
 	"ctrl+s", "ctrl+x", // the bookmark view's scope and forget keys; the session
 	// list's split-below and kill keys; ctrl+x is also forget in "<"
 	"ctrl+w", // the session list's open-in-a-pane key
+}
+
+// retiredCommands are built-ins a release has removed. A config still naming
+// one in `disabled` was right when it was written, and an unknown name there
+// stops ft starting, so these are let through rather than refused.
+var retiredCommands = []string{
+	"shell-vsplit",          // "n": now "n left"/"n right" and the rest of the n chord
+	"shell-vsplit-adjacent", // "N": now "n right"
 }
 
 type General struct {
@@ -327,6 +336,11 @@ func mergeCommands(cfg *Config, md toml.MetaData, raw map[string]toml.Primitive,
 		if slices.Contains(finderReservedKeys, c.FinderKey) {
 			return fmt.Errorf("%s: commands.%s: finder_key %q is reserved by the finder", path, name, c.FinderKey)
 		}
+		// The finder's input lines are always taking text, so there is no
+		// moment at which a first key could wait for a second.
+		if strings.Contains(strings.TrimSpace(c.FinderKey), " ") {
+			return fmt.Errorf("%s: commands.%s: finder_key %q is a key sequence; the finder takes one key", path, name, c.FinderKey)
+		}
 		cfg.Commands[name] = c
 		if !known {
 			cfg.CommandOrder = append(cfg.CommandOrder, name)
@@ -334,6 +348,9 @@ func mergeCommands(cfg *Config, md toml.MetaData, raw map[string]toml.Primitive,
 	}
 
 	for _, name := range disabled {
+		if slices.Contains(retiredCommands, name) {
+			continue // nothing left to disable, and not worth refusing to start over
+		}
 		if _, ok := cfg.Commands[name]; !ok {
 			return fmt.Errorf("%s: commands.disabled: %q is not a command", path, name)
 		}

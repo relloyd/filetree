@@ -37,16 +37,16 @@ func TestLoadStarter(t *testing.T) {
 		t.Errorf("tmux-handoff = %+v, want key t, background", h)
 	}
 	// Command keys must not collide with an action default: actions win, so a
-	// clash would silently shadow the command. "n"/"N" and "L"/"D" are the ones
-	// worth spelling out, since they sit closest to the bound letters.
-	if s := cfg.Commands["shell-popup"]; s.Key != "alt+n" || s.Mode != ModeBackground {
-		t.Errorf("shell-popup = %+v, want key P, background", s)
+	// clash would silently shadow the command. The popup is the one command in
+	// the "n" chord, beside the actions that take its arrows, and "L"/"D" sit
+	// closest to the bound letters.
+	if s := cfg.Commands["shell-popup"]; s.Key != "n space" || s.Mode != ModeBackground {
+		t.Errorf("shell-popup = %+v, want key \"n space\", background", s)
 	}
-	if s := cfg.Commands["shell-vsplit"]; s.Key != "n" || s.Mode != ModeBackground {
-		t.Errorf("shell-vsplit = %+v, want key n, background", s)
-	}
-	if s := cfg.Commands["shell-vsplit-adjacent"]; s.Key != "N" || s.Mode != ModeBackground {
-		t.Errorf("shell-vsplit-adjacent = %+v, want key N, background", s)
+	for _, retired := range retiredCommands {
+		if _, ok := cfg.Commands[retired]; ok {
+			t.Errorf("%s is retired but still in the catalogue", retired)
+		}
 	}
 	// lazygit is the one popup that is interactive: only an interactive command
 	// refreshes git status when it returns, and a lazygit that has just been
@@ -409,6 +409,13 @@ finder_key = %q
 	} else if !strings.Contains(err.Error(), "reserved") {
 		t.Errorf("error = %v, want it to mention the key is reserved", err)
 	}
+	// The tree takes chords; the finder cannot, since its inputs are always
+	// taking the next key as text.
+	if _, err := loadTOML(t, fmt.Sprintf(tmpl, "ctrl+e x")); err == nil {
+		t.Error(`finder_key = "ctrl+e x" loaded; want an error`)
+	} else if !strings.Contains(err.Error(), "sequence") {
+		t.Errorf("error = %v, want it to say sequences are not allowed", err)
+	}
 
 	cfg, err := loadTOML(t, fmt.Sprintf(tmpl, "ctrl+e"))
 	if err != nil {
@@ -739,6 +746,11 @@ func TestCommandsCanBeDisabled(t *testing.T) {
 		t.Error("disabling two commands should not touch the rest")
 	}
 	// A typo here would otherwise be a command that silently never goes away.
+	// A config written before the "n" chord disabled what "n" used to be. That
+	// was right then, and must not stop ft starting now.
+	if _, err := loadTOML(t, "[commands]\ndisabled = [\"shell-vsplit\", \"shell-vsplit-adjacent\"]\n"); err != nil {
+		t.Errorf("disabling a retired command: %v", err)
+	}
 	if _, err := loadTOML(t, "[commands]\ndisabled = [\"nope\"]\n"); err == nil {
 		t.Error("disabling an unknown command should fail")
 	}
