@@ -75,3 +75,18 @@ func TestPaneTouchingRight(t *testing.T) {
 		t.Errorf("paneTouchingRight() = %s %v, want %%5", p.ID, ok)
 	}
 }
+
+// tmux expands split-window's -c as a format, so a directory name has to have
+// its "#" doubled or "#(cmd)" in a path would run cmd.
+func TestFormatLiteral(t *testing.T) {
+	for in, want := range map[string]string{
+		"/tmp/plain":          "/tmp/plain",
+		"/tmp/#(touch pwned)": "/tmp/##(touch pwned)",
+		"/tmp/x#{pane_id}":    "/tmp/x##{pane_id}",
+		"/tmp/a##b":           "/tmp/a####b",
+	} {
+		if got := FormatLiteral(in); got != want {
+			t.Errorf("FormatLiteral(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
