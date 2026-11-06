@@ -42,11 +42,25 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg, s string) (tea.Model, tea.Cmd
 	case "down":
 		m.scrollHelp(1)
 		return m, nil
-	case "pgup":
+	// The same page keys as the tree and the finder. ctrl+u and ctrl+d stop
+	// being edits of the filter, as they do in the finder's fields.
+	case "pgup", "alt+up":
 		m.scrollHelp(-m.helpPage())
 		return m, nil
-	case "pgdown":
+	case "pgdown", "alt+down":
 		m.scrollHelp(m.helpPage())
+		return m, nil
+	case "ctrl+u":
+		m.scrollHelp(-halfPage(m.helpPage()))
+		return m, nil
+	case "ctrl+d":
+		m.scrollHelp(halfPage(m.helpPage()))
+		return m, nil
+	case "super+up":
+		m.helpScroll = 0
+		return m, nil
+	case "super+down":
+		m.scrollHelp(len(m.helpVisibleRows())) // clamped to the last screenful
 		return m, nil
 	}
 

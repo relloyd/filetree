@@ -31,10 +31,11 @@ func TestArgs(t *testing.T) {
 		},
 		{
 			// The scope flags come first because searching and listing share
-			// them; --max-count is search-only and follows.
+			// them; --max-count is search-only and follows. It is one past the
+			// cap: the extra match is how Run knows a file had more.
 			name: "per-file cap",
 			q:    Query{Regex: "x", MaxPerFile: 5},
-			want: []string{"--json", "--no-heading", "--color=never", "-g", "!.git/", "--max-count", "5", "-e", "x"},
+			want: []string{"--json", "--no-heading", "--color=never", "-g", "!.git/", "--max-count", "6", "-e", "x"},
 		},
 		{
 			name: "a zero cap is left off",
@@ -131,11 +132,20 @@ func TestDisplayArgsMatchTheExecutedSearch(t *testing.T) {
 	outputFlags := map[string]bool{
 		"--json": true, "--no-heading": true, "--color=never": true, "-n": true,
 	}
+	// The run reads one match per file past the cap, to learn that there were
+	// more, and shows none of it; the displayed command states the cap itself.
+	if !containsSeq(run, []string{"--max-count", "6"}) || !containsSeq(shown, []string{"--max-count", "5"}) {
+		t.Errorf("--max-count: run %v, shown %v; want 6 and 5", run, shown)
+	}
 	strip := func(args []string) []string {
 		var out []string
-		for _, a := range args {
-			if !outputFlags[a] {
-				out = append(out, a)
+		for i := 0; i < len(args); i++ {
+			switch {
+			case outputFlags[args[i]]:
+			case args[i] == "--max-count":
+				i++ // checked above
+			default:
+				out = append(out, args[i])
 			}
 		}
 		return out
@@ -279,6 +289,69 @@ func TestRunFiltersFilesThenLines(t *testing.T) {
 	want := []string{"infra/prod/terragrunt.hcl", "infra/stage/terragrunt.hcl"}
 	if !slices.Equal(paths, want) {
 		t.Errorf("hits = %v, want %v (notes.md is the wrong type, dev/ the wrong content)", paths, want)
+	}
+}
+
+// A file past the cap keeps its first matches and gains one placeholder after
+// them; a file within it is untouched. No cap at all means no placeholders.
+func TestPerFileCap(t *testing.T) {
+	hit := func(path string, line int) Hit { return Hit{Path: path, Line: line, Text: "x"} }
+	in := []Hit{hit("a", 1), hit("a", 2), hit("a", 3), hit("a", 4), hit("b", 1), hit("b", 2), hit("c", 1), hit("c", 2), hit("c", 3)}
+
+	run := func(max int) []Hit {
+		c := perFileCap{max: max}
+		var out []Hit
+		for _, h := range in {
+			if h, ok := c.take(h); ok {
+				out = append(out, h)
+			}
+		}
+		return out
+	}
+
+	want := []Hit{hit("a", 1), hit("a", 2), {Path: "a", More: true}, hit("b", 1), hit("b", 2), hit("c", 1), hit("c", 2), {Path: "c", More: true}}
+	if got := run(2); !slices.Equal(got, want) {
+		t.Errorf("cap 2:\n got  %v\n want %v", got, want)
+	}
+	if got := run(0); !slices.Equal(got, in) {
+		t.Errorf("no cap changed the stream: %v", got)
+	}
+}
+
+// End to end through ripgrep: the extra match Args asks for comes back as the
+// placeholder, never as a row.
+func TestRunMarksFilesWithMoreMatches(t *testing.T) {
+	requireRipgrep(t)
+	root := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("many.txt", "x\nx\nx\nx\n")
+	write("two.txt", "x\nx\n")
+
+	hits, err := runAll(t, t.Context(), root, Query{Regex: "x", MaxPerFile: 2})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	count := map[string]int{}
+	more := map[string]int{}
+	for _, h := range hits {
+		if h.More {
+			more[h.Path]++
+			if h.Line != 0 || h.Text != "" {
+				t.Errorf("placeholder carries a match: %+v", h)
+			}
+			continue
+		}
+		count[h.Path]++
+	}
+	if count["many.txt"] != 2 || more["many.txt"] != 1 {
+		t.Errorf("many.txt: %d matches, %d placeholders; want 2 and 1", count["many.txt"], more["many.txt"])
+	}
+	if count["two.txt"] != 2 || more["two.txt"] != 0 {
+		t.Errorf("two.txt: %d matches, %d placeholders; want 2 and 0 (exactly at the cap is not more)", count["two.txt"], more["two.txt"])
 	}
 }
 

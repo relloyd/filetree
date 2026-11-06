@@ -45,18 +45,34 @@ func (m *Model) gotoBottom() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) halfPageDown() (tea.Model, tea.Cmd) {
-	m.cursor = min(len(m.rows)-1, m.cursor+m.treeVisibleRows()/2)
-	m.ensureVisible()
-
-	return m, nil
+	return m.moveCursorBy(halfPage(m.treeVisibleRows()))
 }
 
 func (m *Model) halfPageUp() (tea.Model, tea.Cmd) {
-	m.cursor = max(0, m.cursor-m.treeVisibleRows()/2)
-	m.ensureVisible()
+	return m.moveCursorBy(-halfPage(m.treeVisibleRows()))
+}
 
+func (m *Model) pageDown() (tea.Model, tea.Cmd) {
+	return m.moveCursorBy(fullPage(m.treeVisibleRows()))
+}
+
+func (m *Model) pageUp() (tea.Model, tea.Cmd) {
+	return m.moveCursorBy(-fullPage(m.treeVisibleRows()))
+}
+
+func (m *Model) moveCursorBy(n int) (tea.Model, tea.Cmd) {
+	m.cursor = clamp(m.cursor+n, 0, max(0, len(m.rows)-1))
+	m.ensureVisible()
 	return m, nil
 }
+
+// halfPage and fullPage are how far the paging keys move a list showing rows
+// rows: ctrl+u/ctrl+d half of it, pgup/pgdn all but one, so the row you were
+// paging from stays on screen as the one to read on from — the overlap less
+// and the help page keep too. Both move at least one row, or a pane a row
+// or two tall would have paging keys that do nothing.
+func halfPage(rows int) int { return max(1, rows/2) }
+func fullPage(rows int) int { return max(1, rows-1) }
 
 // leftKey collapses an expanded dir, otherwise jumps to the parent.
 func (m *Model) leftKey() (tea.Model, tea.Cmd) {

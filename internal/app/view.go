@@ -694,6 +694,16 @@ func (m *Model) renderFinderHeader() []string {
 		if n := m.grepSkipped; n > 0 {
 			line += styleChanged.Render(fmt.Sprintf("  %d skipped (line too long)", n))
 		}
+		// The per-file cap, said only when it is doing something: lifted, or
+		// holding matches back. Naming the key is what makes the "… more in"
+		// rows something to act on rather than just a note.
+		key := keyLabel(m.actionKeys["finder-all-matches"])
+		switch {
+		case m.grepAllMatches:
+			line += styleOK.Render("  all matches") + styleDim.Render(" ("+key+")")
+		case m.grepMore > 0:
+			line += styleDim.Render(fmt.Sprintf("  %d/file (%s: all)", m.configuredMaxPerFile(), key))
+		}
 		lines = append(lines, line)
 	}
 	if m.finderField == fieldType || m.typeInput.Value() != "" {
@@ -1224,6 +1234,9 @@ func (m *Model) renderGrepRow(h search.Hit, selected bool) []string {
 	if selected {
 		prefix = styleTitle.Render(" > ")
 	}
+	if h.More {
+		return m.renderGrepMoreRow(h, prefix)
+	}
 	at := ":" + strconv.Itoa(h.Line)
 	shown, _ := truncatePathLeft(h.Path, nil, max(1, m.width-3-len(at)))
 	line := prefix + m.highlightPath(shown, nil) + styleDim.Render(at)
@@ -1237,6 +1250,22 @@ func (m *Model) renderGrepRow(h search.Hit, selected bool) []string {
 		t := truncate(text, room)
 		return styleDim.Render(t), lipgloss.Width(t)
 	})
+}
+
+// grepMoreLead introduces a "more" placeholder's path. It is one cell wide,
+// like every rune in it, so its width is its rune count.
+const grepMoreLead = "… more in "
+
+// renderGrepMoreRow is the placeholder after a file's last shown match: there
+// are more matches in it than fuzzy_grep_max_per_file lets through. It is dim
+// throughout, path included, so it reads as a note on the rows above rather
+// than as one more of them, and it goes through finderRow so a stacked layout
+// gives it the same two lines as any other row.
+func (m *Model) renderGrepMoreRow(h search.Hit, prefix string) []string {
+	lead := len([]rune(grepMoreLead))
+	shown, _ := truncatePathLeft(h.Path, nil, max(1, m.width-3-lead))
+	line := prefix + styleDim.Render(grepMoreLead+shown)
+	return m.finderRow(line, 3+lead+lipgloss.Width(shown), false, 2, func(int) (string, int) { return "", 0 })
 }
 
 // helpRow is one action and the keys that reach it: key in the tree,
@@ -1518,8 +1547,9 @@ func (m *Model) helpRows() []helpRow {
 		{key: "←/h", desc: "collapse / go to parent"},
 		{key: "→/l", desc: "expand / step in"},
 		{key: "enter", desc: "open file (default command) / toggle dir"},
-		{key: "g G", desc: "top / bottom"},
+		{key: "g G", desc: "top / bottom (also cmd+up/down)"},
 		{key: "ctrl+u ctrl+d", desc: "half page up / down"},
+		{key: "pgup pgdn", desc: "page up / down (also alt+up/down)"},
 		{key: m.actionKeys["mark"], desc: "mark/unmark selection (and move down)"},
 		{key: m.actionKeys["clear-marks"], desc: "clear marks, else return to the project root"},
 		{key: m.actionKeys["scratch"], desc: "toggle scratch view"},
@@ -1546,6 +1576,7 @@ func (m *Model) helpRows() []helpRow {
 		finderOnly("finder-more", "raise the match limit (2×, 3×, …)"),
 		finderOnly("finder-copy-command", "copy the rg command"),
 		finderOnly("finder-clear", "empty all three fields"),
+		finderOnly("finder-all-matches", "grep: every match per file, or the cap"),
 		{key: m.actionKeys["finder-resume"], desc: "reopen the fuzzy finder where you left it"},
 		{key: m.actionKeys["recent"], desc: "recently opened files; enter reveals and opens"},
 		{key: m.actionKeys["bookmarks"], desc: "line bookmarks for this repo; tab sorts"},

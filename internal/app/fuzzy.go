@@ -205,7 +205,7 @@ func (m *Model) enterFuzzy() (tea.Model, tea.Cmd) {
 	m.mode = modeFuzzy
 	m.stopGrep()
 	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
-	m.grepCapped, m.grepSkipped = false, 0
+	m.grepCapped, m.grepSkipped, m.grepMore = false, 0, 0
 	m.fuzzyQuery = ""
 
 	// Compile straight into the model rather than through applyTypeFilter,
@@ -302,7 +302,7 @@ func (m *Model) clearFinder() tea.Cmd {
 	m.resumeWant = finderPick{}
 	m.stopGrep()
 	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
-	m.grepCapped, m.grepSkipped = false, 0
+	m.grepCapped, m.grepSkipped, m.grepMore = false, 0, 0
 	m.fuzzyFilter, m.fuzzyFilterErr, m.fuzzyFilterRaw = search.Filter{}, "", ""
 	return m.restartFuzzyWalk()
 }
@@ -715,14 +715,6 @@ func (m *Model) cycleFinderField(delta int) tea.Cmd {
 	n := int(finderFieldCount)
 	m.finderField = finderField((int(m.finderField) + delta + n) % n)
 	return m.focusFinderField()
-}
-
-// finderCanDeleteForward reports whether the focused input has a character to
-// the right of the cursor — that is, whether a forward delete would do
-// anything. textinput applies the same test before deleting.
-func (m *Model) finderCanDeleteForward() bool {
-	in := m.finderInput()
-	return in.Position() < len([]rune(in.Value()))
 }
 
 // finderInput is the input line that currently has focus.

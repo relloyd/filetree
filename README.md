@@ -187,6 +187,7 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `ctrl+g` | in the fuzzy finder: raise the match limit for the session (2×, 3×, …) — in the tree it is the herdr blame key |
 | `ctrl+y` | in the fuzzy finder: copy the `rg` command behind the `Type`/`Grep` fields |
 | `ctrl+o` | in the fuzzy finder: empty all three fields |
+| `alt+a` | in the fuzzy finder: show every `Grep` match in each file, or go back to `fuzzy_grep_max_per_file` — for the rest of the session |
 | `ctrl+e` | in the fuzzy finder: open the highlighted result in helix, at the matched line — quitting returns you to the results |
 | `ctrl+t` | in the fuzzy finder: hand the highlighted result to the other tmux pane, without closing the finder |
 | `ctrl+r` | in the fuzzy finder: open the highlighted result in the helix for its place in [herdr](#herdr), at the matched line, without closing the finder |
@@ -197,6 +198,8 @@ Clipboard, browser, Finder reveal, and Trash go through `pbcopy`, `open`, and
 | `R` | rename |
 | `d` | delete marked items — or the selection if none — to Trash (confirm names what's deleted); on a worktree root, `git worktree remove` instead |
 | `g` / `G`, `ctrl+u`/`ctrl+d` | top / bottom, half-page |
+| `pgup`/`pgdn`, `alt+↑`/`alt+↓` | a page up / down — a screenful less one row. The same keys page the finder's lists and `?` |
+| `cmd+↑`/`cmd+↓` | top / bottom, in the tree, the finder and `?` — where the terminal passes Cmd through (see [Modified arrows](#modified-arrows)) |
 | `s` | toggle the scratch view (and back) |
 | `S` | new scratch file (`YYYYMMDDHH.md`, pre-created empty) opened in the default editor |
 | `w` | toggle the worktrees view (and back) |
@@ -232,7 +235,8 @@ already holds means saying where that one goes too — `rename = "f2"` alongside
 something with no key at all is refused rather than obeyed, so a typo cannot
 hide `rename`: `ft` starts as usual, says how many conflicts it found in the
 status bar, and lists them at the top of `?`. The navigation keys (arrows,
-`hjkl`, `g`/`G`, `enter`, `shift+enter`, `ctrl+u`/`ctrl+d`, `ctrl+c`, `F5`) are
+`hjkl`, `g`/`G`, `enter`, `shift+enter`, `ctrl+u`/`ctrl+d`, `pgup`/`pgdn`,
+`alt+↑`/`alt+↓`, `cmd+↑`/`cmd+↓`, `ctrl+c`, `F5`) are
 not remappable and cannot be taken; anything that tries is reported the same
 way.
 
@@ -260,6 +264,19 @@ your `~/.tmux.conf` — it is off by default, and without it tmux hands the chor
 over as a plain `enter`, which expands the directory instead. `>` always works,
 which is why the action ships on it.
 
+### Modified arrows
+
+`alt+↑`/`alt+↓` are there for keyboards without page keys, or with page keys
+mapped to Option+arrow. They arrive as Alt in Ghostty, iTerm2 and Terminal.app,
+inside tmux or not. If your keyboard's firmware can send real PgUp/PgDn (a
+Keychron's Launcher or VIA can), that works everywhere and needs nothing else.
+
+`cmd+↑`/`cmd+↓` are harder to get through. Most macOS terminals keep Cmd for
+themselves — Ghostty uses these two to jump between shell prompts — so they
+reach `ft` only once the terminal is told to send them (in Ghostty,
+`keybind = cmd+up=unbind` and `keybind = cmd+down=unbind`), and inside tmux
+only with `set -s extended-keys on`. `g`/`G` and `home`/`end` always work.
+
 Two actions ship with no key of their own, because the navigation set already
 covers them: `reload` (`F5`) and `quit` (`ctrl+c`). Both are still bindable, so
 `quit = "q"` puts quitting back on a letter if you want it there — but leaving
@@ -272,8 +289,8 @@ your config on first run has the same list with the defaults beside it.
 The page is longer than a screen, and on a narrow pane it cannot use columns to
 buy the room back. So it filters and scrolls: **type and the list narrows**,
 matching the key columns as well as the descriptions, so `ctrl` finds the chords
-and `worktree` finds the actions. The wheel, the arrows and `pgup`/`pgdn` move
-through what is left, and a line at the bottom says how many rows are above and
+and `worktree` finds the actions. The wheel, the arrows, `pgup`/`pgdn` and
+`ctrl+u`/`ctrl+d` move through what is left, and a line at the bottom says how many rows are above and
 below. `!` excludes, the same as in the fuzzy finder.
 
 Filtered rows keep the page's own order rather than taking the matcher's
@@ -860,7 +877,9 @@ paths containing that substring (case-insensitive, not fuzzy — a fuzzy invert
 of `nonprod` would drop almost everything). Several `!` tokens all apply, so
 `!nonprod !sandbox` keeps rows containing neither; leftover tokens stay one
 fuzzy include (`spanner !nonprod`). Navigate results with `↑`/`↓`
-(`ctrl+p`/`ctrl+n`), half-page with `ctrl+u`/`ctrl+d`, or the mouse wheel;
+(`ctrl+p`/`ctrl+n`), a page at a time with `pgup`/`pgdn` (`alt+↑`/`alt+↓`),
+half a page with `ctrl+u`/`ctrl+d`, to either end with `cmd+↑`/`cmd+↓`, or the
+mouse wheel;
 the list scrolls with the selection and shows a `12/1000` position counter
 (`…` while the walk is still running, `+` if it stopped at the candidate cap).
 Ranking is screen-aware: entries currently visible in the tree outrank
@@ -881,9 +900,17 @@ jumps to the **file** in the tree — the line number is there to help you
 choose, not to open at. The
 search respects the hidden and gitignored toggles, is debounced so a
 half-typed regexp is never run, and takes at most 5 matches from any one file
-(`fuzzy_grep_max_per_file`, passed straight through as ripgrep's
-`--max-count`, so ripgrep enforces it while reading). ripgrep's own errors — a
-malformed regexp, most often — appear beside the field.
+(`fuzzy_grep_max_per_file`). ripgrep's own errors — a malformed regexp, most
+often — appear beside the field.
+
+A file with more matches than that gets a dim **`… more in <path>`** row after
+the last one shown, and the `Grep` line says `5/file (alt+a: all)`. `alt+a`
+searches again with no per-file cap, for the rest of the session — the `Grep`
+line says `all matches` while it is on — and pressing it again puts the cap
+back. The row does not say how many more: ripgrep is asked for one match past
+the cap (`--max-count 6`), which is how `ft` knows there were more without
+reading the rest of a large file. Enter on it jumps to the file, as on any
+other row.
 
 Whenever `Type` or `Grep` has anything in it, the **status bar shows the
 ripgrep command** the finder amounts to, and **`ctrl+y`** copies the whole thing
@@ -1184,12 +1211,12 @@ you. `ctrl+o` likewise clears only the fields of the view you are in.
 
 The finder's inputs take the usual readline keys, with
 two exceptions where list navigation gets there first: `ctrl+u` is half-page up
-rather than delete-to-start, and `ctrl+d` is half-page down *unless the cursor
-has a character to its right*, in which case it deletes forward. That makes
-`ctrl+d` — and the macOS Fn+Backspace that many terminals send as `ctrl+d` —
-work as a delete key while you are editing, and as a scroll key while you are
-browsing results, which is where the cursor sits once a query is typed. Word
-deletion (`ctrl+w`, `alt+backspace`) is untouched.
+rather than delete-to-start, and `ctrl+d` is half-page down rather than delete
+forward — always, wherever the cursor is, so the key never does two different
+things depending on something you cannot see while reading results. `delete`
+still deletes forward, and word deletion (`ctrl+w`, `alt+backspace`) is
+untouched. A key that does not change the text — moving the cursor, or a
+modified key the finder does not use — leaves the selection where it is.
 
 Two readline keys are gone, taken by commands rather than by the finder:
 `ctrl+e` is not end-of-line but "open this result", and `ctrl+k` is not
@@ -1207,7 +1234,7 @@ both modes:
 |---|---|---|---|---|---|
 | Candidate cap | 50,000 | `fuzzy_max_candidates` | the walk, between directories | name only | `+` on the counter; deep files absent |
 | Match cap | 1,000 (× `ctrl+g`) | `fuzzy_max_matches` | `ft`, as results arrive | both | ` max` on the counter; the search stops there |
-| Matches per file | 5 | `fuzzy_grep_max_per_file` | ripgrep `--max-count` | content only | at most 5 rows from one file |
+| Matches per file | 5 (none with `alt+a`) | `fuzzy_grep_max_per_file` | ripgrep `--max-count`, one past the cap | content only | at most 5 rows from one file, then `… more in` |
 | Line length | 1 MiB | — | `ft`, while parsing | content only | `3 skipped (line too long)` beside the pattern |
 | Debounce | 150 ms | — | `ft` | content only | the pause before ripgrep runs |
 

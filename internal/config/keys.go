@@ -40,6 +40,7 @@ var DefaultActionKeys = map[string]string{
 	"finder-more":         "ctrl+g",
 	"finder-copy-command": "ctrl+y",
 	"finder-clear":        "ctrl+o",
+	"finder-all-matches":  "alt+a",
 	// finder-resume is a normal-mode action, so unlike the finder-local keys
 	// above it does belong in the actions map.
 	"finder-resume": "f",
@@ -91,6 +92,7 @@ var actionNotes = map[string]string{
 	"finder-more":         `raise fuzzy_max_matches for this session`,
 	"finder-copy-command": `copy the rg command behind Type/Grep`,
 	"finder-clear":        `empty the finder fields`,
+	"finder-all-matches":  `show every grep match per file, or back to fuzzy_grep_max_per_file`,
 	"finder-resume":       `reopen the finder where you left it`,
 	"recent":              `the finder over recently opened files`,
 	"bookmarks":           `the finder over this repo's line bookmarks`,

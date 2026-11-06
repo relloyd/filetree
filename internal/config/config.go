@@ -99,8 +99,9 @@ type Command struct {
 // switch in internal/app/app.go — keep the two in step.
 var finderReservedKeys = []string{
 	"esc", "enter", "up", "down", "pgup", "pgdown",
+	"alt+up", "alt+down", "super+up", "super+down",
 	"ctrl+p", "ctrl+n", "ctrl+u", "ctrl+d",
-	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+o",
+	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+o", "alt+a",
 	"ctrl+s", "ctrl+x", // the bookmark view's scope and forget keys; the session
 	// list's split-below and kill keys; ctrl+x is also forget in "<"
 	"ctrl+w", // the session list's open-in-a-pane key

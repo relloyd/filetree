@@ -87,6 +87,7 @@ func Run(ctx context.Context, root string, q Query, out chan<- Result) {
 
 	buf := make([]Hit, 0, hitChunk)
 	skipped := 0
+	trim := perFileCap{max: q.MaxPerFile}
 	r := bufio.NewReaderSize(stdout, 64*1024)
 	for {
 		line, over, err := readBoundedLine(r, maxLine)
@@ -96,6 +97,9 @@ func Run(ctx context.Context, root string, q Query, out chan<- Result) {
 			// megabyte. Counting them all beats sniffing ripgrep's key order.
 			skipped++
 		} else if h, ok := ParseJSONLine(line); ok {
+			if h, ok = trim.take(h); !ok {
+				continue
+			}
 			buf = append(buf, h)
 			if len(buf) >= hitChunk {
 				if !send(ctx, out, Result{Hits: buf, Skipped: skipped}) {
@@ -111,6 +115,42 @@ func Run(ctx context.Context, root string, q Query, out chan<- Result) {
 	// The loop above always reads to EOF, so ripgrep has finished writing and
 	// Wait cannot block on an undrained pipe.
 	send(ctx, out, Result{Hits: buf, Skipped: skipped, Done: true, Err: waitErr(ctx, cmd, &stderr)})
+}
+
+// perFileCap trims each file to max matches, turning the first match past it
+// into a More placeholder. Args has ripgrep stop one match past the cap, so
+// that placeholder is the only extra a file can produce; anything further is
+// dropped all the same, so the cap holds for a caller that asked for more.
+//
+// It counts per path as the stream goes rather than in a map: ripgrep's JSON
+// printer writes each file's matches together, between its begin and end
+// events, even when it searches files in parallel.
+//
+// A match skipped for its length never reaches here, so if one of a file's
+// first max+1 matches was skipped, the file shows what is left without a
+// placeholder. The skipped count already says the search was not exhaustive.
+type perFileCap struct {
+	max  int // 0 for no cap
+	path string
+	n    int
+}
+
+func (c *perFileCap) take(h Hit) (Hit, bool) {
+	if c.max <= 0 {
+		return h, true
+	}
+	if h.Path != c.path {
+		c.path, c.n = h.Path, 0
+	}
+	c.n++
+	switch {
+	case c.n <= c.max:
+		return h, true
+	case c.n == c.max+1:
+		return Hit{Path: h.Path, More: true}, true
+	default:
+		return Hit{}, false
+	}
 }
 
 // readBoundedLine returns the next newline-terminated line, or reports that it
