@@ -309,7 +309,7 @@ func TestPerFileCap(t *testing.T) {
 		return out
 	}
 
-	want := []Hit{hit("a", 1), hit("a", 2), {Path: "a", More: true}, hit("b", 1), hit("b", 2), hit("c", 1), hit("c", 2), {Path: "c", More: true}}
+	want := []Hit{hit("a", 1), hit("a", 2), {Path: "a", Line: 3, More: true}, hit("b", 1), hit("b", 2), hit("c", 1), hit("c", 2), {Path: "c", Line: 3, More: true}}
 	if got := run(2); !slices.Equal(got, want) {
 		t.Errorf("cap 2:\n got  %v\n want %v", got, want)
 	}
@@ -340,8 +340,9 @@ func TestRunMarksFilesWithMoreMatches(t *testing.T) {
 	for _, h := range hits {
 		if h.More {
 			more[h.Path]++
-			if h.Line != 0 || h.Text != "" {
-				t.Errorf("placeholder carries a match: %+v", h)
+			// The first match left out: line 3, after the two shown.
+			if h.Line != 3 || h.Text != "" {
+				t.Errorf("placeholder = %+v, want line 3 and no text", h)
 			}
 			continue
 		}

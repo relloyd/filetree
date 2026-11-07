@@ -73,6 +73,18 @@ type finderPick struct {
 	line int    // content mode: the matched line; 0 otherwise
 }
 
+// selectedPick is the highlighted row as something to come back to: its path,
+// and in content mode its line, which picks it out among the file's matches.
+// A "more" placeholder's line is the first match it stands for, so coming
+// back with every match shown lands on that match.
+func (m *Model) selectedPick() finderPick {
+	p := finderPick{rel: m.finderPath(m.fuzzySel)}
+	if p.rel != "" && m.grepping() && m.fuzzySel < len(m.grepRows) {
+		p.line = m.grepHits[m.grepRows[m.fuzzySel]].Line
+	}
+	return p
+}
+
 // isZero reports whether there is no row to go back to.
 func (p finderPick) isZero() bool { return p.rel == "" }
 
@@ -205,7 +217,7 @@ func (m *Model) enterFuzzy() (tea.Model, tea.Cmd) {
 	m.mode = modeFuzzy
 	m.stopGrep()
 	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
-	m.grepCapped, m.grepSkipped, m.grepMore = false, 0, 0
+	m.grepCapped, m.grepSkipped, m.grepMore, m.grepMoreShown = false, 0, 0, 0
 	m.fuzzyQuery = ""
 
 	// Compile straight into the model rather than through applyTypeFilter,
@@ -302,7 +314,7 @@ func (m *Model) clearFinder() tea.Cmd {
 	m.resumeWant = finderPick{}
 	m.stopGrep()
 	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
-	m.grepCapped, m.grepSkipped, m.grepMore = false, 0, 0
+	m.grepCapped, m.grepSkipped, m.grepMore, m.grepMoreShown = false, 0, 0, 0
 	m.fuzzyFilter, m.fuzzyFilterErr, m.fuzzyFilterRaw = search.Filter{}, "", ""
 	return m.restartFuzzyWalk()
 }
@@ -936,10 +948,7 @@ func (m *Model) fuzzyJump() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// Remember where we left, so the finder can be resumed on this row.
-	m.lastPick = finderPick{rel: rel}
-	if m.grepping() && m.fuzzySel < len(m.grepRows) {
-		m.lastPick.line = m.grepHits[m.grepRows[m.fuzzySel]].Line
-	}
+	m.lastPick = m.selectedPick()
 	m.tr.ExpandRel(path.Dir(rel))
 	m.reflatten()
 	abs := m.finderAbs(m.fuzzySel)

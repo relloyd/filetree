@@ -9,9 +9,10 @@ import (
 // the tree root, since Run searches from there.
 //
 // More marks a placeholder rather than a match: the file has matches past the
-// query's per-file cap that were left out. It carries only the path — Line is
-// zero, which no real match has, and Text is empty — and follows that file's
-// last kept match in the stream.
+// query's per-file cap that were left out. Line is the first of those, so a
+// command run on the placeholder opens the file where the unseen matches
+// start; Text is empty, since the line is not being shown. It follows that
+// file's last kept match in the stream.
 type Hit struct {
 	Path string
 	Line int

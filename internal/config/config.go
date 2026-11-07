@@ -97,11 +97,17 @@ type Command struct {
 // finderReservedKeys are the keys the finder handles itself, and so cannot be
 // given away to a command's finder_key. The source of truth is the modeFuzzy
 // switch in internal/app/app.go — keep the two in step.
+//
+// A key added here makes a config that already uses it as a finder_key fail to
+// load, so later finder-local actions stay off this list: alt+a
+// (finder-all-matches) is one. buildBindings settles those the way it settles a
+// remapped finder-local key — the action keeps the key and the command's
+// finder_key is dropped with a conflict report, which leaves ft starting.
 var finderReservedKeys = []string{
 	"esc", "enter", "up", "down", "pgup", "pgdown",
 	"alt+up", "alt+down", "super+up", "super+down",
 	"ctrl+p", "ctrl+n", "ctrl+u", "ctrl+d",
-	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+o", "alt+a",
+	"tab", "shift+tab", "ctrl+g", "ctrl+y", "ctrl+o",
 	"ctrl+s", "ctrl+x", // the bookmark view's scope and forget keys; the session
 	// list's split-below and kill keys; ctrl+x is also forget in "<"
 	"ctrl+w", // the session list's open-in-a-pane key

@@ -78,7 +78,7 @@ func TestHelpPagingKeys(t *testing.T) {
 		t.Errorf("alt+down: scroll = %d, want a page (%d)", m.helpScroll, page)
 	}
 	press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	if want := page - halfPage(page); m.helpScroll != want {
+	if want := page - halfPage(m.helpCapacity(m.helpVisibleRows())); m.helpScroll != want {
 		t.Errorf("ctrl+u: scroll = %d, want %d", m.helpScroll, want)
 	}
 	press(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModSuper})

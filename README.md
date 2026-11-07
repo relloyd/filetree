@@ -909,8 +909,11 @@ searches again with no per-file cap, for the rest of the session — the `Grep`
 line says `all matches` while it is on — and pressing it again puts the cap
 back. The row does not say how many more: ripgrep is asked for one match past
 the cap (`--max-count 6`), which is how `ft` knows there were more without
-reading the rest of a large file. Enter on it jumps to the file, as on any
-other row.
+reading the rest of a large file. That extra match is also where the row
+points: enter jumps to the file, as on any other row, and a command run on it
+(`ctrl+e`, say) opens the file at the first match it left out. `alt+a` keeps
+your place — on a `… more` row, you land on that match once every match is
+shown.
 
 Whenever `Type` or `Grep` has anything in it, the **status bar shows the
 ripgrep command** the finder amounts to, and **`ctrl+y`** copies the whole thing

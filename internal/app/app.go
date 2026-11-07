@@ -341,6 +341,10 @@ type Model struct {
 	// with matches past fuzzy_grep_max_per_file. They are rows, not matches,
 	// so the match cap leaves them out of its count.
 	grepMore int
+	// grepMoreShown is how many of them the Find query left in grepRows: the
+	// placeholders actually in the list, which is what the Grep line's
+	// "alt+a: all" hint is about.
+	grepMoreShown int
 	// grepAllMatches lifts the per-file cap (alt+a). Like fuzzyLimitFactor it
 	// lasts the ft session, so reopening the finder keeps it.
 	grepAllMatches bool
@@ -927,58 +931,33 @@ func (m *Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 // updateFinderInput feeds a key or paste to the focused finder field and
 // recomputes whatever that field drives.
 func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Editing any field means the user has moved on from where they left off,
-	// so stop trying to restore that row.
-	m.resumeWant = finderPick{}
-	//
-	// Only a change to the text rebuilds the list. Every rebuild puts the
-	// selection back on the first row, and plenty of keys reach the input
-	// without editing it — cursor movement, and any modified key the finder
-	// does not bind — which used to send the selection to the top as if the
-	// query had been retyped.
+	in := m.finderInput()
+	before := in.Value()
 	var cmd tea.Cmd
-	if m.finderSrc == srcBookmark {
-		before := m.bmInput.Value()
-		m.bmInput, cmd = m.bmInput.Update(msg)
-		if m.bmInput.Value() != before {
-			m.rebuildBookmarkRows()
-			m.fuzzySel, m.fuzzyScroll = 0, 0
-		}
-		return m, cmd
+	*in, cmd = in.Update(msg)
+	// Plenty of keys reach the input without editing it — cursor movement,
+	// and any modified key the finder does not bind. Those are not a new
+	// query: they must neither rebuild the list, which puts the selection
+	// back on the first row, nor give up on the row a resume is waiting for.
+	edited := in.Value() != before
+	if edited {
+		// Editing means the user has moved on from where they left off.
+		m.resumeWant = finderPick{}
 	}
-	if m.finderSrc == srcTmux {
-		before := m.tmuxInput.Value()
-		m.tmuxInput, cmd = m.tmuxInput.Update(msg)
-		if m.tmuxInput.Value() != before {
-			m.rebuildTmuxRows()
-			m.fuzzySel, m.fuzzyScroll = 0, 0
-		}
-		return m, cmd
-	}
-	if m.finderSrc == srcRoots {
-		before := m.rootsInput.Value()
-		m.rootsInput, cmd = m.rootsInput.Update(msg)
-		if m.rootsInput.Value() != before {
-			m.rebuildRootRows()
-			m.fuzzySel, m.fuzzyScroll = 0, 0
-		}
-		return m, cmd
-	}
-	switch m.finderField {
-	case fieldType:
-		m.typeInput, cmd = m.typeInput.Update(msg)
+	// The Type and Grep fields restart a walk or a search. Both compare
+	// against the text that run started with, so a key that changed nothing
+	// costs nothing. Every other field — Find, and the one field of each
+	// other list — is rebuilt by refuzzy.
+	switch in {
+	case &m.typeInput:
 		return m, tea.Batch(cmd, m.applyTypeFilter())
-	case fieldGrep:
-		m.grepInput, cmd = m.grepInput.Update(msg)
+	case &m.grepInput:
 		return m, tea.Batch(cmd, m.applyGrep())
-	default:
-		before := m.input.Value()
-		m.input, cmd = m.input.Update(msg)
-		if m.input.Value() != before {
-			m.refuzzy()
-		}
-		return m, cmd
 	}
+	if edited {
+		m.refuzzy()
+	}
+	return m, cmd
 }
 
 // buildBindings maps keys to actions: user command keys first, then

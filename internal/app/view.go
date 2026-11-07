@@ -695,14 +695,21 @@ func (m *Model) renderFinderHeader() []string {
 			line += styleChanged.Render(fmt.Sprintf("  %d skipped (line too long)", n))
 		}
 		// The per-file cap, said only when it is doing something: lifted, or
-		// holding matches back. Naming the key is what makes the "… more in"
-		// rows something to act on rather than just a note.
+		// holding back matches in the list as it stands — a Find query can
+		// filter out every placeholder. Naming the key is what makes the
+		// "… more in" rows something to act on, so it is only named when
+		// there is one: the action can be left without a key.
 		key := keyLabel(m.actionKeys["finder-all-matches"])
 		switch {
 		case m.grepAllMatches:
-			line += styleOK.Render("  all matches") + styleDim.Render(" ("+key+")")
-		case m.grepMore > 0:
+			line += styleOK.Render("  all matches")
+			if key != "" {
+				line += styleDim.Render(" (" + key + ")")
+			}
+		case m.grepMoreShown > 0 && key != "":
 			line += styleDim.Render(fmt.Sprintf("  %d/file (%s: all)", m.configuredMaxPerFile(), key))
+		case m.grepMoreShown > 0:
+			line += styleDim.Render(fmt.Sprintf("  %d/file", m.configuredMaxPerFile()))
 		}
 		lines = append(lines, line)
 	}
@@ -866,7 +873,11 @@ func (m *Model) renderFinderCounter() string {
 		}
 		return ""
 	}
-	s := fmt.Sprintf("  %d/%d", m.fuzzySel+1, n)
+	pos, total := m.fuzzySel+1, n
+	if m.grepping() {
+		pos, total = m.grepPosition()
+	}
+	s := fmt.Sprintf("  %d/%d", pos, total)
 	switch {
 	case busy:
 		s += "…"

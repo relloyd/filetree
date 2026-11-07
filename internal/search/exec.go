@@ -147,7 +147,7 @@ func (c *perFileCap) take(h Hit) (Hit, bool) {
 	case c.n <= c.max:
 		return h, true
 	case c.n == c.max+1:
-		return Hit{Path: h.Path, More: true}, true
+		return Hit{Path: h.Path, Line: h.Line, More: true}, true
 	default:
 		return Hit{}, false
 	}

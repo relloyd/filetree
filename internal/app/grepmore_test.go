@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/relloyd/filetree/internal/config"
 	"github.com/relloyd/filetree/internal/search"
 )
 
@@ -173,5 +174,121 @@ func TestGrepLineReportsThePerFileCap(t *testing.T) {
 	m.grepAllMatches = true
 	if h := header(m); !strings.Contains(h, "all matches") {
 		t.Errorf("header does not say the cap is lifted: %q", h)
+	}
+}
+
+// A command already on alt+a as its finder_key loses it to finder-all-matches,
+// and says so, rather than either stopping ft or shadowing the action.
+func TestFinderKeyOnAltAYieldsToAllMatches(t *testing.T) {
+	m := treeModel(t)
+	m.cfg.Commands = map[string]config.Command{
+		"mine": {Run: "true", Mode: config.ModeBackground, FinderKey: "alt+a"},
+	}
+	m.buildBindings()
+
+	if got := m.actionKeys["finder-all-matches"]; got != "alt+a" {
+		t.Errorf("finder-all-matches = %q, want it to keep alt+a", got)
+	}
+	if name, ok := m.finderCmds["alt+a"]; ok {
+		t.Errorf("commands.%s still owns alt+a in the finder", name)
+	}
+	found := false
+	for _, c := range m.keyConflicts {
+		if c.key == "alt+a" && strings.Contains(c.refused, "mine") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no conflict reported for alt+a: %v", m.keyConflicts)
+	}
+}
+
+// A placeholder's line is the first match it stands for, so the pick a
+// command or a resume records for it points into the file where the unseen
+// matches start.
+func TestSelectedPickOnAPlaceholderCarriesItsLine(t *testing.T) {
+	m := grepMoreModel()
+	m.addGrepHits([]search.Hit{{Path: "a.go", Line: 1}, {Path: "a.go", Line: 9, More: true}})
+	m.fuzzySel = 1
+	if got := m.selectedPick(); got != (finderPick{rel: "a.go", line: 9}) {
+		t.Errorf("pick = %+v, want a.go at line 9", got)
+	}
+}
+
+// Moving the cursor in a field is not an edit: a resume still waiting for its
+// row has to survive it.
+func TestCursorKeysKeepTheResumeTarget(t *testing.T) {
+	m := grepMoreModel()
+	m.input.SetValue("abc")
+	m.resumeWant = finderPick{rel: "a.go", line: 3}
+
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if m.resumeWant.isZero() {
+		t.Fatal("a cursor key gave up on the resume target")
+	}
+	m.handleKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	if !m.resumeWant.isZero() {
+		t.Error("an edit kept the resume target")
+	}
+}
+
+// alt+a searches again from scratch; the row it was pressed on comes back
+// once the new results reach it. Lifting the cap returns to the exact line —
+// a placeholder's first hidden match — and restoring it returns to the file.
+func TestAllMatchesKeepsTheSelection(t *testing.T) {
+	m := grepMoreModel()
+	m.cfg.General.FuzzyGrepMaxPerFile = 2
+	m.addGrepHits([]search.Hit{
+		{Path: "a.go", Line: 1}, {Path: "b.go", Line: 1}, {Path: "b.go", Line: 2}, {Path: "b.go", Line: 3, More: true},
+	})
+	m.fuzzySel = 3 // "… more in b.go"
+
+	m.toggleAllMatches()
+	m.addGrepHits([]search.Hit{{Path: "a.go", Line: 1}, {Path: "b.go", Line: 1}, {Path: "b.go", Line: 2}, {Path: "b.go", Line: 3}, {Path: "b.go", Line: 4}})
+	if got := m.grepHits[m.grepRows[m.fuzzySel]]; got.Path != "b.go" || got.Line != 3 {
+		t.Errorf("after lifting the cap the selection is on %+v, want b.go:3", got)
+	}
+
+	m.fuzzySel = 4 // b.go:4, which the cap will hide
+	m.toggleAllMatches()
+	m.addGrepHits([]search.Hit{{Path: "a.go", Line: 1}, {Path: "b.go", Line: 1}, {Path: "b.go", Line: 2}, {Path: "b.go", Line: 3, More: true}})
+	if got := m.finderPath(m.fuzzySel); got != "b.go" {
+		t.Errorf("after restoring the cap the selection is on %q, want b.go", got)
+	}
+}
+
+// The counter counts matches, not rows: placeholders would push it past the
+// match cap it is read against. On a placeholder it shows the match above.
+func TestCounterCountsMatchesNotPlaceholders(t *testing.T) {
+	m := grepMoreModel()
+	m.addGrepHits([]search.Hit{{Path: "a.go", Line: 1}, {Path: "a.go", Line: 2}, more("a.go"), {Path: "b.go", Line: 1}})
+	for sel, want := range []string{"1/3", "2/3", "2/3", "3/3"} {
+		m.fuzzySel = sel
+		if got := m.renderFinderCounter(); !strings.Contains(got, want) {
+			t.Errorf("sel %d: counter %q, want %s", sel, got, want)
+		}
+	}
+}
+
+// The hint is about the list on screen: none when the Find query has hidden
+// every placeholder, and no key named when the action has none.
+func TestGrepHintFollowsTheList(t *testing.T) {
+	header := func(m *Model) string { return strings.Join(m.renderFinderHeader(), "\n") }
+	m := grepMoreModel()
+	m.width = 120
+	m.addGrepHits([]search.Hit{{Path: "a.go", Line: 1}, more("a.go"), {Path: "b.go", Line: 1}})
+
+	m.input.SetValue("!a.go")
+	m.refuzzy()
+	if h := header(m); strings.Contains(h, "/file") {
+		t.Errorf("no placeholder is listed, but the header still offers alt+a: %q", h)
+	}
+
+	m.input.SetValue("")
+	m.refuzzy()
+	m.actionKeys["finder-all-matches"] = ""
+	h := header(m)
+	if !strings.Contains(h, "5/file") || strings.Contains(h, "(") {
+		t.Errorf("with no key the header should state the cap alone: %q", h)
 	}
 }

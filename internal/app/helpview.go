@@ -51,10 +51,10 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg, s string) (tea.Model, tea.Cmd
 		m.scrollHelp(m.helpPage())
 		return m, nil
 	case "ctrl+u":
-		m.scrollHelp(-halfPage(m.helpPage()))
+		m.scrollHelp(-m.helpHalfPage())
 		return m, nil
 	case "ctrl+d":
-		m.scrollHelp(halfPage(m.helpPage()))
+		m.scrollHelp(m.helpHalfPage())
 		return m, nil
 	case "super+up":
 		m.helpScroll = 0
@@ -97,6 +97,13 @@ func (m *Model) clampHelpScroll() {
 // something carries over and the eye can pick the list back up.
 func (m *Model) helpPage() int {
 	return max(1, m.helpCapacity(m.helpVisibleRows())-1)
+}
+
+// helpHalfPage is how far ctrl+u and ctrl+d move: half of what fits, the
+// tree's and the finder's half page, rather than half of helpPage, which has
+// already given up its overlap row.
+func (m *Model) helpHalfPage() int {
+	return halfPage(m.helpCapacity(m.helpVisibleRows()))
 }
 
 // helpVisibleRows is the rows the filter lets through, in page order.

@@ -66,7 +66,17 @@ func (m *Model) toggleAllMatches() tea.Cmd {
 	if !m.grepping() {
 		return note
 	}
-	return tea.Batch(note, m.scheduleGrep())
+	// The search starts again from the top, so say where to come back to.
+	// Lifting the cap only adds rows, and the line selected — a placeholder's
+	// included — will be among them. Putting it back can hide that line, so
+	// then the file is the target: its first match, wherever the line went.
+	want := m.selectedPick()
+	if !m.grepAllMatches {
+		want.line = 0
+	}
+	cmd := m.scheduleGrep()
+	m.resumeWant = want
+	return tea.Batch(note, cmd)
 }
 
 // applyGrep reacts to an edit of the Grep field. Cursor movement leaves the
@@ -83,7 +93,7 @@ func (m *Model) applyGrep() tea.Cmd {
 func (m *Model) scheduleGrep() tea.Cmd {
 	m.stopGrep() // bumps the generation, so results in flight are now stale
 	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
-	m.grepCapped, m.grepSkipped, m.grepMore = false, 0, 0
+	m.grepCapped, m.grepSkipped, m.grepMore, m.grepMoreShown = false, 0, 0, 0
 	m.fuzzySel, m.fuzzyScroll = 0, 0
 	if !m.grepping() {
 		return nil
@@ -241,9 +251,32 @@ func (m *Model) rebuildGrepRows() {
 		paths[i] = h.Path
 	}
 	m.grepRows, _ = applyFindQuery(parseFindQuery(m.input.Value()), paths)
+	m.grepMoreShown = 0
+	for _, i := range m.grepRows {
+		if m.grepHits[i].More {
+			m.grepMoreShown++
+		}
+	}
 	m.fuzzySel = clamp(m.fuzzySel, 0, max(0, len(m.grepRows)-1))
 	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.grepRows)-m.fuzzyVisibleRows()))
 	m.applyResumeTarget()
+}
+
+// grepPosition is the content counter's "12/500": matches only, since the
+// placeholders are rows but not results, and counting them would put the
+// total past the match cap it is shown against. On a placeholder the position
+// is the match above it — the last one of that file.
+func (m *Model) grepPosition() (pos, total int) {
+	for i, r := range m.grepRows {
+		if m.grepHits[r].More {
+			continue
+		}
+		total++
+		if i <= m.fuzzySel {
+			pos = total
+		}
+	}
+	return pos, total
 }
 
 // finderLen is how many rows the result list has, whichever mode it is in.
