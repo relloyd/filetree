@@ -8,7 +8,7 @@ type Query struct {
 	Filter     Filter // file-type filter, shared with the finder's walk
 	Hidden     bool   // search hidden files too
 	NoIgnore   bool   // search gitignored files too
-	MaxPerFile int    // stop after this many matches per file; 0 for no limit
+	MaxPerFile int    // keep this many matches per file; 0 for no limit
 	Path       string // search only here, relative to the root; "" is the root
 }
 
@@ -23,7 +23,15 @@ type Query struct {
 func Args(q Query) []string {
 	// --json is for the parser in parse.go; the rest of the output shape
 	// follows from it.
-	args := append([]string{"--json", "--no-heading", "--color=never"}, matchArgs(q)...)
+	//
+	// It asks for one match per file past the cap: Run keeps the cap's worth
+	// and turns the extra into a More placeholder, which is the only way to
+	// know a file had more without reading the whole of it.
+	maxCount := q.MaxPerFile
+	if maxCount > 0 {
+		maxCount++
+	}
+	args := append([]string{"--json", "--no-heading", "--color=never"}, matchArgs(q, maxCount)...)
 	if q.Path != "" {
 		args = append(args, q.Path)
 	}
@@ -33,9 +41,10 @@ func Args(q Query) []string {
 // DisplayArgs builds the same search with human-readable output, for showing
 // the user a command they can paste into a shell. It shares matchArgs with
 // Args, so the two can never disagree about *which lines match* — they differ
-// only in how the matches are printed.
+// only in how the matches are printed, and in Args reading one match per file
+// past the cap to detect that there were more, which it then does not show.
 func DisplayArgs(q Query) []string {
-	return append([]string{"-n"}, matchArgs(q)...)
+	return append([]string{"-n"}, matchArgs(q, q.MaxPerFile)...)
 }
 
 // FileListArgs builds a command that lists the files the type filter selects,
@@ -46,13 +55,15 @@ func FileListArgs(q Query) []string {
 }
 
 // matchArgs is every flag that decides the result set: which files are
-// searched, and what counts as a match within them.
-func matchArgs(q Query) []string {
+// searched, and what counts as a match within them. maxCount is ripgrep's
+// per-file limit, 0 for none.
+func matchArgs(q Query, maxCount int) []string {
 	args := scopeArgs(q)
-	if q.MaxPerFile > 0 {
+	if maxCount > 0 {
 		// Enforced by ripgrep itself, per file: it stops reading a file after
-		// this many matching lines. Nothing on the Go side counts per file.
-		args = append(args, "--max-count", strconv.Itoa(q.MaxPerFile))
+		// this many matching lines, so a huge file costs no more than a small
+		// one. Run only trims the one extra match Args asks for.
+		args = append(args, "--max-count", strconv.Itoa(maxCount))
 	}
 	// -e keeps a pattern starting with "-" from being read as a flag.
 	return append(args, "-e", q.Regex)

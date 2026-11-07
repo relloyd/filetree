@@ -337,10 +337,21 @@ type Model struct {
 	grepErr     string
 	grepCapped  bool // hits were dropped at the match cap
 	grepSkipped int  // matches on lines too long for the parser to buffer
-	grepGen     int
-	grepCh      chan search.Result
-	grepCancel  context.CancelFunc
-	grepRunning bool
+	// grepMore counts the "… more in" placeholders among grepHits: files
+	// with matches past fuzzy_grep_max_per_file. They are rows, not matches,
+	// so the match cap leaves them out of its count.
+	grepMore int
+	// grepMoreShown is how many of them the Find query left in grepRows: the
+	// placeholders actually in the list, which is what the Grep line's
+	// "alt+a: all" hint is about.
+	grepMoreShown int
+	// grepAllMatches lifts the per-file cap (alt+a). Like fuzzyLimitFactor it
+	// lasts the ft session, so reopening the finder keeps it.
+	grepAllMatches bool
+	grepGen        int
+	grepCh         chan search.Result
+	grepCancel     context.CancelFunc
+	grepRunning    bool
 
 	statusMsg string
 	statusErr bool
@@ -839,29 +850,36 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.finderSrc == srcTmux {
 				return m.paneSession()
 			}
+		// The list's movement keys are the tree's (see buildBindings), so
+		// one set of habits works in both. They are taken before the input
+		// sees them: textinput would read ctrl+u and ctrl+d as edits, and
+		// pass the rest through as keys that change nothing.
 		case "up", "ctrl+p":
 			m.moveFuzzySel(-1)
 			return m, nil
 		case "down", "ctrl+n":
 			m.moveFuzzySel(1)
 			return m, nil
-		case "ctrl+u", "pgup":
-			m.moveFuzzySel(-m.fuzzyVisibleRows() / 2)
+		case "ctrl+u":
+			m.moveFuzzySel(-halfPage(m.fuzzyVisibleRows()))
 			return m, nil
 		case "ctrl+d":
-			// textinput binds ctrl+d to delete-forward, and some terminals
-			// send it for fn+backspace. Let it edit when there is something
-			// to the right of the cursor to delete; otherwise — which is
-			// where the cursor sits whenever you are browsing results — keep
-			// it on half-page down.
-			if m.finderCanDeleteForward() {
-				return m.updateFinderInput(msg)
-			}
-			m.moveFuzzySel(m.fuzzyVisibleRows() / 2)
+			m.moveFuzzySel(halfPage(m.fuzzyVisibleRows()))
 			return m, nil
-		case "pgdown":
-			m.moveFuzzySel(m.fuzzyVisibleRows() / 2)
+		case "pgup", "alt+up":
+			m.moveFuzzySel(-fullPage(m.fuzzyVisibleRows()))
 			return m, nil
+		case "pgdown", "alt+down":
+			m.moveFuzzySel(fullPage(m.fuzzyVisibleRows()))
+			return m, nil
+		case "super+up":
+			m.moveFuzzySel(-m.finderLen())
+			return m, nil
+		case "super+down":
+			m.moveFuzzySel(m.finderLen())
+			return m, nil
+		case m.actionKeys["finder-all-matches"]:
+			return m, m.toggleAllMatches()
 		case m.actionKeys["finder-more"]:
 			return m, m.raiseFuzzyLimit()
 		case m.actionKeys["finder-clear"]:
@@ -913,40 +931,33 @@ func (m *Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 // updateFinderInput feeds a key or paste to the focused finder field and
 // recomputes whatever that field drives.
 func (m *Model) updateFinderInput(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Editing any field means the user has moved on from where they left off,
-	// so stop trying to restore that row.
-	m.resumeWant = finderPick{}
+	in := m.finderInput()
+	before := in.Value()
 	var cmd tea.Cmd
-	if m.finderSrc == srcBookmark {
-		m.bmInput, cmd = m.bmInput.Update(msg)
-		m.rebuildBookmarkRows()
-		m.fuzzySel, m.fuzzyScroll = 0, 0
-		return m, cmd
+	*in, cmd = in.Update(msg)
+	// Plenty of keys reach the input without editing it — cursor movement,
+	// and any modified key the finder does not bind. Those are not a new
+	// query: they must neither rebuild the list, which puts the selection
+	// back on the first row, nor give up on the row a resume is waiting for.
+	edited := in.Value() != before
+	if edited {
+		// Editing means the user has moved on from where they left off.
+		m.resumeWant = finderPick{}
 	}
-	if m.finderSrc == srcTmux {
-		m.tmuxInput, cmd = m.tmuxInput.Update(msg)
-		m.rebuildTmuxRows()
-		m.fuzzySel, m.fuzzyScroll = 0, 0
-		return m, cmd
-	}
-	if m.finderSrc == srcRoots {
-		m.rootsInput, cmd = m.rootsInput.Update(msg)
-		m.rebuildRootRows()
-		m.fuzzySel, m.fuzzyScroll = 0, 0
-		return m, cmd
-	}
-	switch m.finderField {
-	case fieldType:
-		m.typeInput, cmd = m.typeInput.Update(msg)
+	// The Type and Grep fields restart a walk or a search. Both compare
+	// against the text that run started with, so a key that changed nothing
+	// costs nothing. Every other field — Find, and the one field of each
+	// other list — is rebuilt by refuzzy.
+	switch in {
+	case &m.typeInput:
 		return m, tea.Batch(cmd, m.applyTypeFilter())
-	case fieldGrep:
-		m.grepInput, cmd = m.grepInput.Update(msg)
+	case &m.grepInput:
 		return m, tea.Batch(cmd, m.applyGrep())
-	default:
-		m.input, cmd = m.input.Update(msg)
-		m.refuzzy()
-		return m, cmd
 	}
+	if edited {
+		m.refuzzy()
+	}
+	return m, cmd
 }
 
 // buildBindings maps keys to actions: user command keys first, then
@@ -1014,7 +1025,7 @@ func (m *Model) buildBindings() {
 	// A finder_key that lands on a remapped finder-local key: config.Load
 	// checks finderReservedKeys, which is the *default* set, so a [keys] line
 	// moving one of them is the case it cannot see.
-	for _, action := range []string{"finder-next-field", "finder-prev-field", "finder-more", "finder-copy-command", "finder-clear"} {
+	for _, action := range []string{"finder-next-field", "finder-prev-field", "finder-more", "finder-copy-command", "finder-clear", "finder-all-matches"} {
 		key := m.actionKeys[action]
 		// The finder matches these against one key press, and its inputs
 		// take every key as text, so a chord here could never be typed. Back
@@ -1106,10 +1117,14 @@ func (m *Model) buildBindings() {
 		// action always has a key that works; where the chord does not arrive
 		// it is a plain enter, handled by the line above.
 		{[]string{"shift+enter"}, m.rootHere},
-		{[]string{"g", "home"}, m.gotoTop},
-		{[]string{"G", "end"}, m.gotoBottom},
-		{[]string{"ctrl+d", "pgdown"}, m.halfPageDown},
-		{[]string{"ctrl+u", "pgup"}, m.halfPageUp},
+		{[]string{"g", "home", "super+up"}, m.gotoTop},
+		{[]string{"G", "end", "super+down"}, m.gotoBottom},
+		{[]string{"ctrl+d"}, m.halfPageDown},
+		{[]string{"ctrl+u"}, m.halfPageUp},
+		// alt+arrows stand in for the page keys on keyboards without them —
+		// a Mac laptop's, or one whose PgUp/PgDn are mapped to Option+arrow.
+		{[]string{"pgdown", "alt+down"}, m.pageDown},
+		{[]string{"pgup", "alt+up"}, m.pageUp},
 	} {
 		for _, key := range nav.keys {
 			claim(key, "navigation", nav.fn)

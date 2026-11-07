@@ -84,6 +84,7 @@ var finderLocalActions = map[string]bool{
 	"finder-more":         true,
 	"finder-copy-command": true,
 	"finder-clear":        true,
+	"finder-all-matches":  true,
 }
 
 // resolveActionKeys settles which key each action answers to, given the shipped

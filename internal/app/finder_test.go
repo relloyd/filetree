@@ -223,9 +223,10 @@ func rootedModel(t *testing.T, root string) *Model {
 // without needing a full config.
 func (m *Model) buildActionKeysForTest() {
 	m.actionKeys = map[string]string{
-		"finder-next-field": "tab",
-		"finder-prev-field": "shift+tab",
-		"finder-more":       "ctrl+g",
+		"finder-next-field":  "tab",
+		"finder-prev-field":  "shift+tab",
+		"finder-more":        "ctrl+g",
+		"finder-all-matches": "alt+a",
 	}
 }
 
@@ -1420,76 +1421,95 @@ func TestFinderMoreIsFinderLocal(t *testing.T) {
 	}
 }
 
-// --- forward delete vs half-page scroll ---
+// --- paging keys ---
 
-func TestCtrlDDeletesForwardOnlyWhenThereIsSomethingToDelete(t *testing.T) {
-	ctrlD := tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}
-
-	// Cursor mid-text: ctrl+d edits.
-	edit := candModel(50, 5)
-	edit.input.SetValue("terragrunt")
-	edit.input.SetCursor(4)
-	edit.refuzzy()
-	sel := edit.fuzzySel
-	edit.handleKey(ctrlD)
-	if got := edit.input.Value(); got != "terrgrunt" {
-		t.Errorf("value = %q, want %q (the \"a\" deleted)", got, "terrgrunt")
-	}
-	if edit.fuzzySel != sel {
-		t.Errorf("editing also scrolled the list: sel %d -> %d", sel, edit.fuzzySel)
-	}
-
-	// Cursor at the end: nothing to delete, so it scrolls.
-	scroll := candModel(50, 50)
-	scroll.input.SetValue("handler")
-	scroll.input.CursorEnd()
-	scroll.refuzzy()
-	scroll.handleKey(ctrlD)
-	if got := scroll.input.Value(); got != "handler" {
-		t.Errorf("value = %q, want it untouched", got)
-	}
-	if scroll.fuzzySel == 0 {
-		t.Error("ctrl+d at end of text did not scroll the list")
-	}
-
-	// Empty field: scrolls too — this is the browsing case.
-	empty := candModel(50, 50)
-	empty.refuzzy()
-	empty.handleKey(ctrlD)
-	if empty.fuzzySel == 0 {
-		t.Error("ctrl+d with an empty query did not scroll the list")
-	}
-}
-
-// The rule follows focus: deleting in the Type field edits that field. This
-// needs a real root, because editing the filter restarts the walk.
-func TestCtrlDFollowsTheFocusedField(t *testing.T) {
-	m := rootedModel(t, t.TempDir())
-	m.finderField = fieldType
-	m.input.Blur()
-	m.typeInput.Focus()
-	m.typeInput.SetValue("hcl")
-	m.typeInput.SetCursor(0)
-
-	m.handleKey(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	if got := m.typeInput.Value(); got != "cl" {
-		t.Errorf("Type field = %q, want %q", got, "cl")
-	}
-}
-
-// pgdown is unambiguous: it always scrolls, whatever the cursor is doing.
-func TestPgDownAlwaysScrolls(t *testing.T) {
+// ctrl+d is half-page down wherever the cursor is: it used to delete forward
+// when there was text to the right, which made the same key scroll or edit
+// depending on something you cannot see while reading results.
+func TestCtrlDAlwaysScrolls(t *testing.T) {
 	m := candModel(50, 50)
 	m.input.SetValue("handler")
 	m.input.SetCursor(0)
 	m.refuzzy()
 
-	m.handleKey(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	m.handleKey(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	if got := m.input.Value(); got != "handler" {
-		t.Errorf("pgdown edited the query: %q", got)
+		t.Errorf("ctrl+d edited the query: %q", got)
 	}
-	if m.fuzzySel == 0 {
-		t.Error("pgdown did not scroll")
+	if want := halfPage(m.fuzzyVisibleRows()); m.fuzzySel != want {
+		t.Errorf("sel = %d, want %d (half a page)", m.fuzzySel, want)
+	}
+
+	m.handleKey(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	if m.fuzzySel != 0 {
+		t.Errorf("ctrl+u: sel = %d, want back at 0", m.fuzzySel)
+	}
+}
+
+// pgdown and its Option+arrow stand-in move a whole page less one row, the
+// tree's page; pgup and alt+up come back.
+func TestPageKeysMoveAFullPage(t *testing.T) {
+	for _, keys := range [][2]tea.KeyPressMsg{
+		{{Code: tea.KeyPgDown}, {Code: tea.KeyPgUp}},
+		{{Code: tea.KeyDown, Mod: tea.ModAlt}, {Code: tea.KeyUp, Mod: tea.ModAlt}},
+	} {
+		t.Run(keys[0].String(), func(t *testing.T) {
+			m := candModel(50, 50)
+			m.input.SetValue("handler")
+			m.input.SetCursor(0)
+			m.refuzzy()
+
+			m.handleKey(keys[0])
+			if got := m.input.Value(); got != "handler" {
+				t.Errorf("edited the query: %q", got)
+			}
+			if want := fullPage(m.fuzzyVisibleRows()); m.fuzzySel != want {
+				t.Errorf("sel = %d, want %d (a page)", m.fuzzySel, want)
+			}
+			m.handleKey(keys[1])
+			if m.fuzzySel != 0 {
+				t.Errorf("sel = %d after paging back, want 0", m.fuzzySel)
+			}
+		})
+	}
+}
+
+// cmd+arrows (super, where the terminal reports it) jump to the ends.
+func TestSuperArrowsJumpToTheEnds(t *testing.T) {
+	m := candModel(50, 50)
+	m.refuzzy()
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModSuper})
+	if want := m.finderLen() - 1; m.fuzzySel != want {
+		t.Errorf("super+down: sel = %d, want %d", m.fuzzySel, want)
+	}
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModSuper})
+	if m.fuzzySel != 0 {
+		t.Errorf("super+up: sel = %d, want 0", m.fuzzySel)
+	}
+}
+
+// A key the input takes without changing its text must not rebuild the list,
+// which would put the selection back on the first row. Cursor movement is the
+// everyday case; an unbound modified arrow was the one that looked broken.
+func TestNonEditingKeysKeepTheSelection(t *testing.T) {
+	m := candModel(50, 50)
+	m.input.SetValue("handler")
+	m.refuzzy()
+	m.moveFuzzySel(5)
+
+	for _, k := range []tea.KeyPressMsg{
+		{Code: tea.KeyLeft},
+		{Code: tea.KeyRight, Mod: tea.ModShift},
+		{Code: 'a', Mod: tea.ModCtrl}, // line start
+	} {
+		m.handleKey(k)
+		if m.fuzzySel != 5 {
+			t.Fatalf("%s moved the selection to %d", k.String(), m.fuzzySel)
+		}
+	}
+	m.handleKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	if m.fuzzySel != 0 {
+		t.Errorf("an edit kept sel %d, want the list rebuilt from the top", m.fuzzySel)
 	}
 }
 

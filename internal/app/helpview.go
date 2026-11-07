@@ -42,11 +42,25 @@ func (m *Model) handleHelpKey(msg tea.KeyPressMsg, s string) (tea.Model, tea.Cmd
 	case "down":
 		m.scrollHelp(1)
 		return m, nil
-	case "pgup":
+	// The same page keys as the tree and the finder. ctrl+u and ctrl+d stop
+	// being edits of the filter, as they do in the finder's fields.
+	case "pgup", "alt+up":
 		m.scrollHelp(-m.helpPage())
 		return m, nil
-	case "pgdown":
+	case "pgdown", "alt+down":
 		m.scrollHelp(m.helpPage())
+		return m, nil
+	case "ctrl+u":
+		m.scrollHelp(-m.helpHalfPage())
+		return m, nil
+	case "ctrl+d":
+		m.scrollHelp(m.helpHalfPage())
+		return m, nil
+	case "super+up":
+		m.helpScroll = 0
+		return m, nil
+	case "super+down":
+		m.scrollHelp(len(m.helpVisibleRows())) // clamped to the last screenful
 		return m, nil
 	}
 
@@ -83,6 +97,13 @@ func (m *Model) clampHelpScroll() {
 // something carries over and the eye can pick the list back up.
 func (m *Model) helpPage() int {
 	return max(1, m.helpCapacity(m.helpVisibleRows())-1)
+}
+
+// helpHalfPage is how far ctrl+u and ctrl+d move: half of what fits, the
+// tree's and the finder's half page, rather than half of helpPage, which has
+// already given up its overlap row.
+func (m *Model) helpHalfPage() int {
+	return halfPage(m.helpCapacity(m.helpVisibleRows()))
 }
 
 // helpVisibleRows is the rows the filter lets through, in page order.

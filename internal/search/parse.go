@@ -7,10 +7,17 @@ import (
 
 // Hit is one matching line, with the path as ripgrep reported it — relative to
 // the tree root, since Run searches from there.
+//
+// More marks a placeholder rather than a match: the file has matches past the
+// query's per-file cap that were left out. Line is the first of those, so a
+// command run on the placeholder opens the file where the unseen matches
+// start; Text is empty, since the line is not being shown. It follows that
+// file's last kept match in the stream.
 type Hit struct {
 	Path string
 	Line int
 	Text string
+	More bool
 }
 
 // rgEvent is the subset of ripgrep's --json stream we read. Paths and lines

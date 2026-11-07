@@ -394,6 +394,22 @@ func TestExpandCommandLine(t *testing.T) {
 	}
 }
 
+// alt+a became finder-all-matches after configs could already use it as a
+// finder_key. Refusing it at load would stop such a config starting ft, so it
+// loads, and the app hands the key to the action with a conflict report.
+func TestFinderKeyOnALaterFinderActionStillLoads(t *testing.T) {
+	_, err := loadTOML(t, `
+[commands]
+default = "edit"
+[commands.edit]
+run = "hx {path}"
+finder_key = "alt+a"
+`)
+	if err != nil {
+		t.Errorf("finder_key = alt+a no longer loads: %v", err)
+	}
+}
+
 // A finder_key the finder handles itself would never fire, so it is rejected
 // at load rather than silently ignored.
 func TestFinderKeyReserved(t *testing.T) {

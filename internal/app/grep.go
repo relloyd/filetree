@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,12 +29,54 @@ const grepDebounce = 150 * time.Millisecond
 func (m *Model) grepping() bool { return m.finderSrc == srcTree && m.grepInput.Value() != "" }
 
 // grepMaxPerFile caps matches per file so one generated file cannot flood the
-// list. A configured 0 means no limit.
+// list. 0 means no limit: configured that way, or lifted for the session with
+// finder-all-matches.
 func (m *Model) grepMaxPerFile() int {
+	if m.grepAllMatches {
+		return 0
+	}
+	return m.configuredMaxPerFile()
+}
+
+func (m *Model) configuredMaxPerFile() int {
 	if m.cfg == nil {
 		return config.DefaultFuzzyGrepMaxPerFile
 	}
 	return m.cfg.General.FuzzyGrepMaxPerFile
+}
+
+// toggleAllMatches switches the content search between the configured
+// per-file cap and every match. The hits past the cap were never read, so
+// either way the search runs again.
+//
+// It belongs to the tree search, the one source with a Grep field. Elsewhere
+// the key does nothing rather than reach the input, where it would be text.
+func (m *Model) toggleAllMatches() tea.Cmd {
+	if m.finderSrc != srcTree {
+		return nil
+	}
+	if m.configuredMaxPerFile() == 0 {
+		return m.note("fuzzy_grep_max_per_file is 0: every match is already shown", false)
+	}
+	m.grepAllMatches = !m.grepAllMatches
+	note := m.note(fmt.Sprintf("Grep: at most %d matches per file", m.configuredMaxPerFile()), false)
+	if m.grepAllMatches {
+		note = m.note("Grep: every match in each file", false)
+	}
+	if !m.grepping() {
+		return note
+	}
+	// The search starts again from the top, so say where to come back to.
+	// Lifting the cap only adds rows, and the line selected — a placeholder's
+	// included — will be among them. Putting it back can hide that line, so
+	// then the file is the target: its first match, wherever the line went.
+	want := m.selectedPick()
+	if !m.grepAllMatches {
+		want.line = 0
+	}
+	cmd := m.scheduleGrep()
+	m.resumeWant = want
+	return tea.Batch(note, cmd)
 }
 
 // applyGrep reacts to an edit of the Grep field. Cursor movement leaves the
@@ -50,7 +93,7 @@ func (m *Model) applyGrep() tea.Cmd {
 func (m *Model) scheduleGrep() tea.Cmd {
 	m.stopGrep() // bumps the generation, so results in flight are now stale
 	m.grepHits, m.grepRows, m.grepErr = nil, nil, ""
-	m.grepCapped, m.grepSkipped = false, 0
+	m.grepCapped, m.grepSkipped, m.grepMore, m.grepMoreShown = false, 0, 0, 0
 	m.fuzzySel, m.fuzzyScroll = 0, 0
 	if !m.grepping() {
 		return nil
@@ -103,10 +146,22 @@ func (m *Model) stopGrep() {
 
 // addGrepHits appends a batch, stopping at the display cap. Hits past the cap
 // are dropped rather than held, so raising the limit has to search again.
+//
+// A "more" placeholder is not a match and does not count toward the cap, but
+// it is dropped with everything else once the list is capped: by then the
+// file it speaks for may not be in the list at all.
 func (m *Model) addGrepHits(hits []search.Hit) {
 	limit := m.fuzzyLimit()
 	for _, h := range hits {
-		if len(m.grepHits) >= limit {
+		if m.grepCapped {
+			break
+		}
+		if h.More {
+			m.grepHits = append(m.grepHits, h)
+			m.grepMore++
+			continue
+		}
+		if len(m.grepHits)-m.grepMore >= limit {
 			m.grepCapped = true
 			break
 		}
@@ -196,9 +251,32 @@ func (m *Model) rebuildGrepRows() {
 		paths[i] = h.Path
 	}
 	m.grepRows, _ = applyFindQuery(parseFindQuery(m.input.Value()), paths)
+	m.grepMoreShown = 0
+	for _, i := range m.grepRows {
+		if m.grepHits[i].More {
+			m.grepMoreShown++
+		}
+	}
 	m.fuzzySel = clamp(m.fuzzySel, 0, max(0, len(m.grepRows)-1))
 	m.fuzzyScroll = clamp(m.fuzzyScroll, 0, max(0, len(m.grepRows)-m.fuzzyVisibleRows()))
 	m.applyResumeTarget()
+}
+
+// grepPosition is the content counter's "12/500": matches only, since the
+// placeholders are rows but not results, and counting them would put the
+// total past the match cap it is shown against. On a placeholder the position
+// is the match above it — the last one of that file.
+func (m *Model) grepPosition() (pos, total int) {
+	for i, r := range m.grepRows {
+		if m.grepHits[r].More {
+			continue
+		}
+		total++
+		if i <= m.fuzzySel {
+			pos = total
+		}
+	}
+	return pos, total
 }
 
 // finderLen is how many rows the result list has, whichever mode it is in.
