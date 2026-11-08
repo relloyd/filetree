@@ -22,6 +22,15 @@ on:
 permissions:
   contents: read
 
+env:
+  # Build and test with the latest patch release, not the exact go.mod version:
+  # a release binary keeps the standard library it was built with.
+  GO_VERSION: "1.27.x"
+  # When bumping, update the checksum from task_checksums.txt (task_darwin_arm64.tar.gz)
+  # on the matching release at https://github.com/go-task/task/releases.
+  TASK_VERSION: "3.54.0"
+  TASK_CHECKSUM: "12a69fcf37bb8d5bc9150c44f9a936775b73e59ff044c2c245232f198c135637"
+
 # Two merges in quick succession must not both pick the same next version.
 concurrency:
   group: release
@@ -59,13 +68,17 @@ jobs:
       - if: steps.version.outputs.tag != ''
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
 
       - if: steps.version.outputs.tag != ''
-        name: Test
-        run: |
-          go vet ./...
-          go test -race ./...
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: ${{ env.TASK_VERSION }}
+          checksum: ${{ env.TASK_CHECKSUM }}
+
+      - if: steps.version.outputs.tag != ''
+        name: gofmt, go vet, go mod tidy, govulncheck, tests (-race)
+        run: task ci
 
       - if: steps.version.outputs.tag != ''
         name: Tag
