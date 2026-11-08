@@ -1,15 +1,65 @@
 version: '3'
 
+vars:
+  # Bump deliberately; see https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck?tab=versions
+  GOVULNCHECK_VERSION: v1.9.0
+
 tasks:
+  fmt:
+    desc: Format all Go source files
+    cmds:
+      - go fmt ./...
+
   vet:
     desc: Run go vet over all packages
     cmds:
       - go vet ./...
 
+  check:
+    desc: Run go fmt and go vet
+    cmds:
+      - task: fmt
+      - task: vet
+
   test:
     desc: Run all tests
     cmds:
       - go test ./...
+
+  lint:
+    desc: Run golangci-lint (extra flags after --, e.g. task lint -- --new-from-merge-base=origin/main)
+    cmds:
+      - golangci-lint run {{.CLI_ARGS}} ./...
+
+  fmt-check:
+    desc: Fail if any Go files need gofmt (reports only; does not rewrite files)
+    cmds:
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "These files need gofmt (run task fmt):"
+          echo "$unformatted"
+          exit 1
+        fi
+
+  tidy-check:
+    desc: Fail if go.mod/go.sum are not tidy
+    cmds:
+      - go mod tidy -diff
+
+  vuln:
+    desc: Report known vulnerabilities (Go vulndb) reachable from this module's code, including the Go standard library
+    cmds:
+      - go run golang.org/x/vuln/cmd/govulncheck@{{.GOVULNCHECK_VERSION}} ./...
+
+  ci:
+    desc: Non-mutating checks for CI (gofmt, vet, go.mod tidiness, govulncheck, race-enabled tests)
+    cmds:
+      - task: fmt-check
+      - task: vet
+      - task: tidy-check
+      - task: vuln
+      - go test ./... -count=1 -race
 
   build:
     desc: Build the ft binary into the repo root

@@ -1,0 +1,32 @@
+# Dependabot version updates, the same in every repo: weekly, one grouped PR per
+# ecosystem so each week costs at most one CI run per ecosystem.
+#
+# - github-actions: bumps the SHA-pinned actions and their "# vX.Y.Z" comments together.
+# - gomod: bumps Go module requirements. The "fix(deps):" prefix means that in repos
+#   whose release.yml versions from PR titles, merging one ships a patch release
+#   built against the updated dependencies.
+#
+# Security updates (separate PRs for advisories) are a repo setting, not part of this
+# file: Settings > Code security > Dependabot alerts and security updates.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ["*"]
+    commit-message:
+      prefix: fix
+      include: scope
