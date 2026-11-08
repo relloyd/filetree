@@ -69,6 +69,8 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
+          # Don't settle for an older 1.27 patch cached on the runner image.
+          check-latest: true
 
       - if: steps.version.outputs.tag != ''
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
