@@ -75,7 +75,8 @@ internal/search/    finder file-type filter (pure) + the ripgrep integration
 internal/config/    TOML config, command templates + shell quoting, starter
 internal/state/     per-root JSON persistence (expansion, selection, toggles)
 internal/icons/     Nerd Font glyphs; table.go is GENERATED — see below
-internal/platform/  OS interface; darwin impl (pbcopy, open -R, Finder trash)
+internal/platform/  OS interface; darwin impl (pbcopy, open -R, Finder trash),
+                    linux impl (wl-copy/xclip/xsel, xdg-open, gio/trash-put)
 internal/tmux/      every tmux invocation: the self-relaunch decision, the
                     session names (grammar, list parsing, kill), and the
                     server-wide pane list that jump routing needs
